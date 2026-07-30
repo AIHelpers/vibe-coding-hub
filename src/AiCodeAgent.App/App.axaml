@@ -1,0 +1,31 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="AiCodeAgent.App.App"
+             xmlns:local="using:AiCodeAgent.App"
+             RequestedThemeVariant="Default">
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="PrimaryColor">#0078D4</Color>
+                    <Color x:Key="SecondaryColor">#106EBE</Color>
+                    <Color x:Key="AccentColor">#FFB900</Color>
+                    <Color x:Key="BackgroundColor">#FFFFFF</Color>
+                    <Color x:Key="SurfaceColor">#F3F3F3</Color>
+                    <Color x:Key="TextColor">#1A1A1A</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="PrimaryColor">#60CDFF</Color>
+                    <Color x:Key="SecondaryColor">#0078D4</Color>
+                    <Color x:Key="AccentColor">#FFB900</Color>
+                    <Color x:Key="BackgroundColor">#1F1F1F</Color>
+                    <Color x:Key="SurfaceColor">#2D2D2D</Color>
+                    <Color x:Key="TextColor">#FFFFFF</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

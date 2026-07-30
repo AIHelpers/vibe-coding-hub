@@ -1,0 +1,335 @@
+using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Models;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+
+namespace AiCodeAgent.Core.Tests.Agent;
+
+public class AgentOrchestratorTests
+{
+    private readonly IAiProvider _provider = Substitute.For<IAiProvider>();
+    private readonly IContextManager _contextManager = Substitute.For<IContextManager>();
+    private readonly IToolRegistry _toolRegistry = Substitute.For<IToolRegistry>();
+    private readonly ILogger<AgentOrchestrator> _logger = Substitute.For<ILogger<AgentOrchestrator>>();
+    private readonly AgentConfiguration _config = new();
+
+    private AgentOrchestrator CreateOrchestrator() =>
+        new(_provider, _contextManager, _toolRegistry, _config, _logger);
+
+    private static AgentOptions DefaultOptions() => new()
+    {
+        MaxIterations = 5,
+        WorkingDirectory = Path.GetTempPath()
+    };
+
+    private static async Task<List<AgentEvent>> CollectEvents(IAsyncEnumerable<AgentEvent> stream)
+    {
+        var events = new List<AgentEvent>();
+        await foreach (var e in stream)
+            events.Add(e);
+        return events;
+    }
+
+    [Fact]
+    public async Task RunAsync_AddsUserMessageToContext_First()
+    {
+        var orchestrator = CreateOrchestrator();
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool>());
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+        // Provider streams a single finished chunk with no tool calls -> loop ends.
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new StreamChunk { Delta = "hi", IsFinished = true, FinishReason = "stop" } }.ToAsyncEnumerable());
+
+        await orchestrator.RunAsync("hello", "session1", DefaultOptions());
+
+        // First AddMessageAsync call should be the user message
+        var calls = _contextManager.ReceivedCalls().Where(c => c.GetMethodInfo().Name == nameof(IContextManager.AddMessageAsync)).ToList();
+        Assert.NotEmpty(calls);
+        var firstArg = (Message)calls[0].GetArguments()[1]!;
+        Assert.Equal(MessageRole.User, firstArg.Role);
+        Assert.Equal("hello", firstArg.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_StreamsTextDeltas_AndFinishes_WhenNoToolCalls()
+    {
+        var orchestrator = CreateOrchestrator();
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool>());
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new StreamChunk { Delta = "Hello " },
+                new StreamChunk { Delta = "world", IsFinished = true, FinishReason = "stop" }
+            }.ToAsyncEnumerable());
+
+        var response = await orchestrator.RunAsync("hi", "session1", DefaultOptions());
+
+        Assert.Equal("Hello world", response.Content);
+        Assert.Empty(response.ToolExecutions);
+        Assert.False(response.WasCancelled);
+    }
+
+    [Fact]
+    public async Task RunAsync_ExecutesToolCalls_AndContinuesLoop()
+    {
+        var orchestrator = CreateOrchestrator();
+        var tool = Substitute.For<ITool>();
+        tool.Name.Returns("read_file");
+        tool.ExecuteAsync(Arg.Any<ToolCall>(), Arg.Any<AgentExecutionContext>())
+            .Returns(new ToolResult { ToolName = "read_file", Content = "file-content" });
+
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool> { tool });
+        _toolRegistry.GetTool("read_file").Returns(tool);
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+
+        // First provider call returns a tool call; second returns finished text.
+        var callCount = 0;
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    return new[]
+                    {
+                        new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = "tool_calls",
+                            ToolCalls = new List<ToolCall>
+                            {
+                                new() { Id = "tc1", Name = "read_file", Arguments = new() { ["path"] = "a.txt" } }
+                            }
+                        }
+                    }.ToAsyncEnumerable();
+                }
+                return new[]
+                {
+                    new StreamChunk { Delta = "done", IsFinished = true, FinishReason = "stop" }
+                }.ToAsyncEnumerable();
+            });
+
+        var response = await orchestrator.RunAsync("read it", "session1", DefaultOptions());
+
+        Assert.Equal("done", response.Content);
+        Assert.Single(response.ToolExecutions);
+        Assert.Equal("read_file", response.ToolExecutions[0].Call.Name);
+        Assert.Equal("file-content", response.ToolExecutions[0].Result.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_HandlesUnknownTool_WithErrorResponse()
+    {
+        var orchestrator = CreateOrchestrator();
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool>());
+        _toolRegistry.GetTool("ghost").Returns((ITool?)null);
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+
+        var callCount = 0;
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    return new[]
+                    {
+                        new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = "tool_calls",
+                            ToolCalls = new List<ToolCall>
+                            {
+                                new() { Id = "tc1", Name = "ghost" }
+                            }
+                        }
+                    }.ToAsyncEnumerable();
+                }
+                return new[]
+                {
+                    new StreamChunk { Delta = "ok", IsFinished = true, FinishReason = "stop" }
+                }.ToAsyncEnumerable();
+            });
+
+        var response = await orchestrator.RunAsync("call ghost", "session1", DefaultOptions());
+
+        Assert.Single(response.ToolExecutions);
+        Assert.True(response.ToolExecutions[0].Result.IsError);
+        Assert.Contains("Unknown tool", response.ToolExecutions[0].Result.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_HandlesToolException_WithErrorResponse()
+    {
+        var orchestrator = CreateOrchestrator();
+        var tool = Substitute.For<ITool>();
+        tool.Name.Returns("boom");
+        tool.ExecuteAsync(Arg.Any<ToolCall>(), Arg.Any<AgentExecutionContext>())
+            .Throws(new InvalidOperationException("kaboom"));
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool> { tool });
+        _toolRegistry.GetTool("boom").Returns(tool);
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+
+        var callCount = 0;
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    return new[]
+                    {
+                        new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = "tool_calls",
+                            ToolCalls = new List<ToolCall>
+                            {
+                                new() { Id = "tc1", Name = "boom" }
+                            }
+                        }
+                    }.ToAsyncEnumerable();
+                }
+                return new[]
+                {
+                    new StreamChunk { Delta = "ok", IsFinished = true, FinishReason = "stop" }
+                }.ToAsyncEnumerable();
+            });
+
+        var response = await orchestrator.RunAsync("call boom", "session1", DefaultOptions());
+
+        Assert.True(response.ToolExecutions[0].Result.IsError);
+        Assert.Contains("kaboom", response.ToolExecutions[0].Result.Content);
+    }
+
+    [Fact]
+    public async Task RunAsync_StopsAfterMaxIterations()
+    {
+        var orchestrator = CreateOrchestrator();
+        var tool = Substitute.For<ITool>();
+        tool.Name.Returns("loop_tool");
+        tool.ExecuteAsync(Arg.Any<ToolCall>(), Arg.Any<AgentExecutionContext>())
+            .Returns(new ToolResult { ToolName = "loop_tool", Content = "x" });
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool> { tool });
+        _toolRegistry.GetTool("loop_tool").Returns(tool);
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+
+        // Provider always returns a tool call - never finishes with text.
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new[]
+            {
+                new StreamChunk
+                {
+                    IsFinished = true,
+                    FinishReason = "tool_calls",
+                    ToolCalls = new List<ToolCall>
+                    {
+                        new() { Id = "tc1", Name = "loop_tool" }
+                    }
+                }
+            }.ToAsyncEnumerable());
+
+        var options = DefaultOptions() with { MaxIterations = 2 };
+        var response = await orchestrator.RunAsync("loop", "session1", options);
+
+        Assert.Equal(2, response.ToolExecutions.Count);
+    }
+
+    [Fact]
+    public async Task RunAsync_ReportsCancelled_WhenTokenCancelled()
+    {
+        var orchestrator = CreateOrchestrator();
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool>());
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new[]
+            {
+                new StreamChunk { Delta = "partial" }
+            }.ToAsyncEnumerable());
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var response = await orchestrator.RunAsync("hi", "session1", DefaultOptions(), cts.Token);
+
+        Assert.True(response.WasCancelled);
+    }
+
+    [Fact]
+    public async Task StreamRunAsync_YieldsTextDeltaEvents()
+    {
+        var orchestrator = CreateOrchestrator();
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool>());
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new StreamChunk { Delta = "A" },
+                new StreamChunk { Delta = "B", IsFinished = true, FinishReason = "stop" }
+            }.ToAsyncEnumerable());
+
+        var events = await CollectEvents(orchestrator.StreamRunAsync("hi", "s", DefaultOptions()));
+
+        Assert.Contains(events, e => e is TextDeltaEvent td && td.Delta == "A");
+        Assert.Contains(events, e => e is TextDeltaEvent td && td.Delta == "B");
+        Assert.Contains(events, e => e is AgentFinishedEvent);
+    }
+
+    [Fact]
+    public async Task StreamRunAsync_YieldsToolCallStartAndEndEvents()
+    {
+        var orchestrator = CreateOrchestrator();
+        var tool = Substitute.For<ITool>();
+        tool.Name.Returns("read_file");
+        tool.ExecuteAsync(Arg.Any<ToolCall>(), Arg.Any<AgentExecutionContext>())
+            .Returns(new ToolResult { ToolName = "read_file", Content = "ok" });
+        _toolRegistry.GetTools(Arg.Any<List<string>>()).Returns(new List<ITool> { tool });
+        _toolRegistry.GetTool("read_file").Returns(tool);
+        _contextManager.GetContextAsync(Arg.Any<string>())
+            .Returns(new List<Message>());
+
+        var callCount = 0;
+        _provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    return new[]
+                    {
+                        new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = "tool_calls",
+                            ToolCalls = new List<ToolCall>
+                            {
+                                new() { Id = "tc1", Name = "read_file" }
+                            }
+                        }
+                    }.ToAsyncEnumerable();
+                }
+                return new[]
+                {
+                    new StreamChunk { Delta = "done", IsFinished = true, FinishReason = "stop" }
+                }.ToAsyncEnumerable();
+            });
+
+        var events = await CollectEvents(orchestrator.StreamRunAsync("read", "s", DefaultOptions()));
+
+        Assert.Contains(events, e => e is ToolCallStartEvent ts && ts.Call.Name == "read_file");
+        Assert.Contains(events, e => e is ToolCallEndEvent te && te.Result.Content == "ok");
+        Assert.Contains(events, e => e is AgentFinishedEvent);
+    }
+}
