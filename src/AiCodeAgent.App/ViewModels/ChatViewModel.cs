@@ -8,6 +8,8 @@ using System.Linq;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
+using System.Collections.Generic;
+using System.IO;
 
 namespace AiCodeAgent.App.ViewModels;
 
@@ -47,15 +49,60 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private string _approvalArgs = "";
 
+    // @-mention system
+    [ObservableProperty]
+    private bool _showMentionPopup;
+
+    [ObservableProperty]
+    private string _mentionFilter = "";
+
+    [ObservableProperty]
+    private int _mentionCursorPosition;
+
+    // Slash commands
+    [ObservableProperty]
+    private bool _showSlashCommands;
+
+    [ObservableProperty]
+    private string _slashFilter = "";
+
+    // Token counter
+    [ObservableProperty]
+    private string _tokenCount = "~0 tokens";
+
+    // Model selector
+    [ObservableProperty]
+    private string _selectedModel = "Auto";
+
     private TaskCompletionSource<bool>? _pendingApproval;
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
-    public ObservableCollection<ToolCallCard> ToolCallCards { get; } = new();
+    public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
+    public ObservableCollection<MentionItem> MentionItems { get; } = new();
+    public ObservableCollection<SlashCommandItem> SlashCommandItems { get; } = new();
+    public ObservableCollection<string> AvailableModels { get; } = new()
+    {
+        "Auto", "Fast", "Smart"
+    };
+
+    public List<string> KnownSlashCommands { get; } = new()
+    {
+        "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/help"
+    };
 
     public ChatViewModel(AgentService agentService)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
+
+        // Initialize slash commands
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "🔍" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "💡" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "🧪" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "🔧" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "🔄" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "❓" });
 
         // Add welcome message
         Messages.Add(new ChatMessage
@@ -67,7 +114,12 @@ public partial class ChatViewModel : ObservableObject
                       "- 🎯 Streaming responses in real-time\n" +
                       "- 🔒 Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
                       "- 📝 Diff-based editing with checkpoints\n" +
-                      "- ⚡ Cancel anytime with Esc or the Cancel button"
+                      "- ⚡ Cancel anytime with Esc or the Cancel button\n" +
+                      "- 📁 File Explorer sidebar (click folder icon to toggle)\n" +
+                      "- 💻 Integrated Terminal (bottom pane)\n" +
+                      "- @-mention files to add context\n" +
+                      "- /slash commands for quick actions",
+            Timestamp = DateTime.Now
         });
     }
 
@@ -79,12 +131,15 @@ public partial class ChatViewModel : ObservableObject
 
         var userMessage = InputText.Trim();
         InputText = string.Empty;
+        ShowMentionPopup = false;
+        ShowSlashCommands = false;
 
         // Add user message
         Messages.Add(new ChatMessage
         {
             Role = "User",
-            Content = userMessage
+            Content = userMessage,
+            Timestamp = DateTime.Now
         });
 
         IsProcessing = true;
@@ -95,7 +150,8 @@ public partial class ChatViewModel : ObservableObject
         var assistantMessage = new ChatMessage
         {
             Role = "Assistant",
-            Content = string.Empty
+            Content = string.Empty,
+            Timestamp = DateTime.Now
         };
         Messages.Add(assistantMessage);
 
@@ -153,13 +209,11 @@ public partial class ChatViewModel : ObservableObject
                 switch (evt)
                 {
                     case TextDeltaEvent delta:
-                        // Append text to assistant message
                         assistantMessage.Content += delta.Delta;
                         break;
 
                     case ToolCallStartEvent start:
-                        // Add tool call card
-                        var card = new ToolCallCard
+                        var card = new ToolCallCardViewModel
                         {
                             ToolName = start.Call.Name,
                             Arguments = FormatArguments(start.Call.Arguments),
@@ -169,7 +223,6 @@ public partial class ChatViewModel : ObservableObject
                         break;
 
                     case ToolCallEndEvent end:
-                        // Update tool call card with result
                         var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name);
                         if (existingCard != null)
                         {
@@ -180,7 +233,6 @@ public partial class ChatViewModel : ObservableObject
                         break;
 
                     case ApprovalRequestEvent approval:
-                        // Show approval dialog on UI thread
                         ShowApprovalDialog = true;
                         ApprovalToolName = approval.Call.Name;
                         ApprovalArgs = FormatArguments(approval.Call.Arguments);
@@ -232,10 +284,9 @@ public partial class ChatViewModel : ObservableObject
         _pendingApproval = null;
         ShowApprovalDialog = false;
 
-        // Add to allowlist 
         if (!string.IsNullOrEmpty(ApprovalToolName))
         {
-            ToolCallCards.Add(new ToolCallCard
+            ToolCallCards.Add(new ToolCallCardViewModel
             {
                 ToolName = ApprovalToolName,
                 Arguments = ApprovalArgs,
@@ -258,7 +309,284 @@ public partial class ChatViewModel : ObservableObject
         PermissionMode = mode;
     }
 
-    private static string FormatArguments(System.Collections.Generic.Dictionary<string, object?> args)
+    // @-mention logic
+    public void OnTextChanged(string text, int cursorPosition)
+    {
+        UpdateTokenCount(text);
+
+        // Check for @-mention trigger
+        if (cursorPosition > 0 && text.Length > 0)
+        {
+            var textBeforeCursor = text[..Math.Min(cursorPosition, text.Length)];
+            var atIndex = textBeforeCursor.LastIndexOf('@');
+
+            if (atIndex >= 0 && (atIndex == 0 || textBeforeCursor[atIndex - 1] == ' '))
+            {
+                var filter = textBeforeCursor[(atIndex + 1)..];
+                if (!filter.Contains(' ') && !string.IsNullOrEmpty(filter))
+                {
+                    ShowMentionPopup = true;
+                    MentionFilter = filter;
+                    MentionCursorPosition = cursorPosition;
+                    FilterMentions(filter);
+                }
+                else if (!filter.Contains(' ') && string.IsNullOrEmpty(filter))
+                {
+                    ShowMentionPopup = true;
+                    MentionFilter = "";
+                    ShowAllMentions();
+                }
+                else
+                {
+                    ShowMentionPopup = false;
+                }
+            }
+            else
+            {
+                ShowMentionPopup = false;
+            }
+
+            // Check for slash command trigger
+            if (textBeforeCursor.Length == 1 && textBeforeCursor == "/")
+            {
+                ShowSlashCommands = true;
+                SlashFilter = "";
+                ShowAllSlashCommands();
+            }
+            else if (textBeforeCursor.StartsWith("/") && !textBeforeCursor.Contains(' '))
+            {
+                ShowSlashCommands = true;
+                SlashFilter = textBeforeCursor[1..];
+                FilterSlashCommands(textBeforeCursor[1..]);
+            }
+            else
+            {
+                ShowSlashCommands = false;
+            }
+        }
+        else
+        {
+            if (text.StartsWith("/"))
+            {
+                ShowSlashCommands = true;
+                SlashFilter = text.Length > 1 ? text[1..] : "";
+                FilterSlashCommands(SlashFilter);
+            }
+            else
+            {
+                ShowSlashCommands = false;
+            }
+            ShowMentionPopup = false;
+        }
+    }
+
+    private void UpdateTokenCount(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            TokenCount = "~0 tokens";
+            return;
+        }
+
+        var estimatedTokens = text.Length / 4;
+        TokenCount = estimatedTokens switch
+        {
+            < 1000 => $"~{estimatedTokens} tokens",
+            < 1000000 => $"~{estimatedTokens / 1000.0:F1}k tokens",
+            _ => $"~{estimatedTokens / 1000000.0:F1}M tokens"
+        };
+    }
+
+    public void InsertMention(MentionItem item)
+    {
+        if (string.IsNullOrEmpty(InputText)) return;
+
+        var textBeforeCursor = InputText[..Math.Min(MentionCursorPosition, InputText.Length)];
+        var atIndex = textBeforeCursor.LastIndexOf('@');
+
+        if (atIndex >= 0)
+        {
+            var afterMention = MentionCursorPosition < InputText.Length
+                ? InputText[MentionCursorPosition..]
+                : string.Empty;
+
+            InputText = InputText[..atIndex] + $"@{item.FilePath} " + afterMention;
+        }
+
+        ShowMentionPopup = false;
+    }
+
+    public void InsertSlashCommand(SlashCommandItem item)
+    {
+        InputText = item.Name + " ";
+        ShowSlashCommands = false;
+    }
+
+    private void FilterMentions(string filter)
+    {
+        var files = GetProjectFiles();
+        MentionItems.Clear();
+
+        foreach (var file in files.Where(f =>
+            Path.GetFileName(f).Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+            f.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+        {
+            MentionItems.Add(new MentionItem
+            {
+                FilePath = file,
+                FileName = Path.GetFileName(file),
+                Icon = GetFileIcon(file)
+            });
+        }
+    }
+
+    private void ShowAllMentions()
+    {
+        var files = GetProjectFiles();
+        MentionItems.Clear();
+
+        foreach (var file in files.Take(20))
+        {
+            MentionItems.Add(new MentionItem
+            {
+                FilePath = file,
+                FileName = Path.GetFileName(file),
+                Icon = GetFileIcon(file)
+            });
+        }
+    }
+
+    private void FilterSlashCommands(string filter)
+    {
+        SlashCommandItems.Clear();
+
+        foreach (var cmd in KnownSlashCommands.Where(c =>
+            string.IsNullOrEmpty(filter) || c.Contains(filter, StringComparison.OrdinalIgnoreCase)))
+        {
+            var desc = cmd switch
+            {
+                "/edit" => "Edit a specific file",
+                "/search" => "Search the codebase",
+                "/explain" => "Explain code logic",
+                "/test" => "Generate tests",
+                "/fix" => "Fix issues in code",
+                "/refactor" => "Refactor code",
+                "/help" => "Show available commands",
+                _ => ""
+            };
+            var icon = cmd switch
+            {
+                "/edit" => "✏️",
+                "/search" => "🔍",
+                "/explain" => "💡",
+                "/test" => "🧪",
+                "/fix" => "🔧",
+                "/refactor" => "🔄",
+                "/help" => "❓",
+                _ => "📋"
+            };
+
+            SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
+        }
+    }
+
+    private void ShowAllSlashCommands()
+    {
+        SlashCommandItems.Clear();
+        foreach (var cmd in KnownSlashCommands)
+        {
+            var desc = cmd switch
+            {
+                "/edit" => "Edit a specific file",
+                "/search" => "Search the codebase",
+                "/explain" => "Explain code logic",
+                "/test" => "Generate tests",
+                "/fix" => "Fix issues in code",
+                "/refactor" => "Refactor code",
+                "/help" => "Show available commands",
+                _ => ""
+            };
+            var icon = cmd switch
+            {
+                "/edit" => "✏️",
+                "/search" => "🔍",
+                "/explain" => "💡",
+                "/test" => "🧪",
+                "/fix" => "🔧",
+                "/refactor" => "🔄",
+                "/help" => "❓",
+                _ => "📋"
+            };
+
+            SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
+        }
+    }
+
+    private List<string> GetProjectFiles()
+    {
+        var files = new List<string>();
+        var rootDir = Directory.GetCurrentDirectory();
+
+        try
+        {
+            var searchDirs = new[] { "src", "tests" };
+            foreach (var dir in searchDirs)
+            {
+                var fullPath = Path.Combine(rootDir, dir);
+                if (Directory.Exists(fullPath))
+                {
+                    files.AddRange(Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories)
+                        .Where(f => !Path.GetFileName(f).StartsWith('.'))
+                        .Take(100));
+                }
+            }
+
+            files.AddRange(Directory.GetFiles(rootDir)
+                .Where(f => !Path.GetFileName(f).StartsWith('.'))
+                .Take(20));
+        }
+        catch (UnauthorizedAccessException) { }
+        catch (DirectoryNotFoundException) { }
+
+        return files;
+    }
+
+    private static string GetFileIcon(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext switch
+        {
+            ".cs" => "🔷",
+            ".xaml" or ".axaml" => "🟦",
+            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "📋",
+            ".md" or ".txt" => "📝",
+            ".csproj" or ".sln" or ".slnx" => "📦",
+            ".js" or ".ts" or ".jsx" or ".tsx" => "🟨",
+            ".py" => "🐍",
+            ".html" or ".css" or ".scss" => "🌐",
+            _ => "📄"
+        };
+    }
+
+    [RelayCommand]
+    private void ClearChat()
+    {
+        Messages.Clear();
+        ToolCallCards.Clear();
+        Messages.Add(new ChatMessage
+        {
+            Role = "Assistant",
+            Content = "Chat cleared. How can I help you?",
+            Timestamp = DateTime.Now
+        });
+    }
+
+    public void ToggleToolCardExpand(ToolCallCardViewModel card)
+    {
+        card.IsExpanded = !card.IsExpanded;
+    }
+
+    private static string FormatArguments(Dictionary<string, object?> args)
     {
         if (args == null || args.Count == 0) return "{}";
         return string.Join(", ", args.Select(kv => $"{kv.Key}={kv.Value}"));
@@ -284,4 +612,54 @@ public class ChatMessage
 {
     public string Role { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; } = DateTime.Now;
+}
+
+public partial class ToolCallCardViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private string _toolName = string.Empty;
+
+    [ObservableProperty]
+    private string _arguments = string.Empty;
+
+    [ObservableProperty]
+    private string? _output;
+
+    [ObservableProperty]
+    private TimeSpan? _duration;
+
+    [ObservableProperty]
+    private bool _isError;
+
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    [ObservableProperty]
+    private DateTime _timestamp = DateTime.UtcNow;
+
+    [ObservableProperty]
+    private bool _needsApproval;
+
+    [ObservableProperty]
+    private string? _approvalId;
+
+    public void ToggleExpand()
+    {
+        IsExpanded = !IsExpanded;
+    }
+}
+
+public class MentionItem
+{
+    public string FilePath { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string Icon { get; set; } = "📄";
+}
+
+public class SlashCommandItem
+{
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Icon { get; set; } = "📋";
 }

@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="AiCodeAgent.App.App"
              xmlns:local="using:AiCodeAgent.App"
+             xmlns:converters="using:AiCodeAgent.App.Converters"
              RequestedThemeVariant="Default">
     <Application.Styles>
         <FluentTheme />
@@ -26,6 +27,10 @@
                     <Color x:Key="TextColor">#FFFFFF</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+            <!-- Value Converters -->
+            <converters:BoolToStatusIconConverter x:Key="BoolToStatusIcon"/>
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+            <converters:BoolToErrorBrushConverter x:Key="BoolToErrorBrush"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

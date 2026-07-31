@@ -155,6 +155,10 @@ public partial class App : Application
         services.AddSingleton<ITool, WebFetchTool>();
         services.AddSingleton<ITool, DiagnosticsTool>();
 
+        // New ViewModels - Workspace components
+        services.AddSingleton<FileExplorerViewModel>();
+        services.AddSingleton<TerminalViewModel>();
+        
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<ChatViewModel>();
