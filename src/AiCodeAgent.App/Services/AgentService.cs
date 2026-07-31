@@ -1,5 +1,7 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.Text;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Agent;
@@ -14,17 +16,23 @@ public class AgentService
     private readonly IToolRegistry _toolRegistry;
     private readonly IContextManager _contextManager;
     private readonly ILogger<AgentService> _logger;
+    private readonly IAgentEventBus _eventBus;
+    private CancellationTokenSource? _currentCts;
+
+    public IAgentEventBus EventBus => _eventBus;
 
     public AgentService(
         IAgentOrchestrator orchestrator,
         IToolRegistry toolRegistry,
         IContextManager contextManager,
-        ILogger<AgentService> logger)
+        ILogger<AgentService> logger,
+        IAgentEventBus eventBus)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
         _contextManager = contextManager;
         _logger = logger;
+        _eventBus = eventBus;
     }
 
     public async Task<string> SendMessageAsync(string message, string sessionId = "default")
@@ -33,20 +41,17 @@ public class AgentService
         {
             _logger.LogInformation("Processing message: {Message}", message);
 
-            // Add user message to context
             await _contextManager.AddMessageAsync(sessionId, new Message
             {
                 Role = MessageRole.User,
                 Content = message
             });
 
-            // Process the message through the orchestrator
             var response = await _orchestrator.RunAsync(
                 message,
                 sessionId,
                 new AgentOptions());
 
-            // Add assistant response to context
             await _contextManager.AddMessageAsync(sessionId, new Message
             {
                 Role = MessageRole.Assistant,
@@ -62,6 +67,51 @@ public class AgentService
         }
     }
 
+    public async Task StreamMessageAsync(
+        string message,
+        string sessionId = "default",
+        AgentOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        _currentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var token = _currentCts.Token;
+
+        try
+        {
+            _logger.LogInformation("Streaming message: {Message}", message);
+
+            await foreach (var evt in _orchestrator.StreamRunAsync(
+                message,
+                sessionId,
+                options ?? new AgentOptions(),
+                token))
+            {
+                _eventBus.Publish(evt);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Message streaming cancelled");
+            _eventBus.Publish(new AgentFinishedEvent(new AgentResponse
+            {
+                Content = string.Empty,
+                WasCancelled = true
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error streaming message");
+            _eventBus.Publish(new AgentErrorEvent(ex));
+        }
+    }
+
+    public void Cancel()
+    {
+        _currentCts?.Cancel();
+        _currentCts?.Dispose();
+        _currentCts = null;
+    }
+
     public string GetAvailableTools()
     {
         var sb = new StringBuilder();
@@ -69,7 +119,7 @@ public class AgentService
 
         foreach (var tool in _toolRegistry.GetAllTools())
         {
-            sb.AppendLine($"- {tool.Name}: {tool.Description}");
+            sb.AppendLine($"- {tool.Name} [{tool.Risk}]: {tool.Description}");
         }
 
         return sb.ToString();

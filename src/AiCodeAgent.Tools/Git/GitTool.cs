@@ -12,6 +12,7 @@ public class GitTool : BaseTool
     public override string Name => "git";
     public override string Description =>
         "Execute git operations: status, diff, log, add, commit, branch, etc.";
+    public override RiskLevel Risk => RiskLevel.Execute;
 
     public override ToolDefinition Definition => new()
     {

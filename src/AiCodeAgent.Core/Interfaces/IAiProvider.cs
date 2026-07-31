@@ -23,6 +23,7 @@ public interface ITool
 {
     string Name { get; }
     string Description { get; }
+    RiskLevel Risk { get; }
     ToolDefinition Definition { get; }
     Task<ToolResult> ExecuteAsync(ToolCall call, AgentExecutionContext context);
 }
@@ -65,4 +66,25 @@ public interface IAgentOrchestrator
         string sessionId,
         AgentOptions options,
         CancellationToken cancellationToken = default);
+}
+
+public interface IAgentEventBus
+{
+    void Publish(AgentEvent evt);
+    IAsyncEnumerable<AgentEvent> GetEventsAsync(CancellationToken cancellationToken = default);
+}
+
+public interface ICheckpointManager
+{
+    Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId);
+    Task<bool> RestoreCheckpointAsync(string checkpointId);
+    Task<List<CheckpointEntry>> GetCheckpointsAsync(string turnId);
+    Task CleanupAsync(string turnId);
+}
+
+public interface IPermissionService
+{
+    Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options);
+    void SetMode(PermissionMode mode);
+    PermissionMode CurrentMode { get; }
 }

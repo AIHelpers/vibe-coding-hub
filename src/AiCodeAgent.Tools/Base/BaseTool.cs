@@ -13,6 +13,7 @@ public abstract class BaseTool : ITool
 
     public abstract string Name { get; }
     public abstract string Description { get; }
+    public abstract RiskLevel Risk { get; }
     public abstract ToolDefinition Definition { get; }
 
     public abstract Task<ToolResult> ExecuteAsync(ToolCall call, AgentExecutionContext context);

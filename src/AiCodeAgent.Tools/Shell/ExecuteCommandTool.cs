@@ -42,6 +42,7 @@ public class ExecuteCommandTool : BaseTool
     public override string Description =>
         "Execute a shell command and return its output. " +
         "Use for building, testing, running scripts, git operations, etc.";
+    public override RiskLevel Risk => RiskLevel.Execute;
 
     public override ToolDefinition Definition => new()
     {

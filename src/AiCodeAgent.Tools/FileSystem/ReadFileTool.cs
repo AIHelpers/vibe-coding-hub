@@ -12,6 +12,7 @@ public class ReadFileTool : BaseTool
     public override string Name => "read_file";
     public override string Description => 
         "Read the contents of a file. Supports reading specific line ranges.";
+    public override RiskLevel Risk => RiskLevel.Read;
 
     public override ToolDefinition Definition => new()
     {

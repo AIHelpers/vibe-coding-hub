@@ -15,6 +15,7 @@ public class DiagnosticsTool : BaseTool
     public override string Description =>
         "Run build and diagnostic checks on the project. " +
         "Detects compilation errors, warnings, test failures.";
+    public override RiskLevel Risk => RiskLevel.Execute;
 
     public override ToolDefinition Definition => new()
     {

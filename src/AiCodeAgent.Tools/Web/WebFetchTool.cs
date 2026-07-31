@@ -38,6 +38,7 @@ public class WebFetchTool : BaseTool
     public override string Name => "web_fetch";
     public override string Description =>
         "Fetch content from a URL. Useful for reading documentation, APIs, or web pages.";
+    public override RiskLevel Risk => RiskLevel.Read;
 
     public override ToolDefinition Definition => new()
     {

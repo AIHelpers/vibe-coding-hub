@@ -16,6 +16,7 @@ public class WriteFileTool : BaseTool
     public override string Description =>
         "Write content to a file. Creates the file and directories if they don't exist. " +
         "Can create new files or overwrite existing ones.";
+    public override RiskLevel Risk => RiskLevel.Write;
 
     public override ToolDefinition Definition => new()
     {

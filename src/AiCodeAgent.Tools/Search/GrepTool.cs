@@ -13,6 +13,7 @@ public class GrepTool : BaseTool
     public override string Name => "grep";
     public override string Description =>
         "Search for patterns in files using regex. Returns matching lines with context.";
+    public override RiskLevel Risk => RiskLevel.Read;
 
     public override ToolDefinition Definition => new()
     {

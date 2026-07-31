@@ -15,24 +15,30 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IToolRegistry _toolRegistry;
     private readonly ILogger<AgentOrchestrator> _logger;
     private readonly AgentConfiguration _config;
+    private readonly IPermissionService _permissionService;
+    private readonly ICheckpointManager _checkpointManager;
+    private readonly IAgentEventBus? _eventBus;
 
     public AgentOrchestrator(
         IAiProvider provider,
         IContextManager contextManager,
         IToolRegistry toolRegistry,
         AgentConfiguration config,
-        ILogger<AgentOrchestrator> logger)
+        ILogger<AgentOrchestrator> logger,
+        IPermissionService permissionService,
+        ICheckpointManager checkpointManager,
+        IAgentEventBus? eventBus = null)
     {
         _provider = provider;
         _contextManager = contextManager;
         _toolRegistry = toolRegistry;
         _config = config;
         _logger = logger;
+        _permissionService = permissionService;
+        _checkpointManager = checkpointManager;
+        _eventBus = eventBus;
     }
 
-    /// <summary>
-    /// Runs the agent with the given user message, collecting all events into a final response.
-    /// </summary>
     public async Task<AgentResponse> RunAsync(
         string userMessage,
         string sessionId,
@@ -54,9 +60,6 @@ public class AgentOrchestrator : IAgentOrchestrator
         return finished.Response;
     }
 
-    /// <summary>
-    /// Streams agent events (text deltas, tool calls, errors) for real-time UI updates.
-    /// </summary>
     public async IAsyncEnumerable<AgentEvent> StreamRunAsync(
         string userMessage,
         string sessionId,
@@ -66,8 +69,17 @@ public class AgentOrchestrator : IAgentOrchestrator
         var execContext = new AgentExecutionContext
         {
             SessionId = sessionId,
-            WorkingDirectory = options.WorkingDirectory
+            WorkingDirectory = options.WorkingDirectory,
+            Permissions = new PermissionSettings { Mode = options.PermissionMode }
         };
+
+        // Set permission mode
+        _permissionService.SetMode(options.PermissionMode);
+
+        // Emit status update
+        var statusEvent = new StatusUpdateEvent("Processing", "Starting agent loop");
+        yield return statusEvent;
+        _eventBus?.Publish(statusEvent);
 
         // Add user message to context
         await _contextManager.AddMessageAsync(sessionId, new Message
@@ -82,6 +94,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var fullContent = new StringBuilder();
         var startTime = DateTime.UtcNow;
         var iteration = 0;
+        var turnId = Guid.NewGuid().ToString("N")[..12];
 
         while (iteration < options.MaxIterations && !cancellationToken.IsCancellationRequested)
         {
@@ -106,9 +119,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             var currentContent = new StringBuilder();
             List<ToolCall>? pendingToolCalls = null;
 
-            // Stream the response
             var wasCancelled = false;
-            var textDeltaEvents = new List<TextDeltaEvent>();
+            var pendingEvents = new List<AgentEvent>();
             
             try
             {
@@ -118,7 +130,8 @@ public class AgentOrchestrator : IAgentOrchestrator
                     {
                         currentContent.Append(chunk.Delta);
                         fullContent.Append(chunk.Delta);
-                        textDeltaEvents.Add(new TextDeltaEvent(chunk.Delta));
+                        var textEvent = new TextDeltaEvent(chunk.Delta);
+                        pendingEvents.Add(textEvent);
                     }
 
                     if (chunk.Usage != null)
@@ -128,6 +141,8 @@ public class AgentOrchestrator : IAgentOrchestrator
                             PromptTokens = totalUsage.PromptTokens + chunk.Usage.PromptTokens,
                             CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens
                         };
+                        var usageEvent = new TokenUsageEvent(totalUsage);
+                        _eventBus?.Publish(usageEvent);
                     }
 
                     if (chunk.IsFinished)
@@ -142,13 +157,16 @@ public class AgentOrchestrator : IAgentOrchestrator
                 wasCancelled = true;
             }
 
-            // Yield collected text deltas
-            foreach (var textEvent in textDeltaEvents)
-                yield return textEvent;
+            // Yield collected pending events (text deltas, checkpoints, etc.)
+            foreach (var evt in pendingEvents)
+            {
+                yield return evt;
+                _eventBus?.Publish(evt);
+            }
 
             if (wasCancelled)
             {
-                yield return new AgentFinishedEvent(new AgentResponse
+                var finishedEvent = new AgentFinishedEvent(new AgentResponse
                 {
                     Content = fullContent.ToString(),
                     ToolExecutions = toolExecutions,
@@ -156,6 +174,8 @@ public class AgentOrchestrator : IAgentOrchestrator
                     Duration = DateTime.UtcNow - startTime,
                     WasCancelled = true
                 });
+                yield return finishedEvent;
+                _eventBus?.Publish(finishedEvent);
                 yield break;
             }
 
@@ -177,59 +197,147 @@ public class AgentOrchestrator : IAgentOrchestrator
             {
                 if (cancellationToken.IsCancellationRequested) break;
 
-                // Validate tool call has a name
                 if (string.IsNullOrWhiteSpace(toolCall.Name))
                 {
                     _logger.LogWarning("Received tool call with empty name, skipping");
                     continue;
                 }
 
-                yield return new ToolCallStartEvent(toolCall);
-
                 var tool = _toolRegistry.GetTool(toolCall.Name);
-                ToolResult result;
-                var toolStart = DateTime.UtcNow;
-
                 if (tool == null)
                 {
                     _logger.LogWarning("Unknown tool requested: {ToolName}", toolCall.Name);
-                    result = new ToolResult
+                    var result = new ToolResult
                     {
                         ToolCallId = toolCall.Id,
                         ToolName = toolCall.Name,
                         Content = $"Unknown tool: {toolCall.Name}",
                         IsError = true
                     };
+                    var duration = TimeSpan.Zero;
+                    toolExecutions.Add(new ToolExecution { Call = toolCall, Result = result, Duration = duration });
+                    var endEvent = new ToolCallEndEvent(toolCall, result, duration);
+                    yield return endEvent;
+                    _eventBus?.Publish(endEvent);
+
+                    await _contextManager.AddMessageAsync(sessionId, new Message
+                    {
+                        Role = MessageRole.Tool,
+                        Content = result.Content,
+                        ToolCallId = toolCall.Id,
+                        Name = toolCall.Name
+                    }).ConfigureAwait(false);
+                    continue;
                 }
-                else
+
+                // Check permissions before executing
+                var statusEvent2 = new StatusUpdateEvent($"Requesting approval for {toolCall.Name}");
+                yield return statusEvent2;
+                _eventBus?.Publish(statusEvent2);
+
+                // For write/execute operations, check permissions
+                if (tool.Risk != RiskLevel.Read)
                 {
-                    try
+                    var isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options);
+                    if (!isApproved)
                     {
-                        result = await tool.ExecuteAsync(toolCall, execContext).ConfigureAwait(false);
-                        result = result with { ToolCallId = toolCall.Id };
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Tool execution failed: {Tool}", toolCall.Name);
-                        result = new ToolResult
+                        // Emit approval request event - UI will handle this
+                        var approvalTcs = new TaskCompletionSource<bool>();
+                        var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs);
+                        yield return approvalEvent;
+                        _eventBus?.Publish(approvalEvent);
+
+                        // Wait for user approval
+                        isApproved = await approvalTcs.Task;
+                        if (!isApproved)
                         {
-                            ToolCallId = toolCall.Id,
-                            ToolName = toolCall.Name,
-                            Content = $"Tool error: {ex.Message}",
-                            IsError = true
-                        };
+                            var deniedResult = new ToolResult
+                            {
+                                ToolCallId = toolCall.Id,
+                                ToolName = toolCall.Name,
+                                Content = $"Tool execution denied by user: {toolCall.Name}",
+                                IsError = true
+                            };
+                            var deniedDuration = TimeSpan.Zero;
+                            toolExecutions.Add(new ToolExecution { Call = toolCall, Result = deniedResult, Duration = deniedDuration });
+                            var deniedEndEvent = new ToolCallEndEvent(toolCall, deniedResult, deniedDuration);
+                            yield return deniedEndEvent;
+                            _eventBus?.Publish(deniedEndEvent);
+
+                            await _contextManager.AddMessageAsync(sessionId, new Message
+                            {
+                                Role = MessageRole.Tool,
+                                Content = deniedResult.Content,
+                                ToolCallId = toolCall.Id,
+                                Name = toolCall.Name
+                            }).ConfigureAwait(false);
+                            continue;
+                        }
                     }
                 }
 
-                var duration = DateTime.UtcNow - toolStart;
-                toolExecutions.Add(new ToolExecution { Call = toolCall, Result = result, Duration = duration });
-                yield return new ToolCallEndEvent(toolCall, result, duration);
+                // Create checkpoint before write operations
+                if (tool.Risk == RiskLevel.Write && toolCall.Arguments.TryGetValue("path", out var pathObj) && pathObj != null)
+                {
+                    var filePath = pathObj.ToString() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                    {
+                        // Create checkpoint without yield in try-catch
+                        try
+                        {
+                            var checkpoint = await _checkpointManager.CreateCheckpointAsync(filePath, turnId);
+                            var checkpointEvent = new CheckpointCreatedEvent(checkpoint);
+                            _eventBus?.Publish(checkpointEvent);
+                            // Store the event to yield later (outside try-catch)
+                            pendingEvents.Add(new CheckpointCreatedEvent(checkpoint));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to create checkpoint for {Path}", filePath);
+                        }
+                    }
+                }
+
+                // Execute tool
+                var startEvent = new ToolCallStartEvent(toolCall);
+                yield return startEvent;
+                _eventBus?.Publish(startEvent);
+
+                var statusEvent3 = new StatusUpdateEvent($"Executing {toolCall.Name}");
+                yield return statusEvent3;
+                _eventBus?.Publish(statusEvent3);
+
+                ToolResult toolResult;
+                var toolStart = DateTime.UtcNow;
+
+                try
+                {
+                    toolResult = await tool.ExecuteAsync(toolCall, execContext).ConfigureAwait(false);
+                    toolResult = toolResult with { ToolCallId = toolCall.Id };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Tool execution failed: {Tool}", toolCall.Name);
+                    toolResult = new ToolResult
+                    {
+                        ToolCallId = toolCall.Id,
+                        ToolName = toolCall.Name,
+                        Content = $"Tool error: {ex.Message}",
+                        IsError = true
+                    };
+                }
+
+                var execDuration = DateTime.UtcNow - toolStart;
+                toolExecutions.Add(new ToolExecution { Call = toolCall, Result = toolResult, Duration = execDuration });
+                var toolEndEvent = new ToolCallEndEvent(toolCall, toolResult, execDuration);
+                yield return toolEndEvent;
+                _eventBus?.Publish(toolEndEvent);
 
                 // Add tool result to context
                 await _contextManager.AddMessageAsync(sessionId, new Message
                 {
                     Role = MessageRole.Tool,
-                    Content = result.Content,
+                    Content = toolResult.Content,
                     ToolCallId = toolCall.Id,
                     Name = toolCall.Name
                 }).ConfigureAwait(false);
@@ -250,12 +358,15 @@ public class AgentOrchestrator : IAgentOrchestrator
             WasCancelled = cancellationToken.IsCancellationRequested
         };
 
-        yield return new AgentFinishedEvent(response);
+        var finished = new AgentFinishedEvent(response);
+        yield return finished;
+        _eventBus?.Publish(finished);
+        
+        var doneEvent = new StatusUpdateEvent("Done", "Agent completed");
+        yield return doneEvent;
+        _eventBus?.Publish(doneEvent);
     }
 
-    /// <summary>
-    /// Builds the system prompt that instructs the AI model on its role and capabilities.
-    /// </summary>
     private string BuildSystemPrompt(AgentOptions options)
     {
         return $"""
@@ -265,6 +376,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             Working directory: {options.WorkingDirectory}
             Date: {DateTime.UtcNow:yyyy-MM-dd}
             OS: {RuntimeInformation.OSDescription}
+            Permission mode: {options.PermissionMode}
             
             Guidelines:
             - Always read files before editing them to understand current state

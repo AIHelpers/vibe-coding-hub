@@ -19,6 +19,7 @@ public class ListDirectoryTool : BaseTool
     public override string Name => "list_directory";
     public override string Description =>
         "List files and directories. Shows a tree structure with file sizes.";
+    public override RiskLevel Risk => RiskLevel.Read;
 
     public override ToolDefinition Definition => new()
     {

@@ -138,6 +138,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // Core services
     services.AddSingleton<IContextManager, InMemoryContextManager>();
     services.AddSingleton<IToolRegistry, ToolRegistry>();
+    services.AddSingleton<IAgentEventBus, AgentEventBus>();
+    services.AddSingleton<IPermissionService, PermissionService>();
+    services.AddSingleton<ICheckpointManager, CheckpointManager>();
     services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);
 

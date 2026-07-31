@@ -14,6 +14,7 @@ public class BaseToolTests
 
         public override string Name => "test";
         public override string Description => "test tool";
+        public override RiskLevel Risk => RiskLevel.Read;
         public override ToolDefinition Definition => new() { Name = "test" };
 
         public override Task<ToolResult> ExecuteAsync(ToolCall call, AgentExecutionContext context)

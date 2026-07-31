@@ -43,17 +43,20 @@ public partial class App : Application
             Services = services.BuildServiceProvider();
 
             // Load configuration on background thread to avoid async-over-sync deadlock
-            // (OnFrameworkInitializationCompleted runs before the main message loop)
             var configSvc = Services.GetRequiredService<ConfigurationService>();
             try
             {
-                // Use Task.Run to run async code on thread pool, avoiding DispatcherSynchronizationContext deadlock
                 Task.Run(() => configSvc.LoadAsync()).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load config: {ex.Message}");
             }
+
+            // Initialize tool registry
+            var registry = Services.GetRequiredService<IToolRegistry>();
+            foreach (var tool in Services.GetServices<ITool>())
+                registry.Register(tool);
 
             var mainWindow = new MainWindow
             {
@@ -80,11 +83,18 @@ public partial class App : Application
             builder.AddSerilog(Log.Logger);
         });
 
+        // HTTP clients
+        services.AddHttpClient("WebFetch", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("User-Agent", "AiCodeAgent/1.0");
+        });
+
         // Core services
         services.AddSingleton<ConfigurationService>(sp => 
             new ConfigurationService());
 
-        // Agent Configuration - get from ConfigurationService after it's loaded
+        // Agent Configuration
         services.AddSingleton<AgentConfiguration>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();
@@ -97,10 +107,19 @@ public partial class App : Application
         // Tool Registry
         services.AddSingleton<IToolRegistry, ToolRegistry>();
         
+        // Event Bus - decoupled event delivery for UI
+        services.AddSingleton<IAgentEventBus, AgentEventBus>();
+        
+        // Permission Service
+        services.AddSingleton<IPermissionService, PermissionService>();
+        
+        // Checkpoint Manager
+        services.AddSingleton<ICheckpointManager, CheckpointManager>();
+        
         // Agent Orchestrator
         services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
 
-        // Register AI provider - resilient to missing API key
+        // Register AI provider
         services.AddSingleton<IAiProvider>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();
@@ -108,10 +127,9 @@ public partial class App : Application
             var cfg = configSvc.GetProvider(configSvc.Config.DefaultProvider)
                 ?? throw new InvalidOperationException($"Provider not found: {configSvc.Config.DefaultProvider}");
             
-            // Validate and warn about missing API key
             if (string.IsNullOrEmpty(cfg.ApiKey))
             {
-                logger.LogWarning("API key for provider '{Provider}' is not configured. Please set your API key in settings.", 
+                logger.LogWarning("API key for provider '{Provider}' is not configured.", 
                     configSvc.Config.DefaultProvider);
             }
             
@@ -122,8 +140,7 @@ public partial class App : Application
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to create AI provider, using fallback");
-                // Return a no-op provider that will show a user-friendly message
-                return new NoOpAiProvider(logger, $"Provider '{configSvc.Config.DefaultProvider}' is not properly configured. Please check your API key.");
+                return new NoOpAiProvider(logger, $"Provider '{configSvc.Config.DefaultProvider}' is not properly configured.");
             }
         });
 

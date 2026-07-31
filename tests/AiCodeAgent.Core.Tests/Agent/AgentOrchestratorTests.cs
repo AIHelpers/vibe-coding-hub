@@ -27,15 +27,20 @@ public class AgentOrchestratorTests
         IAiProvider? provider = null,
         IContextManager? contextManager = null,
         IToolRegistry? toolRegistry = null,
-        AgentConfiguration? config = null)
+        AgentConfiguration? config = null,
+        IPermissionService? permissionService = null,
+        ICheckpointManager? checkpointManager = null,
+        IAgentEventBus? eventBus = null)
     {
         provider ??= Substitute.For<IAiProvider>();
         contextManager ??= Substitute.For<IContextManager>();
         toolRegistry ??= Substitute.For<IToolRegistry>();
         config ??= new AgentConfiguration();
+        permissionService ??= Substitute.For<IPermissionService>();
+        checkpointManager ??= Substitute.For<ICheckpointManager>();
         var logger = Substitute.For<ILogger<AgentOrchestrator>>();
 
-        return new AgentOrchestrator(provider, contextManager, toolRegistry, config, logger);
+        return new AgentOrchestrator(provider, contextManager, toolRegistry, config, logger, permissionService, checkpointManager, eventBus);
     }
 
     private static async IAsyncEnumerable<StreamChunk> CreateStream(params StreamChunk[] chunks)

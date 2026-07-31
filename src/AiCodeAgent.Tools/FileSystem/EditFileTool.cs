@@ -17,6 +17,7 @@ public class EditFileTool : BaseTool
     public override string Description =>
         "Make targeted edits to a file by replacing specific text. " +
         "More precise than write_file for small changes.";
+    public override RiskLevel Risk => RiskLevel.Write;
 
     public override ToolDefinition Definition => new()
     {
