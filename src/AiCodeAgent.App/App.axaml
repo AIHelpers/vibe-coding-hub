@@ -31,6 +31,7 @@
             <converters:BoolToStatusIconConverter x:Key="BoolToStatusIcon"/>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
             <converters:BoolToErrorBrushConverter x:Key="BoolToErrorBrush"/>
+            <converters:InverseBoolConverter x:Key="InverseBool"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

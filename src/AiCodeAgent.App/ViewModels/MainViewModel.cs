@@ -23,6 +23,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _fileExplorerStatus = string.Empty;
 
+    [ObservableProperty]
+    private bool _isSettingsMode;
+
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
 
@@ -59,6 +62,7 @@ public partial class MainViewModel : ObservableObject
     {
         _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
         CurrentViewModel = _chatViewModel;
+        IsSettingsMode = false;
         StatusText = "Chat Mode";
     }
 
@@ -66,6 +70,7 @@ public partial class MainViewModel : ObservableObject
     private void NavigateToSettings()
     {
         CurrentViewModel = _serviceProvider.GetRequiredService<SettingsViewModel>();
+        IsSettingsMode = true;
         StatusText = "Settings Mode";
     }
 

@@ -1,0 +1,73 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                xmlns:vm="using:AiCodeAgent.App.ViewModels"
+                xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                mc:Ignorable="d"
+                x:Class="AiCodeAgent.App.Views.SettingsView"
+                x:DataType="vm:SettingsViewModel">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="16" MaxWidth="600">
+            <!-- Header -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
+            </StackPanel>
+
+            <!-- Provider Selection -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="AI Provider" FontSize="13" FontWeight="SemiBold"/>
+                <ComboBox ItemsSource="{Binding AvailableProviders}"
+                          SelectedItem="{Binding SelectedProvider}"
+                          Width="200"/>
+            </StackPanel>
+
+            <!-- Model -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Model" FontSize="13" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Model}"
+                         Width="200"
+                         Watermark="e.g. gpt-4o"/>
+            </StackPanel>
+
+            <!-- API Key -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="API Key" FontSize="13" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding ApiKey}"
+                         PasswordChar="●"
+                         Width="300"/>
+            </StackPanel>
+
+            <!-- Working Directory -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Working Directory" FontSize="13" FontWeight="SemiBold"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0"
+                             Text="{Binding WorkingDirectory}"
+                             IsReadOnly="True"
+                             Margin="0,0,8,0"/>
+                    <Button Grid.Column="1"
+                            Content="Browse…"
+                            Command="{Binding BrowseDirectoryCommand}"
+                            Width="90" Height="28"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- Permission Mode -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>
+                <CheckBox IsChecked="{Binding AutoApprove}"
+                          Content="Auto-approve tool calls (FullAuto)"
+                          FontSize="13"/>
+            </StackPanel>
+
+            <!-- Save Button -->
+            <Button Content="💾 Save Settings"
+                    Command="{Binding SaveCommand}"
+                    HorizontalAlignment="Left"
+                    Padding="16,8"
+                    Margin="0,8,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

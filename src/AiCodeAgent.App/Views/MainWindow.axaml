@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:views="using:AiCodeAgent.App.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
@@ -102,15 +103,30 @@
             </Grid>
         </Border>
 
-        <!-- Main Content Area with SplitView -->
+        <!-- Main Content Area -->
         <Grid Grid.Row="1">
-            <!-- SplitView for sidebar -->
+            <!-- Settings Content - shown when IsSettingsMode is true -->
+            <ContentControl Grid.Row="0"
+                            Content="{Binding CurrentViewModel}"
+                            IsVisible="{Binding IsSettingsMode}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            ZIndex="10">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                        <views:SettingsView/>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+
+            <!-- SplitView for sidebar (visible in Chat mode) -->
             <SplitView Name="MainSplitView"
                        IsPaneOpen="{Binding IsFileExplorerOpen}"
                        DisplayMode="CompactInline"
                        OpenPaneLength="280"
-                       CompactPaneLength="40">
-                
+                       CompactPaneLength="40"
+                       IsVisible="{Binding IsSettingsMode, Converter={StaticResource InverseBool}}">
+
                 <!-- File Explorer Pane (Left Sidebar) -->
                 <SplitView.Pane>
                     <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" Padding="8">
@@ -432,39 +448,5 @@
                 </SplitView.Content>
             </SplitView>
         </Grid>
-
-        <!-- Status Bar -->
-        <Border Grid.Row="2" Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}" Padding="8,4">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
-                <!-- Status text -->
-                <TextBlock Grid.Column="0" Text="{Binding ChatViewModel.StatusText}" FontSize="11" Opacity="0.7" VerticalAlignment="Center"/>
-                <!-- Working directory -->
-                <TextBlock Grid.Column="1" Text="{Binding FileExplorer.RootPath}" FontSize="11" Opacity="0.5" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <!-- Token usage -->
-                <TextBlock Grid.Column="2" Text="{Binding ChatViewModel.TokenUsage}" FontSize="11" Opacity="0.5" Margin="8,0" VerticalAlignment="Center"/>
-                <!-- Permission mode -->
-                <TextBlock Grid.Column="3" 
-                           Text="{Binding ChatViewModel.PermissionMode, StringFormat='Mode: {}{0}'}" 
-                           FontSize="11" 
-                           Opacity="0.5" 
-                           Margin="8,0"
-                           Foreground="#4CAF50"
-                           VerticalAlignment="Center"/>
-                <!-- Model name -->
-                <TextBlock Grid.Column="4" 
-                           Text="{Binding ChatViewModel.SelectedModel}" 
-                           FontSize="11" 
-                           Opacity="0.5" 
-                           Margin="8,0"
-                           VerticalAlignment="Center"/>
-                <!-- File count -->
-                <TextBlock Grid.Column="5" 
-                           Text="{Binding FileExplorerStatus}" 
-                           FontSize="11" 
-                           Opacity="0.5" 
-                           Margin="8,0"
-                           VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
     </Grid>
 </Window>
