@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.ReactiveUI;
 using System;
+using System.Runtime.InteropServices;
 using Serilog;
 
 namespace AiCodeAgent.App;
@@ -18,6 +19,8 @@ class Program
         try
         {
             Log.Information("Starting AiCodeAgent.App");
+            Log.Information("OS: {OS}", RuntimeInformation.OSDescription);
+            Log.Information("Arch: {Arch}", RuntimeInformation.ProcessArchitecture);
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)

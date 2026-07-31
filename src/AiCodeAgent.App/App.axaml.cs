@@ -13,6 +13,7 @@ using AiCodeAgent.Context;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.OpenAI;
 using AiCodeAgent.Tools;
 using AiCodeAgent.Tools.Code;
@@ -41,21 +42,26 @@ public partial class App : Application
             ConfigureServices(services);
             Services = services.BuildServiceProvider();
 
-            // Load configuration synchronously
+            // Load configuration on background thread to avoid async-over-sync deadlock
+            // (OnFrameworkInitializationCompleted runs before the main message loop)
             var configSvc = Services.GetRequiredService<ConfigurationService>();
             try
             {
-                configSvc.LoadAsync().GetAwaiter().GetResult();
+                // Use Task.Run to run async code on thread pool, avoiding DispatcherSynchronizationContext deadlock
+                Task.Run(() => configSvc.LoadAsync()).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load config: {ex.Message}");
             }
 
-            desktop.MainWindow = new MainWindow
+            var mainWindow = new MainWindow
             {
                 DataContext = Services.GetRequiredService<MainViewModel>()
             };
+            desktop.MainWindow = mainWindow;
+            mainWindow.Show();
+            mainWindow.Activate();
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -94,14 +100,31 @@ public partial class App : Application
         // Agent Orchestrator
         services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
 
-        // Register AI provider
+        // Register AI provider - resilient to missing API key
         services.AddSingleton<IAiProvider>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();
             var logger = sp.GetRequiredService<ILogger<OpenAiProvider>>();
             var cfg = configSvc.GetProvider(configSvc.Config.DefaultProvider)
                 ?? throw new InvalidOperationException($"Provider not found: {configSvc.Config.DefaultProvider}");
-            return new OpenAiProvider(cfg, logger);
+            
+            // Validate and warn about missing API key
+            if (string.IsNullOrEmpty(cfg.ApiKey))
+            {
+                logger.LogWarning("API key for provider '{Provider}' is not configured. Please set your API key in settings.", 
+                    configSvc.Config.DefaultProvider);
+            }
+            
+            try
+            {
+                return new OpenAiProvider(cfg, logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to create AI provider, using fallback");
+                // Return a no-op provider that will show a user-friendly message
+                return new NoOpAiProvider(logger, $"Provider '{configSvc.Config.DefaultProvider}' is not properly configured. Please check your API key.");
+            }
         });
 
         // Register tools

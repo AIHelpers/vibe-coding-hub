@@ -23,8 +23,14 @@ public partial class MainViewModel : ObservableObject
         _serviceProvider = serviceProvider;
         WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
-        // Default to Chat view
-        NavigateToChatCommand.Execute(null);
+        // Default to Chat view - use lazy initialization to avoid eager DI resolution
+        // that can crash the app if dependencies aren't ready
+        _currentViewModel ??= CreateChatViewModel();
+    }
+
+    private ChatViewModel CreateChatViewModel()
+    {
+        return _serviceProvider.GetRequiredService<ChatViewModel>();
     }
 
     [RelayCommand]
