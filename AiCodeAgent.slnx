@@ -4,12 +4,14 @@
     <Project Path="src/AiCodeAgent.CLI/AiCodeAgent.CLI.csproj" />
     <Project Path="src/AiCodeAgent.Context/AiCodeAgent.Context.csproj" />
     <Project Path="src/AiCodeAgent.Core/AiCodeAgent.Core.csproj" />
+    <Project Path="src/AiCodeAgent.LanguageServices/AiCodeAgent.LanguageServices.csproj" />
     <Project Path="src/AiCodeAgent.Providers/AiCodeAgent.Providers.csproj" />
     <Project Path="src/AiCodeAgent.Tools/AiCodeAgent.Tools.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AiCodeAgent.Core.Tests/AiCodeAgent.Core.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Context.Tests/AiCodeAgent.Context.Tests.csproj" />
+    <Project Path="tests/AiCodeAgent.LanguageServices.Tests/AiCodeAgent.LanguageServices.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Providers.Tests/AiCodeAgent.Providers.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Tools.Tests/AiCodeAgent.Tools.Tests.csproj" />
   </Folder>

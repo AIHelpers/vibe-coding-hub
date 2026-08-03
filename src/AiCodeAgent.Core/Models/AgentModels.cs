@@ -127,6 +127,25 @@ public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;
 public record TokenUsageEvent(TokenUsage Usage) : AgentEvent;
 
+/// <summary>
+/// LSP diagnostic update for a file. Published on the AgentEventBus so agents
+/// can query live diagnostics instead of shelling out to run_diagnostics.
+/// </summary>
+public record LspDiagnosticsEvent(
+    string FilePath,
+    IReadOnlyList<LspDiagnosticItem> Diagnostics) : AgentEvent;
+
+/// <summary>A single diagnostic reported by a language server.</summary>
+public record LspDiagnosticItem(
+    int StartLine,
+    int StartCharacter,
+    int EndLine,
+    int EndCharacter,
+    string Severity,
+    string Message,
+    string? Source = null,
+    string? Code = null);
+
 /// <summary>Event tagged with the source agent for multi-agent sessions.</summary>
 public record AgentTaggedEvent(AgentEvent Inner, string AgentId, string? Role = null) : AgentEvent;
 

@@ -4,7 +4,9 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 
@@ -15,6 +17,8 @@ namespace AiCodeAgent.App.ViewModels;
 /// </summary>
 public partial class EditorPaneViewModel : ObservableObject
 {
+    private static readonly TimeSpan ChangeDebounce = TimeSpan.FromMilliseconds(300);
+
     [ObservableProperty]
     private EditorTabViewModel? _activeTab;
 
@@ -22,12 +26,18 @@ public partial class EditorPaneViewModel : ObservableObject
     private bool _isVisible = true;
 
     private readonly SharedChangeset? _changeset;
+    private readonly LspDocumentService? _lspService;
+    private CancellationTokenSource? _debounceCts;
+    private string? _pendingChangeFile;
 
     public ObservableCollection<EditorTabViewModel> Tabs { get; } = new();
 
-    public EditorPaneViewModel(SharedChangeset? changeset = null)
+    public EditorPaneViewModel(
+        SharedChangeset? changeset = null,
+        LspDocumentService? lspService = null)
     {
         _changeset = changeset;
+        _lspService = lspService;
     }
 
     partial void OnActiveTabChanged(EditorTabViewModel? value)
@@ -74,8 +84,15 @@ public partial class EditorPaneViewModel : ObservableObject
 
         var tab = new EditorTabViewModel();
         await tab.LoadAsync(path, readOnly);
+        tab.Document.TextChanged += OnTabDocumentTextChanged;
         Tabs.Add(tab);
         ActiveTab = tab;
+
+        // Notify the language server that the document was opened
+        if (_lspService != null && !readOnly && tab.Document.TextLength > 0)
+        {
+            _ = _lspService.OpenDocumentAsync(path, tab.Document.Text);
+        }
     }
 
     /// <summary>Close a tab, prompting for unsaved changes.</summary>
@@ -88,6 +105,13 @@ public partial class EditorPaneViewModel : ObservableObject
             await tab.SaveAsync();
         }
 
+        // Notify the language server that the document was closed
+        if (_lspService != null && !string.IsNullOrEmpty(tab.FilePath))
+        {
+            _ = _lspService.CloseDocumentAsync(tab.FilePath);
+        }
+
+        tab.Document.TextChanged -= OnTabDocumentTextChanged;
         Tabs.Remove(tab);
         if (ActiveTab == tab)
         {
@@ -103,6 +127,44 @@ public partial class EditorPaneViewModel : ObservableObject
         {
             await CloseTabAsync(tab);
         }
+    }
+
+    /// <summary>
+    /// Handles text changes with a debounce (~300ms) before notifying the
+    /// language server so its diagnostics stay live while typing.
+    /// </summary>
+    private void OnTabDocumentTextChanged(object? sender, EventArgs e)
+    {
+        if (_lspService == null)
+            return;
+
+        var tab = Tabs.FirstOrDefault(t => t.Document == sender);
+        if (tab == null || string.IsNullOrEmpty(tab.FilePath))
+            return;
+
+        _pendingChangeFile = tab.FilePath;
+
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        _ = Task.Delay(ChangeDebounce, token)
+            .ContinueWith(async _ =>
+            {
+                if (token.IsCancellationRequested || _pendingChangeFile == null)
+                    return;
+
+                var filePath = _pendingChangeFile;
+                _pendingChangeFile = null;
+
+                var target = Tabs.FirstOrDefault(t =>
+                    string.Equals(t.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+                if (target == null)
+                    return;
+
+                await _lspService.UpdateDocumentAsync(filePath, target.Document.Text);
+            }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
     }
 
     /// <summary>Save the active tab.</summary>

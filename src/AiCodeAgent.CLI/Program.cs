@@ -4,6 +4,9 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.LanguageServices;
+using AiCodeAgent.LanguageServices.Models;
+using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
@@ -198,6 +201,15 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, GitTool>();
     services.AddSingleton<ITool, WebFetchTool>();
     services.AddSingleton<ITool, DiagnosticsTool>();
+    services.AddSingleton<ITool, FindReferencesTool>();
+    services.AddSingleton<ITool, GoToDefinitionTool>();
+    services.AddSingleton<ITool, GetDiagnosticsTool>();
+
+    // LSP services
+    services.AddSingleton<ILanguageProvider, CSharpLanguageProvider>();
+    services.AddSingleton<ILanguageProvider, TypeScriptLanguageProvider>();
+    services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
+    services.AddSingleton<LanguageProviderRegistry>();
 
     // UI
     services.AddSingleton<TerminalUI>();

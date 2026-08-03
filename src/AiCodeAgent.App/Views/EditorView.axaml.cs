@@ -1,12 +1,19 @@
 using System;
 using System.ComponentModel;
+using System.IO;
+using System.Threading.Tasks;
 using AiCodeAgent.App.Editor;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.App.ViewModels;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Models;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Editing;
 
 namespace AiCodeAgent.App.Views;
 
@@ -14,6 +21,8 @@ public partial class EditorView : UserControl
 {
     private readonly SyntaxHighlightingResolver _highlightingResolver = new();
     private readonly DiffOverlayRenderer _diffOverlayRenderer = new();
+    private readonly DiagnosticsRenderer _diagnosticsRenderer = new();
+    private LspDocumentService? _lspService;
     private EditorPaneViewModel? _viewModel;
     private EditorTabViewModel? _activeTab;
     private TextEditor? _codeEditor;
@@ -23,6 +32,8 @@ public partial class EditorView : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
 
+        _lspService = (AiCodeAgent.App.App.Services?.GetService(typeof(LspDocumentService))) as LspDocumentService;
+
         // Locate the code editor control from the XAML template
         _codeEditor = this.FindControl<TextEditor>("CodeEditor");
 
@@ -30,6 +41,24 @@ public partial class EditorView : UserControl
         if (_codeEditor?.TextArea?.TextView != null)
         {
             _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diffOverlayRenderer);
+        }
+
+        // Set up the diagnostics squiggly renderer
+        if (_codeEditor?.TextArea?.TextView != null)
+        {
+            _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diagnosticsRenderer);
+        }
+
+        if (_lspService != null)
+        {
+            _lspService.DiagnosticsUpdated += OnDiagnosticsUpdated;
+        }
+
+        if (_codeEditor != null)
+        {
+            _codeEditor.PointerHover += OnEditorPointerHover;
+            _codeEditor.PointerHoverStopped += OnEditorPointerHoverStopped;
+            _codeEditor.PointerPressed += OnEditorPointerPressed;
         }
     }
 
@@ -73,6 +102,22 @@ public partial class EditorView : UserControl
         }
     }
 
+    private void OnDiagnosticsUpdated(object? sender, LspDiagnosticsUpdatedEventArgs e)
+    {
+        // Only refresh if the diagnostics belong to the active tab
+        if (_activeTab == null || !string.Equals(
+                Path.GetFullPath(e.FilePath),
+                Path.GetFullPath(_activeTab.FilePath),
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _diagnosticsRenderer.UpdateDiagnostics(e.Diagnostics);
+        if (_codeEditor?.TextArea?.TextView != null)
+        {
+            _codeEditor.TextArea.TextView.InvalidateVisual();
+        }
+    }
+
     private void UpdateDiffOverlay()
     {
         _diffOverlayRenderer.UpdateHunks(_viewModel?.ActiveTabHunks ?? Array.Empty<DiffHunk>());
@@ -91,6 +136,7 @@ public partial class EditorView : UserControl
                 _codeEditor.Document = null;
             }
             _diffOverlayRenderer.UpdateHunks(Array.Empty<DiffHunk>());
+            _diagnosticsRenderer.UpdateDiagnostics(Array.Empty<LspDiagnosticItem>());
             if (_codeEditor?.TextArea?.TextView != null)
             {
                 _codeEditor.TextArea.TextView.InvalidateVisual();
@@ -110,5 +156,151 @@ public partial class EditorView : UserControl
 
         // Update diff overlay with hunks for this file
         UpdateDiffOverlay();
+
+        // Update diagnostics squiggles from the LSP cache
+        if (_lspService != null && !string.IsNullOrEmpty(_activeTab.FilePath))
+        {
+            var diagnostics = _lspService.GetCachedDiagnostics(_activeTab.FilePath);
+            _diagnosticsRenderer.UpdateDiagnostics(diagnostics);
+            if (_codeEditor?.TextArea?.TextView != null)
+            {
+                _codeEditor.TextArea.TextView.InvalidateVisual();
+            }
+        }
+        else
+        {
+            _diagnosticsRenderer.UpdateDiagnostics(Array.Empty<LspDiagnosticItem>());
+        }
+    }
+
+    // ===== LSP hover =====
+
+    private async void OnEditorPointerHover(object? sender, PointerEventArgs e)
+    {
+        if (_codeEditor == null || _activeTab == null || _lspService == null)
+            return;
+
+        var position = _codeEditor.GetPositionFromPoint(e.GetPosition(_codeEditor.TextArea.TextView));
+        if (position == null)
+            return;
+
+        var location = position.Value.Location;
+        var hover = await _lspService.HoverAsync(
+            _activeTab.FilePath,
+            Math.Max(0, location.Line - 1),
+            Math.Max(0, location.Column - 1));
+
+        if (hover?.Contents?.Value == null)
+        {
+            CloseHoverToolTip();
+            return;
+        }
+
+        // Strip markdown code fences for plain-text tooltip display
+        var text = hover.Contents.Value
+            .Replace("```csharp", "")
+            .Replace("```typescript", "")
+            .Replace("```python", "")
+            .Replace("```", "")
+            .Trim();
+
+        if (string.IsNullOrEmpty(text))
+        {
+            CloseHoverToolTip();
+            return;
+        }
+
+        var editor = _codeEditor;
+        ToolTip.SetPlacement(editor, PlacementMode.Pointer);
+        ToolTip.SetShowDelay(editor, 0);
+        ToolTip.SetTip(editor, text);
+        ToolTip.SetIsOpen(editor, true);
+    }
+
+    private void OnEditorPointerHoverStopped(object? sender, PointerEventArgs e)
+    {
+        CloseHoverToolTip();
+    }
+
+    private void CloseHoverToolTip()
+    {
+        if (_codeEditor != null)
+        {
+            ToolTip.SetIsOpen(_codeEditor, false);
+            ToolTip.SetTip(_codeEditor, null);
+        }
+    }
+
+    // ===== Go-to-definition (Ctrl+Click / F12) =====
+
+    private async void OnEditorPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var keyModifiers = e.KeyModifiers;
+        if ((keyModifiers & KeyModifiers.Control) == 0)
+            return;
+
+        if (_codeEditor == null || _activeTab == null || _lspService == null)
+            return;
+
+        var position = _codeEditor.GetPositionFromPoint(e.GetPosition(_codeEditor.TextArea.TextView));
+        if (position == null)
+            return;
+
+        var location = position.Value.Location;
+        var locations = await _lspService.DefinitionAsync(
+            _activeTab.FilePath,
+            Math.Max(0, location.Line - 1),
+            Math.Max(0, location.Column - 1));
+
+        if (locations.Count == 0)
+            return;
+
+        var loc = locations[0];
+        var targetPath = UriToPath(loc.Uri);
+        if (string.IsNullOrEmpty(targetPath) || !File.Exists(targetPath))
+            return;
+
+        e.Handled = true;
+        await OpenLocationAsync(targetPath, loc.Range?.Start.Line ?? 0);
+    }
+
+    private async Task OpenLocationAsync(string path, int line)
+    {
+        // Open the file in the editor
+        if (_viewModel != null)
+        {
+            await _viewModel.OpenFileAsync(path);
+        }
+
+        // Scroll to the target line after the document is loaded
+        if (_codeEditor != null && _codeEditor.TextArea != null)
+        {
+            await Task.Yield();
+            var doc = _codeEditor.Document;
+            if (doc != null && line >= 0 && line < doc.LineCount)
+            {
+                _codeEditor.ScrollToLine(line + 1);
+                var docLine = doc.GetLineByNumber(line + 1);
+                _codeEditor.TextArea.Caret.Offset = docLine.Offset;
+            }
+        }
+    }
+
+    // ===== Helpers =====
+
+    private static string UriToPath(string uri)
+    {
+        if (string.IsNullOrEmpty(uri))
+            return string.Empty;
+
+        if (uri.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = Uri.UnescapeDataString(uri[7..]);
+            if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
+                path = path[1..];
+            return path.Replace('/', Path.DirectorySeparatorChar);
+        }
+
+        return uri;
     }
 }

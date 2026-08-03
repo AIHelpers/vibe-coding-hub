@@ -14,6 +14,9 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.LanguageServices;
+using AiCodeAgent.LanguageServices.Models;
+using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Tools;
 using AiCodeAgent.Tools.Code;
@@ -161,10 +164,20 @@ public partial class App : Application
         services.AddSingleton<ITool, GitTool>();
         services.AddSingleton<ITool, WebFetchTool>();
         services.AddSingleton<ITool, DiagnosticsTool>();
+        services.AddSingleton<ITool, FindReferencesTool>();
+        services.AddSingleton<ITool, GoToDefinitionTool>();
+        services.AddSingleton<ITool, GetDiagnosticsTool>();
 
         // Shared changeset (canonical store for diff hunks)
         services.AddSingleton<SharedChangeset>();
-        
+
+        // LSP (Language Server Protocol) services
+        services.AddSingleton<ILanguageProvider, CSharpLanguageProvider>();
+        services.AddSingleton<ILanguageProvider, TypeScriptLanguageProvider>();
+        services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
+        services.AddSingleton<LanguageProviderRegistry>();
+        services.AddSingleton<LspDocumentService>();
+
         // New ViewModels - Workspace components
         services.AddSingleton<FileExplorerViewModel>();
         services.AddSingleton<TerminalViewModel>();
