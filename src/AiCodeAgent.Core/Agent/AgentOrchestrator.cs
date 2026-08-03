@@ -70,11 +70,13 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             SessionId = sessionId,
             WorkingDirectory = options.WorkingDirectory,
-            Permissions = new PermissionSettings { Mode = options.PermissionMode }
+            Permissions = new PermissionSettings { Mode = options.PermissionMode },
+            AgentId = options.AgentId,
+            Role = options.Role
         };
 
-        // Set permission mode
-        _permissionService.SetMode(options.PermissionMode);
+        // Set permission mode (per-agent if AgentId is provided)
+        _permissionService.SetMode(options.PermissionMode, options.AgentId);
 
         // Emit status update
         var statusEvent = new StatusUpdateEvent("Processing", "Starting agent loop");
@@ -238,7 +240,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 // For write/execute operations, check permissions
                 if (tool.Risk != RiskLevel.Read)
                 {
-                    var isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options);
+                    var isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options, options.AgentId);
                     if (!isApproved)
                     {
                         // Emit approval request event - UI will handle this
@@ -369,6 +371,13 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     private string BuildSystemPrompt(AgentOptions options)
     {
+        var roleLine = string.IsNullOrEmpty(options.Role)
+            ? string.Empty
+            : $"Role: {options.Role}";
+        var agentLine = string.IsNullOrEmpty(options.AgentId)
+            ? string.Empty
+            : $"Agent ID: {options.AgentId}";
+
         return $"""
             You are an expert AI coding assistant with deep knowledge of software development.
             You have access to tools to read/write files, execute commands, search code, and more.
@@ -377,6 +386,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             Date: {DateTime.UtcNow:yyyy-MM-dd}
             OS: {RuntimeInformation.OSDescription}
             Permission mode: {options.PermissionMode}
+            {roleLine}
+            {agentLine}
             
             Guidelines:
             - Always read files before editing them to understand current state

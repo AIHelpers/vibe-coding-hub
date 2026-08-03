@@ -20,6 +20,9 @@ public partial class SettingsViewModel : ObservableObject
     private string _model = string.Empty;
 
     [ObservableProperty]
+    private string _baseUrl = string.Empty;
+
+    [ObservableProperty]
     private string _apiKey = string.Empty;
 
     [ObservableProperty]
@@ -28,14 +31,10 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _autoApprove;
 
-    public ObservableCollection<string> AvailableProviders { get; } = new()
-    {
-        "OpenAI",
-        "Anthropic",
-        "AzureOpenAI",
-        "GoogleGemini",
-        "Ollama"
-    };
+    [ObservableProperty]
+    private bool _verifySsl = true;
+
+    public ObservableCollection<string> AvailableProviders { get; } = new();
 
     public SettingsViewModel(ConfigurationService configurationService, IStorageProvider? storageProvider = null)
     {
@@ -48,23 +47,47 @@ public partial class SettingsViewModel : ObservableObject
     {
         var config = _configurationService.Config;
 
+        // Populate providers from configuration (supports custom local providers)
+        AvailableProviders.Clear();
+        foreach (var name in config.Providers.Keys)
+            AvailableProviders.Add(name);
+
         SelectedProvider = config.DefaultProvider;
+        LoadProviderSettings(config.DefaultProvider);
         
-        // Get model from provider config
-        if (config.Providers.TryGetValue(config.DefaultProvider.ToLower(), out var provider))
+        WorkingDirectory = Directory.GetCurrentDirectory();
+        AutoApprove = config.Agent?.AutoApprove ?? false;
+    }
+
+    partial void OnSelectedProviderChanged(string value)
+    {
+        if (!string.IsNullOrEmpty(value))
+            LoadProviderSettings(value);
+    }
+
+    private void LoadProviderSettings(string providerName)
+    {
+        if (_configurationService.Config.Providers.TryGetValue(
+                providerName.ToLowerInvariant(), out var provider))
         {
             Model = provider.DefaultModel ?? "gpt-4o";
+            BaseUrl = provider.BaseUrl ?? string.Empty;
+            VerifySsl = provider.VerifySsl;
+
+            // Try to get API key from environment or config
+            var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpperInvariant()}_API_KEY";
+            var envKeyLegacy = $"AIAGENT_{providerName.ToUpperInvariant()}_API_KEY";
+            ApiKey = Environment.GetEnvironmentVariable(envKeyNew)
+                  ?? Environment.GetEnvironmentVariable(envKeyLegacy)
+                  ?? provider.ApiKey ?? string.Empty;
         }
         else
         {
             Model = "gpt-4o";
+            BaseUrl = string.Empty;
+            ApiKey = string.Empty;
+            VerifySsl = true;
         }
-        
-        WorkingDirectory = Directory.GetCurrentDirectory();
-        AutoApprove = config.Agent?.AutoApprove ?? false;
-
-        // Try to get API key from environment or config
-        ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
     }
 
     [RelayCommand]
@@ -93,25 +116,24 @@ public partial class SettingsViewModel : ObservableObject
         config.Agent ??= new AgentConfiguration();
         config.Agent.AutoApprove = AutoApprove;
 
-        // Update provider config with model using with expression for record
-        var providerKey = SelectedProvider.ToLower();
-        if (config.Providers.TryGetValue(providerKey, out var existingProvider))
-        {
-            config.Providers[providerKey] = existingProvider with { DefaultModel = Model };
-        }
-        else
-        {
-            config.Providers[providerKey] = new ProviderConfiguration 
-            { 
-                Name = providerKey, 
-                DefaultModel = Model 
-            };
-        }
+        // Update provider config with model, URL, and API key
+        var providerKey = SelectedProvider.ToLowerInvariant();
+        var existing = config.Providers.TryGetValue(providerKey, out var current)
+            ? current
+            : null;
 
-        if (!string.IsNullOrEmpty(ApiKey))
+        config.Providers[providerKey] = new ProviderConfiguration
         {
-            Environment.SetEnvironmentVariable("OPENAI_API_KEY", ApiKey);
-        }
+            Name = providerKey,
+            BaseUrl = string.IsNullOrEmpty(BaseUrl) && existing != null
+                ? existing.BaseUrl
+                : BaseUrl,
+            DefaultModel = Model,
+            ApiKey = !string.IsNullOrEmpty(ApiKey) ? ApiKey : existing?.ApiKey,
+            TimeoutSeconds = existing?.TimeoutSeconds ?? 300,
+            VerifySsl = VerifySsl,
+            Headers = existing?.Headers ?? new()
+        };
 
         await _configurationService.SaveAsync();
     }

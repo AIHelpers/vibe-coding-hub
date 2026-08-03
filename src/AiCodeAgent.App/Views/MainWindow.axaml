@@ -171,7 +171,47 @@
 
                 <!-- Main Content (Chat + Terminal) -->
                 <SplitView.Content>
-                    <Grid RowDefinitions="*,Auto,Auto">
+                    <Grid RowDefinitions="*,Auto,Auto" ColumnDefinitions="*,Auto">
+                        <!-- Agent Session Sidebar (Right) -->
+                        <Border Grid.Column="1" 
+                                IsVisible="{Binding ChatViewModel.IsAgentSidebarOpen}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" 
+                                Padding="8" 
+                                Margin="8,0,0,8"
+                                MinWidth="180"
+                                MaxWidth="220">
+                            <Grid RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                    <TextBlock Grid.Column="0" Text="🤖 Agents" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" 
+                                            Content="✕" 
+                                            Command="{Binding ChatViewModel.ToggleAgentSidebarCommand}"
+                                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                                </Grid>
+                                <ScrollViewer Grid.Row="1">
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.AgentSessions}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:AgentSessionItem">
+                                                <Border Margin="0,2" Padding="8" Background="#2A2A3A" CornerRadius="6">
+                                                    <StackPanel Spacing="2">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="🤖" FontSize="12" Margin="0,0,6,0"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding AgentId}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="10" Opacity="0.6"/>
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding Role}" FontSize="10" Opacity="0.5"/>
+                                                        <TextBlock Text="{Binding PermissionMode, StringFormat='Mode: {}{0}'}" FontSize="10" Opacity="0.4"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <!-- Chat Column -->
+                        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto">
                         <!-- Chat Messages + Tool Cards -->
                         <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
                             <StackPanel Spacing="8" Margin="16,0">
@@ -327,6 +367,17 @@
                                                FontSize="12" 
                                                Opacity="0.7" 
                                                TextWrapping="Wrap"/>
+                                    <Border Background="#2A2A3A" CornerRadius="6" Padding="8" 
+                                            IsVisible="{Binding ChatViewModel.ApprovalAgent, Converter={StaticResource StringNotEmpty}}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{Binding ChatViewModel.ApprovalAgent, StringFormat='🤖 Agent: {}{0}'}" 
+                                                       FontSize="12" 
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding ChatViewModel.ApprovalRole, StringFormat='Role: {}{0}'}" 
+                                                       FontSize="11" 
+                                                       Opacity="0.6"/>
+                                        </StackPanel>
+                                    </Border>
                                     <Grid ColumnDefinitions="*,*" Margin="0,8,0,0">
                                         <Button Grid.Column="0" 
                                                 Content="✅ Approve" 
@@ -444,6 +495,7 @@
                                     ToolTip.Tip="Clear Chat (Ctrl+L)"
                                     Width="36" Height="36" Padding="0" Margin="4,0,0,0"/>
                         </Grid>
+                    </Grid>
                     </Grid>
                 </SplitView.Content>
             </SplitView>

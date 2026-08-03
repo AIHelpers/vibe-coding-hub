@@ -49,6 +49,16 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private string _approvalArgs = "";
 
+    [ObservableProperty]
+    private string _approvalAgent = "";
+
+    [ObservableProperty]
+    private string _approvalRole = "";
+
+    // Agent session sidebar
+    [ObservableProperty]
+    private bool _isAgentSidebarOpen = true;
+
     // @-mention system
     [ObservableProperty]
     private bool _showMentionPopup;
@@ -80,6 +90,7 @@ public partial class ChatViewModel : ObservableObject
     public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
     public ObservableCollection<MentionItem> MentionItems { get; } = new();
     public ObservableCollection<SlashCommandItem> SlashCommandItems { get; } = new();
+    public ObservableCollection<AgentSessionItem> AgentSessions { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new()
     {
         "Auto", "Fast", "Smart"
@@ -239,6 +250,11 @@ public partial class ChatViewModel : ObservableObject
                         _pendingApproval = approval.Approval;
                         break;
 
+                    case AgentTaggedEvent tagged:
+                        // Handle agent-tagged events from multi-agent sessions
+                        HandleAgentTaggedEvent(tagged, assistantMessage);
+                        break;
+
                     case StatusUpdateEvent status:
                         StatusText = status.Status;
                         break;
@@ -307,6 +323,101 @@ public partial class ChatViewModel : ObservableObject
     private void SetPermissionMode(string mode)
     {
         PermissionMode = mode;
+    }
+
+    [RelayCommand]
+    private void ToggleAgentSidebar()
+    {
+        IsAgentSidebarOpen = !IsAgentSidebarOpen;
+    }
+
+    private void HandleAgentTaggedEvent(AgentTaggedEvent tagged, ChatMessage assistantMessage)
+    {
+        // Track active agents in the sidebar
+        var existing = AgentSessions.FirstOrDefault(a => a.AgentId == tagged.AgentId);
+        if (existing == null)
+        {
+            existing = new AgentSessionItem
+            {
+                AgentId = tagged.AgentId,
+                Role = tagged.Role ?? "agent",
+                Status = "Active"
+            };
+            AgentSessions.Add(existing);
+        }
+        else
+        {
+            existing.Role = tagged.Role ?? existing.Role;
+            existing.Status = "Active";
+        }
+
+        // Handle inner event
+        switch (tagged.Inner)
+        {
+            case TextDeltaEvent delta:
+                assistantMessage.Content += delta.Delta;
+                break;
+
+            case ToolCallStartEvent start:
+                var card = new ToolCallCardViewModel
+                {
+                    ToolName = start.Call.Name,
+                    Arguments = FormatArguments(start.Call.Arguments),
+                    IsExpanded = false,
+                    AgentId = tagged.AgentId,
+                    AgentRole = tagged.Role
+                };
+                ToolCallCards.Add(card);
+                break;
+
+            case ToolCallEndEvent end:
+                var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name && c.AgentId == tagged.AgentId);
+                if (existingCard != null)
+                {
+                    existingCard.Output = TruncateOutput(end.Result.Content, 500);
+                    existingCard.Duration = end.Duration;
+                    existingCard.IsError = end.Result.IsError;
+                }
+                break;
+
+            case ApprovalRequestEvent approval:
+                ShowApprovalDialog = true;
+                ApprovalToolName = approval.Call.Name;
+                ApprovalArgs = FormatArguments(approval.Call.Arguments);
+                ApprovalAgent = tagged.AgentId;
+                ApprovalRole = tagged.Role ?? "";
+                _pendingApproval = approval.Approval;
+                break;
+
+            case StatusUpdateEvent status:
+                StatusText = $"[{tagged.AgentId}] {status.Status}";
+                break;
+
+            case TokenUsageEvent usage:
+                TokenUsage = $"Tokens: {usage.Usage.TotalTokens}";
+                break;
+
+            case AgentFinishedEvent finished:
+                if (finished.Response.WasCancelled)
+                {
+                    assistantMessage.Content += "\n\n*Cancelled*";
+                }
+                if (existing != null)
+                {
+                    existing.Status = "Done";
+                }
+                StatusText = "Done";
+                break;
+
+            case AgentErrorEvent error:
+                assistantMessage.Content += $"\n\n**Error ({tagged.AgentId}):** {error.Error.Message}";
+                if (existing != null)
+                {
+                    existing.Status = "Error";
+                }
+                StatusText = "Error";
+                break;
+        }
     }
 
     // @-mention logic
@@ -644,10 +755,31 @@ public partial class ToolCallCardViewModel : ObservableObject
     [ObservableProperty]
     private string? _approvalId;
 
+    [ObservableProperty]
+    private string? _agentId;
+
+    [ObservableProperty]
+    private string? _agentRole;
+
     public void ToggleExpand()
     {
         IsExpanded = !IsExpanded;
     }
+}
+
+public partial class AgentSessionItem : ObservableObject
+{
+    [ObservableProperty]
+    private string _agentId = string.Empty;
+
+    [ObservableProperty]
+    private string _role = string.Empty;
+
+    [ObservableProperty]
+    private string _status = "Idle";
+
+    [ObservableProperty]
+    private string _permissionMode = "Ask";
 }
 
 public class MentionItem

@@ -14,7 +14,6 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Providers;
-using AiCodeAgent.Providers.OpenAI;
 using AiCodeAgent.Tools;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
@@ -118,30 +117,37 @@ public partial class App : Application
         
         // Agent Orchestrator
         services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
+        
+        // Role Preset Loader
+        services.AddSingleton<RolePresetLoader>();
+        
+        // Agent Session Coordinator (multi-agent orchestration)
+        services.AddSingleton<AgentSessionCoordinator>();
 
         // Register AI provider
         services.AddSingleton<IAiProvider>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();
-            var logger = sp.GetRequiredService<ILogger<OpenAiProvider>>();
-            var cfg = configSvc.GetProvider(configSvc.Config.DefaultProvider)
-                ?? throw new InvalidOperationException($"Provider not found: {configSvc.Config.DefaultProvider}");
-            
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var providerName = configSvc.Config.DefaultProvider;
+            var cfg = configSvc.GetProvider(providerName)
+                ?? throw new InvalidOperationException($"Provider not found: {providerName}");
+
+            // Try to get API key from environment (both legacy and new naming are supported)
+            var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";
+            var envKeyLegacy = $"AIAGENT_{providerName.ToUpper()}_API_KEY";
+            var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
+                      ?? Environment.GetEnvironmentVariable(envKeyLegacy)
+                      ?? cfg.ApiKey;
+            cfg = cfg with { ApiKey = apiKey };
+
             if (string.IsNullOrEmpty(cfg.ApiKey))
             {
-                logger.LogWarning("API key for provider '{Provider}' is not configured.", 
-                    configSvc.Config.DefaultProvider);
+                var logger = loggerFactory.CreateLogger("App");
+                logger.LogWarning("API key for provider '{Provider}' is not configured.", providerName);
             }
-            
-            try
-            {
-                return new OpenAiProvider(cfg, logger);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to create AI provider, using fallback");
-                return new NoOpAiProvider(logger, $"Provider '{configSvc.Config.DefaultProvider}' is not properly configured.");
-            }
+
+            return ProviderFactory.CreateOrFallback(providerName, cfg, loggerFactory);
         });
 
         // Register tools

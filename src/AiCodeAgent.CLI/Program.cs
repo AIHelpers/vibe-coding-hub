@@ -5,10 +5,6 @@ using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Providers;
-using AiCodeAgent.Providers.Anthropic;
-using AiCodeAgent.Providers.Ollama;
-using AiCodeAgent.Providers.OpenAI;
-using AiCodeAgent.Providers.OpenAICompatible;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
 using AiCodeAgent.Tools.Git;
@@ -97,8 +93,54 @@ listProvidersCommand.SetHandler(async () =>
     }
 });
 
+// config add-provider command - add a custom local provider with a custom URL
+var addProviderCommand = new Command("add-provider", "Add a custom local provider with a custom URL");
+var addProviderName = new Argument<string>("name", "Provider name (e.g. lmstudio, vllm, localai)");
+var addProviderUrl = new Option<string>("--url", "Base URL of the provider (e.g. http://localhost:1234)") { IsRequired = true };
+var addProviderModel = new Option<string>("--model", "Default model to use");
+var addProviderApiKey = new Option<string>("--api-key", "API key (if required by the provider)");
+var addProviderTimeout = new Option<int>("--timeout", "Request timeout in seconds");
+var addProviderNoVerifySsl = new Option<bool>("--no-verify-ssl", "Disable SSL certificate verification (for local dev)");
+
+addProviderCommand.AddArgument(addProviderName);
+addProviderCommand.AddOption(addProviderUrl);
+addProviderCommand.AddOption(addProviderModel);
+addProviderCommand.AddOption(addProviderApiKey);
+addProviderCommand.AddOption(addProviderTimeout);
+addProviderCommand.AddOption(addProviderNoVerifySsl);
+
+addProviderCommand.SetHandler(async (name, url, model, apiKey, timeout, noVerifySsl) =>
+{
+    var configSvc = new ConfigurationService();
+    await configSvc.LoadAsync();
+
+    var existing = configSvc.GetProvider(name);
+    var providerCfg = new ProviderConfiguration
+    {
+        Name = name,
+        BaseUrl = url,
+        DefaultModel = string.IsNullOrEmpty(model)
+            ? existing?.DefaultModel ?? "local-model"
+            : model,
+        ApiKey = !string.IsNullOrEmpty(apiKey) ? apiKey : existing?.ApiKey,
+        TimeoutSeconds = timeout > 0 ? timeout : existing?.TimeoutSeconds ?? 300,
+        VerifySsl = !noVerifySsl
+    };
+
+    configSvc.Config.Providers[name.ToLowerInvariant()] = providerCfg;
+    await configSvc.SaveAsync();
+    Console.WriteLine($"Provider '{name}' added:");
+    Console.WriteLine($"  URL:    {url}");
+    Console.WriteLine($"  Model:  {providerCfg.DefaultModel}");
+    Console.WriteLine($"  Timeout: {providerCfg.TimeoutSeconds}s");
+    Console.WriteLine($"  SSL:    {(providerCfg.VerifySsl ? "verify" : "skip")}");
+    Console.WriteLine();
+    Console.WriteLine("Use it with: aicodeagent chat --provider " + name.ToLowerInvariant());
+}, addProviderName, addProviderUrl, addProviderModel, addProviderApiKey, addProviderTimeout, addProviderNoVerifySsl);
+
 configCommand.AddCommand(setKeyCommand);
 configCommand.AddCommand(listProvidersCommand);
+configCommand.AddCommand(addProviderCommand);
 
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
@@ -143,6 +185,8 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ICheckpointManager, CheckpointManager>();
     services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);
+    services.AddSingleton<RolePresetLoader>();
+    services.AddSingleton<AgentSessionCoordinator>();
 
     // Register tools
     services.AddSingleton<ITool, ReadFileTool>();
@@ -188,13 +232,6 @@ static void RegisterProvider(
     services.AddSingleton<IAiProvider>(sp =>
     {
         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-        return providerName.ToLower() switch
-        {
-            "openai" => new OpenAiProvider(cfg, loggerFactory.CreateLogger<OpenAiProvider>()),
-            "anthropic" => new AnthropicProvider(cfg, loggerFactory.CreateLogger<AnthropicProvider>()),
-            "ollama" => new OllamaProvider(cfg, loggerFactory.CreateLogger<OllamaProvider>()),
-            _ => new OpenAiCompatibleProvider(providerName, cfg,
-                loggerFactory.CreateLogger<OpenAiCompatibleProvider>())
-        };
+        return ProviderFactory.Create(providerName, cfg, loggerFactory);
     });
 }

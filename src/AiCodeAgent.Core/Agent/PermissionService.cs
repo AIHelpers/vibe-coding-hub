@@ -9,11 +9,13 @@ namespace AiCodeAgent.Core.Agent;
 /// Permission service that manages tool approval workflows.
 /// Supports Ask, AutoEdit, FullAuto, and Plan modes.
 /// Persists per-project allowlists.
+/// Modes can be set globally or per-agent (for multi-agent sessions).
 /// </summary>
 public class PermissionService : IPermissionService
 {
     private readonly ILogger<PermissionService> _logger;
     private readonly ConcurrentDictionary<string, bool> _persistentAllowlist = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, PermissionMode> _agentModes = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _allowlistPath;
     
     private PermissionMode _currentMode = PermissionMode.Ask;
@@ -31,16 +33,33 @@ public class PermissionService : IPermissionService
         LoadAllowlistAsync().GetAwaiter().GetResult();
     }
 
-    public void SetMode(PermissionMode mode)
+    public void SetMode(PermissionMode mode, string? agentId = null)
     {
-        _currentMode = mode;
-        _logger.LogInformation("Permission mode set to {Mode}", mode);
+        if (string.IsNullOrEmpty(agentId))
+        {
+            _currentMode = mode;
+            _logger.LogInformation("Permission mode set to {Mode}", mode);
+        }
+        else
+        {
+            _agentModes[agentId] = mode;
+            _logger.LogInformation("Permission mode set to {Mode} for agent {AgentId}", mode, agentId);
+        }
     }
 
-    public async Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options)
+    public PermissionMode GetMode(string? agentId = null)
     {
+        if (!string.IsNullOrEmpty(agentId) && _agentModes.TryGetValue(agentId, out var agentMode))
+            return agentMode;
+        return _currentMode;
+    }
+
+    public async Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null)
+    {
+        var mode = GetMode(agentId);
+
         // Plan mode: only allow Read operations
-        if (_currentMode == PermissionMode.Plan)
+        if (mode == PermissionMode.Plan)
         {
             if (risk != RiskLevel.Read)
                 return false;
@@ -48,7 +67,7 @@ public class PermissionService : IPermissionService
         }
 
         // FullAuto mode: always approve
-        if (_currentMode == PermissionMode.FullAuto || options.AutoApprove)
+        if (mode == PermissionMode.FullAuto || options.AutoApprove)
             return true;
 
         // Check persistent allowlist
@@ -57,7 +76,7 @@ public class PermissionService : IPermissionService
             return true;
 
         // AutoEdit mode: auto-approve Read and Write, ask for Execute
-        if (_currentMode == PermissionMode.AutoEdit)
+        if (mode == PermissionMode.AutoEdit)
         {
             if (risk == RiskLevel.Read || risk == RiskLevel.Write)
                 return true;

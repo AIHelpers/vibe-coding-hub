@@ -84,7 +84,8 @@ public interface ICheckpointManager
 
 public interface IPermissionService
 {
-    Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options);
-    void SetMode(PermissionMode mode);
+    Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null);
+    void SetMode(PermissionMode mode, string? agentId = null);
+    PermissionMode GetMode(string? agentId = null);
     PermissionMode CurrentMode { get; }
 }

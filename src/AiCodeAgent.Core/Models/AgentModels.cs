@@ -47,6 +47,8 @@ public record DiffEntry
     public string DiffText { get; init; } = string.Empty;
     public bool IsAccepted { get; init; }
     public bool IsRejected { get; init; }
+    /// <summary>Agent that produced this diff hunk (for multi-agent attribution).</summary>
+    public string? AgentId { get; init; }
 }
 
 public class ToolCallCard
@@ -70,6 +72,10 @@ public record AgentExecutionContext
     public bool IsReadOnly { get; init; }
     public List<string> AllowedPaths { get; init; } = new();
     public PermissionSettings? Permissions { get; init; }
+    /// <summary>Agent instance key for multi-agent sessions.</summary>
+    public string? AgentId { get; init; }
+    /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
+    public string? Role { get; init; }
 }
 
 public record AgentOptions
@@ -84,6 +90,10 @@ public record AgentOptions
     public bool IsReadOnly { get; init; } = false;
     public PermissionMode PermissionMode { get; init; } = PermissionMode.Ask;
     public string? SessionId { get; init; }
+    /// <summary>Agent instance key for multi-agent sessions.</summary>
+    public string? AgentId { get; init; }
+    /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
+    public string? Role { get; init; }
 }
 
 public record AgentResponse
@@ -115,6 +125,9 @@ public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;
 public record TokenUsageEvent(TokenUsage Usage) : AgentEvent;
 
+/// <summary>Event tagged with the source agent for multi-agent sessions.</summary>
+public record AgentTaggedEvent(AgentEvent Inner, string AgentId, string? Role = null) : AgentEvent;
+
 public record MemoryEntry
 {
     public string Key { get; init; } = string.Empty;
@@ -132,4 +145,110 @@ public record CodeSnippet
     public int EndLine { get; init; }
     public string Language { get; init; } = string.Empty;
     public float Score { get; init; }
+}
+
+// ===== Multi-Agent Session Models =====
+
+/// <summary>Role preset definition (data-driven, extensible).</summary>
+public record AgentRolePreset
+{
+    public string Role { get; init; } = string.Empty;
+    public string SystemPrompt { get; init; } = string.Empty;
+    public PermissionMode DefaultPermissionMode { get; init; } = PermissionMode.Ask;
+    public List<string> AllowedTools { get; init; } = new();
+    public string? Description { get; init; }
+}
+
+/// <summary>A single step in a multi-agent session plan.</summary>
+public record SessionStep
+{
+    public string AgentId { get; init; } = string.Empty;
+    public string Role { get; init; } = string.Empty;
+    public string Prompt { get; init; } = string.Empty;
+    public AgentOptions Options { get; init; } = new();
+}
+
+/// <summary>Plan for a multi-agent session (sequential turn-taking).</summary>
+public record SessionPlan
+{
+    public string SessionId { get; init; } = string.Empty;
+    public string? UserGoal { get; init; }
+    public List<SessionStep> Steps { get; init; } = new();
+}
+
+/// <summary>Shared staged edits across agents with per-hunk attribution.</summary>
+public class SharedChangeset
+{
+    private readonly object _lock = new();
+    private readonly List<DiffEntry> _entries = new();
+
+    public IReadOnlyList<DiffEntry> Entries
+    {
+        get { lock (_lock) return _entries.ToList(); }
+    }
+
+    public void Add(DiffEntry entry)
+    {
+        lock (_lock) _entries.Add(entry);
+    }
+
+    public void AddRange(IEnumerable<DiffEntry> entries)
+    {
+        lock (_lock) _entries.AddRange(entries);
+    }
+
+    public void Clear()
+    {
+        lock (_lock) _entries.Clear();
+    }
+
+    public IEnumerable<DiffEntry> GetByAgent(string agentId)
+    {
+        lock (_lock) return _entries.Where(e => e.AgentId == agentId).ToList();
+    }
+}
+
+/// <summary>Shared context store across agents (file/symbol context, token budget).</summary>
+public class SharedContextStore
+{
+    private readonly object _lock = new();
+    private readonly Dictionary<string, string> _fileCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, object> _symbolCache = new(StringComparer.OrdinalIgnoreCase);
+    private int _tokenBudget;
+
+    public int TokenBudget
+    {
+        get { lock (_lock) return _tokenBudget; }
+        set { lock (_lock) _tokenBudget = value; }
+    }
+
+    public void CacheFile(string path, string content)
+    {
+        lock (_lock) _fileCache[path] = content;
+    }
+
+    public bool TryGetFile(string path, out string? content)
+    {
+        lock (_lock) return _fileCache.TryGetValue(path, out content);
+    }
+
+    public void CacheSymbol(string key, object value)
+    {
+        lock (_lock) _symbolCache[key] = value;
+    }
+
+    public bool TryGetSymbol(string key, out object? value)
+    {
+        lock (_lock) return _symbolCache.TryGetValue(key, out value);
+    }
+
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _fileCache.Clear();
+            _symbolCache.Clear();
+            _tokenBudget = 0;
+        }
+    }
 }

@@ -32,6 +32,7 @@
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
             <converters:BoolToErrorBrushConverter x:Key="BoolToErrorBrush"/>
             <converters:InverseBoolConverter x:Key="InverseBool"/>
+            <converters:StringNotEmptyConverter x:Key="StringNotEmpty"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

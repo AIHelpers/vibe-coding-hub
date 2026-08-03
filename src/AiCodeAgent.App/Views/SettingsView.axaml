@@ -20,14 +20,24 @@
                 <TextBlock Text="AI Provider" FontSize="13" FontWeight="SemiBold"/>
                 <ComboBox ItemsSource="{Binding AvailableProviders}"
                           SelectedItem="{Binding SelectedProvider}"
-                          Width="200"/>
+                          Width="300"/>
+            </StackPanel>
+
+            <!-- Base URL -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Base URL" FontSize="13" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding BaseUrl}"
+                         Width="400"
+                         Watermark="e.g. http://localhost:1234"/>
+                <TextBlock Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"
+                           Opacity="0.6" FontSize="12"/>
             </StackPanel>
 
             <!-- Model -->
             <StackPanel Spacing="4">
                 <TextBlock Text="Model" FontSize="13" FontWeight="SemiBold"/>
                 <TextBox Text="{Binding Model}"
-                         Width="200"
+                         Width="300"
                          Watermark="e.g. gpt-4o"/>
             </StackPanel>
 
@@ -36,7 +46,17 @@
                 <TextBlock Text="API Key" FontSize="13" FontWeight="SemiBold"/>
                 <TextBox Text="{Binding ApiKey}"
                          PasswordChar="●"
-                         Width="300"/>
+                         Width="400"/>
+                <TextBlock Text="Optional for local providers, required for cloud providers"
+                           Opacity="0.6" FontSize="12"/>
+            </StackPanel>
+
+            <!-- SSL Verification -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="SSL Verification" FontSize="13" FontWeight="SemiBold"/>
+                <CheckBox IsChecked="{Binding VerifySsl}"
+                          Content="Verify SSL certificates (disable for local dev with self-signed certs)"
+                          FontSize="13"/>
             </StackPanel>
 
             <!-- Working Directory -->
