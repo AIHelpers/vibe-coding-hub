@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.CheckpointBrowserView"
+             x:DataType="vm:CheckpointBrowserViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2A2A3A" Padding="8" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="🕐 Checkpoints" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <Button Grid.Column="1"
+                        Content="🔄"
+                        Command="{Binding RefreshCommand}"
+                        Width="24" Height="24" Padding="0" FontSize="12"/>
+            </Grid>
+        </Border>
+
+        <!-- Checkpoint list -->
+        <ScrollViewer Grid.Row="1" Margin="0,8">
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding StatusText}"
+                           FontSize="11"
+                           Opacity="0.5"
+                           IsVisible="{Binding IsLoading, Converter={StaticResource InverseBool}}"/>
+                <TextBlock Text="⏳ Loading..."
+                           FontSize="11"
+                           Opacity="0.5"
+                           IsVisible="{Binding IsLoading}"/>
+
+                <ItemsControl ItemsSource="{Binding Groups}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:CheckpointGroupViewModel">
+                            <Border Background="#2A2A3A" CornerRadius="6" Padding="8" Margin="0,2">
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="{Binding TurnId, StringFormat='Turn: {}{0}'}"
+                                                   FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}"
+                                                   FontSize="10" Opacity="0.5"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding FileCount, StringFormat='{}{0} file(s) touched'}"
+                                               FontSize="10" Opacity="0.4"/>
+                                    <ItemsControl ItemsSource="{Binding Checkpoints}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:CheckpointItemViewModel">
+                                                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                                    <StackPanel Grid.Column="0" Spacing="1">
+                                                        <TextBlock Text="{Binding FileName}"
+                                                                   FontSize="11"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding FilePath}"
+                                                                   FontSize="9"
+                                                                   Opacity="0.4"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                    <Button Grid.Column="1"
+                                                            Content="↩️ Restore"
+                                                            Command="{Binding DataContext.RestoreCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            FontSize="10"
+                                                            Padding="6,2"
+                                                            Margin="8,0,0,0"
+                                                            VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#1A1A2A" CornerRadius="0,0,4,4" Padding="6">
+            <TextBlock Text="Checkpoints are created automatically before each file write"
+                       FontSize="9" Opacity="0.4"/>
+        </Border>
+    </Grid>
+</UserControl>

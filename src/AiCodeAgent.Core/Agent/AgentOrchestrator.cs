@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -287,7 +288,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         // Create checkpoint without yield in try-catch
                         try
                         {
-                            var checkpoint = await _checkpointManager.CreateCheckpointAsync(filePath, turnId);
+                            var checkpoint = await _checkpointManager.CreateCheckpointAsync(filePath, turnId, sessionId);
                             var checkpointEvent = new CheckpointCreatedEvent(checkpoint);
                             _eventBus?.Publish(checkpointEvent);
                             // Store the event to yield later (outside try-catch)
@@ -334,6 +335,24 @@ public class AgentOrchestrator : IAgentOrchestrator
                 var toolEndEvent = new ToolCallEndEvent(toolCall, toolResult, execDuration);
                 yield return toolEndEvent;
                 _eventBus?.Publish(toolEndEvent);
+
+                // Emit diff event for write operations (single-agent mode)
+                if (tool.Risk == RiskLevel.Write && !toolResult.IsError)
+                {
+                    var filePath = toolCall.Arguments.TryGetValue("path", out var p) ? p?.ToString() ?? string.Empty : string.Empty;
+                    if (!string.IsNullOrEmpty(filePath))
+                    {
+                        var diffEntry = new DiffEntry
+                        {
+                            FilePath = filePath,
+                            DiffText = toolResult.Content,
+                            AgentId = options.AgentId
+                        };
+                        var diffEvent = new DiffProducedEvent(diffEntry);
+                        yield return diffEvent;
+                        _eventBus?.Publish(diffEvent);
+                    }
+                }
 
                 // Add tool result to context
                 await _contextManager.AddMessageAsync(sessionId, new Message

@@ -76,9 +76,10 @@ public interface IAgentEventBus
 
 public interface ICheckpointManager
 {
-    Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId);
+    Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId, string? sessionId = null);
     Task<bool> RestoreCheckpointAsync(string checkpointId);
     Task<List<CheckpointEntry>> GetCheckpointsAsync(string turnId);
+    Task<List<CheckpointEntry>> GetCheckpointsForSessionAsync(string sessionId);
     Task CleanupAsync(string turnId);
 }
 

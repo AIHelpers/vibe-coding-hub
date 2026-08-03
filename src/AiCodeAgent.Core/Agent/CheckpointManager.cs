@@ -24,7 +24,7 @@ public class CheckpointManager : ICheckpointManager
         Directory.CreateDirectory(_checkpointDir);
     }
 
-    public async Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId)
+    public async Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId, string? sessionId = null)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException($"File not found for checkpoint: {filePath}");
@@ -41,11 +41,13 @@ public class CheckpointManager : ICheckpointManager
 
         var entry = new CheckpointEntry
         {
+            CheckpointId = checkpointId,
             FilePath = filePath,
             BackupPath = backupPath,
             OriginalContent = content,
             Timestamp = DateTime.UtcNow,
-            TurnId = turnId
+            TurnId = turnId,
+            SessionId = sessionId ?? string.Empty
         };
 
         _checkpoints[checkpointId] = entry;
@@ -76,6 +78,15 @@ public class CheckpointManager : ICheckpointManager
     {
         var entries = _checkpoints.Values
             .Where(e => e.TurnId == turnId)
+            .OrderBy(e => e.Timestamp)
+            .ToList();
+        return Task.FromResult(entries);
+    }
+
+    public Task<List<CheckpointEntry>> GetCheckpointsForSessionAsync(string sessionId)
+    {
+        var entries = _checkpoints.Values
+            .Where(e => e.SessionId == sessionId)
             .OrderBy(e => e.Timestamp)
             .ToList();
         return Task.FromResult(entries);

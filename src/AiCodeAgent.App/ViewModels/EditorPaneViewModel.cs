@@ -1,0 +1,257 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using System;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Models;
+
+namespace AiCodeAgent.App.ViewModels;
+
+/// <summary>
+/// Manages open editor tabs: open/close/switch-tab, unsaved-changes prompts.
+/// </summary>
+public partial class EditorPaneViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private EditorTabViewModel? _activeTab;
+
+    [ObservableProperty]
+    private bool _isVisible = true;
+
+    private readonly SharedChangeset? _changeset;
+
+    public ObservableCollection<EditorTabViewModel> Tabs { get; } = new();
+
+    public EditorPaneViewModel(SharedChangeset? changeset = null)
+    {
+        _changeset = changeset;
+    }
+
+    partial void OnActiveTabChanged(EditorTabViewModel? value)
+    {
+        // When switching tabs, refresh diff overlays
+        if (value != null)
+        {
+            OnPropertyChanged(nameof(ActiveTabHunks));
+        }
+    }
+
+    /// <summary>Notify the UI that hunks have changed (for diff overlay refresh).</summary>
+    public void NotifyHunksChanged()
+    {
+        OnPropertyChanged(nameof(ActiveTabHunks));
+    }
+
+    /// <summary>Hunks for the currently active file (for diff overlay rendering).</summary>
+    public IReadOnlyList<DiffHunk> ActiveTabHunks
+    {
+        get
+        {
+            if (ActiveTab == null || _changeset == null)
+                return Array.Empty<DiffHunk>();
+
+            return _changeset.GetHunksForFile(ActiveTab.FilePath).ToList();
+        }
+    }
+
+    /// <summary>Open a file in the editor. If already open, switch to it.</summary>
+    public async Task OpenFileAsync(string path, bool readOnly = false)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            return;
+
+        // Check if already open
+        var existing = Tabs.FirstOrDefault(t =>
+            string.Equals(t.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            ActiveTab = existing;
+            return;
+        }
+
+        var tab = new EditorTabViewModel();
+        await tab.LoadAsync(path, readOnly);
+        Tabs.Add(tab);
+        ActiveTab = tab;
+    }
+
+    /// <summary>Close a tab, prompting for unsaved changes.</summary>
+    public async Task<bool> CloseTabAsync(EditorTabViewModel tab)
+    {
+        if (tab.IsDirty)
+        {
+            // TODO: Show unsaved-changes prompt (Save / Discard / Cancel)
+            // For now, auto-save
+            await tab.SaveAsync();
+        }
+
+        Tabs.Remove(tab);
+        if (ActiveTab == tab)
+        {
+            ActiveTab = Tabs.LastOrDefault();
+        }
+        return true;
+    }
+
+    /// <summary>Close all tabs.</summary>
+    public async Task CloseAllAsync()
+    {
+        foreach (var tab in Tabs.ToList())
+        {
+            await CloseTabAsync(tab);
+        }
+    }
+
+    /// <summary>Save the active tab.</summary>
+    public async Task<bool> SaveActiveAsync()
+    {
+        if (ActiveTab == null)
+            return false;
+        return await ActiveTab.SaveAsync();
+    }
+
+    /// <summary>Save all dirty tabs.</summary>
+    public async Task SaveAllAsync()
+    {
+        foreach (var tab in Tabs.Where(t => t.IsDirty))
+        {
+            await tab.SaveAsync();
+        }
+    }
+
+    /// <summary>Apply a hunk to the active file buffer (accept).</summary>
+    public async Task<bool> AcceptHunkAsync(string hunkId)
+    {
+        if (ActiveTab == null || _changeset == null)
+            return false;
+
+        var hunk = _changeset.Hunks.FirstOrDefault(h => h.HunkId == hunkId);
+        if (hunk == null || hunk.Status != HunkStatus.Pending)
+            return false;
+
+        // Apply the hunk's added lines to the document
+        var doc = ActiveTab.Document;
+        var lines = doc.Lines;
+        var insertOffset = 0;
+
+        // Find the position in the document where the hunk applies
+        // For simplicity, apply at the NewStartLine position
+        if (hunk.NewStartLine > 0 && hunk.NewStartLine <= lines.Count)
+        {
+            var line = lines[hunk.NewStartLine - 1];
+            insertOffset = line.Offset;
+        }
+
+        // Build the text to insert (added lines only)
+        var addedText = string.Join("\n", hunk.Lines
+            .Where(l => l.Kind == DiffLineKind.Added)
+            .Select(l => l.Text));
+
+        if (!string.IsNullOrEmpty(addedText))
+        {
+            doc.Insert(insertOffset, addedText + "\n");
+        }
+
+        _changeset.UpdateHunkStatus(hunkId, HunkStatus.Accepted);
+        OnPropertyChanged(nameof(ActiveTabHunks));
+        return true;
+    }
+
+    /// <summary>Reject a hunk (discard it).</summary>
+    public bool RejectHunk(string hunkId)
+    {
+        if (_changeset == null)
+            return false;
+
+        var result = _changeset.UpdateHunkStatus(hunkId, HunkStatus.Rejected);
+        if (result)
+        {
+            OnPropertyChanged(nameof(ActiveTabHunks));
+        }
+        return result;
+    }
+
+    /// <summary>Accept all pending hunks for the active file.</summary>
+    public async Task AcceptAllAsync()
+    {
+        if (ActiveTab == null || _changeset == null)
+            return;
+
+        var pendingHunks = _changeset.GetHunksForFile(ActiveTab.FilePath)
+            .Where(h => h.Status == HunkStatus.Pending)
+            .ToList();
+
+        foreach (var hunk in pendingHunks)
+        {
+            await AcceptHunkAsync(hunk.HunkId);
+        }
+    }
+
+    /// <summary>Reject all pending hunks for the active file.</summary>
+    public void RejectAll()
+    {
+        if (ActiveTab == null || _changeset == null)
+            return;
+
+        var pendingHunks = _changeset.GetHunksForFile(ActiveTab.FilePath)
+            .Where(h => h.Status == HunkStatus.Pending)
+            .ToList();
+
+        foreach (var hunk in pendingHunks)
+        {
+            _changeset.UpdateHunkStatus(hunk.HunkId, HunkStatus.Rejected);
+        }
+        OnPropertyChanged(nameof(ActiveTabHunks));
+    }
+
+    [RelayCommand]
+    private async Task OpenFile(string path)
+    {
+        await OpenFileAsync(path);
+    }
+
+    [RelayCommand]
+    private async Task CloseTab(EditorTabViewModel tab)
+    {
+        await CloseTabAsync(tab);
+    }
+
+    [RelayCommand]
+    private async Task SaveActive()
+    {
+        await SaveActiveAsync();
+    }
+
+    [RelayCommand]
+    private async Task SaveAll()
+    {
+        await SaveAllAsync();
+    }
+
+    [RelayCommand]
+    private async Task AcceptHunkCommand(string hunkId)
+    {
+        await AcceptHunkAsync(hunkId);
+    }
+
+    [RelayCommand]
+    private void RejectHunkCommand(string hunkId)
+    {
+        RejectHunk(hunkId);
+    }
+
+    [RelayCommand]
+    private async Task AcceptAllCommand()
+    {
+        await AcceptAllAsync();
+    }
+
+    [RelayCommand]
+    private void RejectAllCommand()
+    {
+        RejectAll();
+    }
+}

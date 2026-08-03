@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:editing="using:AvaloniaEdit.Editing"
+             xmlns:textEditor="using:AvaloniaEdit"
+             x:Class="AiCodeAgent.App.Views.EditorView"
+             x:DataType="vm:EditorPaneViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+        <!-- Tab strip -->
+        <Border Grid.Row="0" Background="#2A2A3A" Padding="4">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <ItemsControl ItemsSource="{Binding Tabs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="2"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:EditorTabViewModel">
+                                <Border CornerRadius="4"
+                                        Padding="8,4"
+                                        Background="{Binding IsDirty, Converter={StaticResource InverseBool}}">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="●"
+                                                   FontSize="8"
+                                                   Foreground="#FFB900"
+                                                   IsVisible="{Binding IsDirty}"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Content="✕"
+                                                FontSize="8"
+                                                Width="16" Height="16" Padding="0"
+                                                VerticalAlignment="Center"
+                                                Background="Transparent"
+                                                BorderThickness="0"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Editor content -->
+        <Grid Grid.Row="1">
+            <Border Background="#1E1E2E" CornerRadius="4" Margin="4">
+                <textEditor:TextEditor x:Name="CodeEditor"
+                                       IsVisible="{Binding IsVisible}"
+                                       FontFamily="Consolas"
+                                       FontSize="14"
+                                       ShowLineNumbers="True"
+                                       HorizontalScrollBarVisibility="Auto"
+                                       VerticalScrollBarVisibility="Auto"
+                                       Background="#1E1E2E"
+                                       Foreground="#D4D4D4">
+                    <textEditor:TextEditor.ContextFlyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Accept Hunk" Command="{Binding AcceptHunkCommand}"/>
+                            <MenuItem Header="Reject Hunk" Command="{Binding RejectHunkCommand}"/>
+                            <MenuItem Header="Accept All" Command="{Binding AcceptAllCommand}"/>
+                            <MenuItem Header="Reject All" Command="{Binding RejectAllCommand}"/>
+                        </MenuFlyout>
+                    </textEditor:TextEditor.ContextFlyout>
+                </textEditor:TextEditor>
+            </Border>
+
+            <!-- Empty state when no file is open -->
+            <StackPanel IsVisible="{Binding ActiveTab, Converter={StaticResource InverseBool}}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="8">
+                <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center"/>
+                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

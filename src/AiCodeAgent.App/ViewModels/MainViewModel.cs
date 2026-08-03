@@ -26,18 +26,30 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSettingsMode;
 
+    [ObservableProperty]
+    private bool _isCheckpointBrowserOpen;
+
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
 
     public ChatViewModel? ChatViewModel => _chatViewModel;
     public FileExplorerViewModel FileExplorer { get; }
     public TerminalViewModel Terminal { get; }
+    public EditorPaneViewModel EditorPane { get; }
+    public CheckpointBrowserViewModel CheckpointBrowser { get; }
 
-    public MainViewModel(IServiceProvider serviceProvider, FileExplorerViewModel fileExplorer, TerminalViewModel terminal)
+    public MainViewModel(
+        IServiceProvider serviceProvider,
+        FileExplorerViewModel fileExplorer,
+        TerminalViewModel terminal,
+        EditorPaneViewModel editorPane,
+        CheckpointBrowserViewModel checkpointBrowser)
     {
         _serviceProvider = serviceProvider;
         FileExplorer = fileExplorer;
         Terminal = terminal;
+        EditorPane = editorPane;
+        CheckpointBrowser = checkpointBrowser;
 
         WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
@@ -47,8 +59,27 @@ public partial class MainViewModel : ObservableObject
         // Load file explorer
         FileExplorer.LoadCommand.Execute(null);
 
+        // Load checkpoints
+        CheckpointBrowser.RefreshCommand.Execute(null);
+
         // Update status
         UpdateFileExplorerStatus();
+
+        // Wire file explorer file-click to editor
+        FileExplorer.PropertyChanged += OnFileExplorerPropertyChanged;
+    }
+
+    private void OnFileExplorerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FileExplorerViewModel.SelectedItem))
+        {
+            var selected = FileExplorer.SelectedItem;
+            if (selected != null && !selected.IsDirectory)
+            {
+                _ = EditorPane.OpenFileAsync(selected.FullPath);
+                IsCheckpointBrowserOpen = false;
+            }
+        }
     }
 
     private ChatViewModel CreateChatViewModel()
@@ -63,6 +94,7 @@ public partial class MainViewModel : ObservableObject
         _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
         CurrentViewModel = _chatViewModel;
         IsSettingsMode = false;
+        IsCheckpointBrowserOpen = false;
         StatusText = "Chat Mode";
     }
 
@@ -71,6 +103,7 @@ public partial class MainViewModel : ObservableObject
     {
         CurrentViewModel = _serviceProvider.GetRequiredService<SettingsViewModel>();
         IsSettingsMode = true;
+        IsCheckpointBrowserOpen = false;
         StatusText = "Settings Mode";
     }
 
@@ -84,6 +117,17 @@ public partial class MainViewModel : ObservableObject
     private void ToggleTerminal()
     {
         Terminal.ToggleVisibilityCommand.Execute(null);
+    }
+
+    [RelayCommand]
+    private void ToggleCheckpointBrowser()
+    {
+        IsCheckpointBrowserOpen = !IsCheckpointBrowserOpen;
+        if (IsCheckpointBrowserOpen)
+        {
+            IsSettingsMode = false;
+            CheckpointBrowser.RefreshCommand.Execute(null);
+        }
     }
 
     [RelayCommand]

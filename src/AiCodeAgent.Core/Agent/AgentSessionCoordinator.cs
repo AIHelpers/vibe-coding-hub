@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -88,6 +89,13 @@ public class AgentSessionCoordinator
                 if (evt is DiffProducedEvent diffEvent)
                 {
                     _changeset.Add(diffEvent.Diff with { AgentId = step.AgentId });
+
+                    // Parse diff text into hunks and add to canonical store
+                    var hunks = DiffParser.ParseSimpleDiff(
+                        diffEvent.Diff.DiffText,
+                        diffEvent.Diff.FilePath,
+                        step.AgentId);
+                    _changeset.AddHunks(hunks);
                 }
             }
         }
@@ -124,6 +132,13 @@ public class AgentSessionCoordinator
             if (evt is DiffProducedEvent diffEvent)
             {
                 _changeset.Add(diffEvent.Diff with { AgentId = step.AgentId });
+
+                // Parse diff text into hunks and add to canonical store
+                var hunks = DiffParser.ParseSimpleDiff(
+                    diffEvent.Diff.DiffText,
+                    diffEvent.Diff.FilePath,
+                    step.AgentId);
+                _changeset.AddHunks(hunks);
             }
         }
     }

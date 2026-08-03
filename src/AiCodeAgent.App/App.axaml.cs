@@ -13,6 +13,7 @@ using AiCodeAgent.Context;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Models;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Tools;
 using AiCodeAgent.Tools.Code;
@@ -161,9 +162,14 @@ public partial class App : Application
         services.AddSingleton<ITool, WebFetchTool>();
         services.AddSingleton<ITool, DiagnosticsTool>();
 
+        // Shared changeset (canonical store for diff hunks)
+        services.AddSingleton<SharedChangeset>();
+        
         // New ViewModels - Workspace components
         services.AddSingleton<FileExplorerViewModel>();
         services.AddSingleton<TerminalViewModel>();
+        services.AddSingleton<EditorPaneViewModel>();
+        services.AddSingleton<CheckpointBrowserViewModel>();
         
         // ViewModels
         services.AddSingleton<MainViewModel>();

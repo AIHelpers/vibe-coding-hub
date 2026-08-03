@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using AiCodeAgent.App.Services;
+using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
 using System.Collections.Generic;
@@ -17,6 +18,8 @@ public partial class ChatViewModel : ObservableObject
 {
     private readonly AgentService _agentService;
     private readonly IAgentEventBus _eventBus;
+    private readonly EditorPaneViewModel _editorPane;
+    private readonly SharedChangeset _changeset;
     private CancellationTokenSource? _cancellationTokenSource;
 
     [ObservableProperty]
@@ -101,10 +104,12 @@ public partial class ChatViewModel : ObservableObject
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/help"
     };
 
-    public ChatViewModel(AgentService agentService)
+    public ChatViewModel(AgentService agentService, EditorPaneViewModel editorPane, SharedChangeset changeset)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
+        _editorPane = editorPane;
+        _changeset = changeset;
 
         // Initialize slash commands
         SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
@@ -248,6 +253,21 @@ public partial class ChatViewModel : ObservableObject
                         ApprovalToolName = approval.Call.Name;
                         ApprovalArgs = FormatArguments(approval.Call.Arguments);
                         _pendingApproval = approval.Approval;
+                        break;
+
+                    case DiffProducedEvent diffProduced:
+                        // Parse diff hunks and add to the shared changeset
+                        var hunks = DiffParser.ParseSimpleDiff(
+                            diffProduced.Diff.DiffText,
+                            diffProduced.Diff.FilePath,
+                            diffProduced.Diff.AgentId);
+                        if (hunks.Length > 0)
+                        {
+                            _changeset.AddHunks(hunks);
+                            _ = _editorPane.OpenFileAsync(diffProduced.Diff.FilePath).ContinueWith(
+                                _ => _editorPane.NotifyHunksChanged(),
+                                TaskScheduler.FromCurrentSynchronizationContext());
+                        }
                         break;
 
                     case AgentTaggedEvent tagged:

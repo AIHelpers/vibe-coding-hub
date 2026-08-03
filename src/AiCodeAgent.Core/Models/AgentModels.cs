@@ -32,11 +32,13 @@ public record PermissionSettings
 
 public record CheckpointEntry
 {
+    public string CheckpointId { get; init; } = string.Empty;
     public string FilePath { get; init; } = string.Empty;
     public string BackupPath { get; init; } = string.Empty;
     public string OriginalContent { get; init; } = string.Empty;
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;
     public string TurnId { get; init; } = string.Empty;
+    public string SessionId { get; init; } = string.Empty;
 }
 
 public record DiffEntry
@@ -181,10 +183,17 @@ public class SharedChangeset
 {
     private readonly object _lock = new();
     private readonly List<DiffEntry> _entries = new();
+    private readonly List<Diffing.DiffHunk> _hunks = new();
 
     public IReadOnlyList<DiffEntry> Entries
     {
         get { lock (_lock) return _entries.ToList(); }
+    }
+
+    /// <summary>Canonical store of parsed diff hunks (single- or multi-agent).</summary>
+    public IReadOnlyList<Diffing.DiffHunk> Hunks
+    {
+        get { lock (_lock) return _hunks.ToList(); }
     }
 
     public void Add(DiffEntry entry)
@@ -197,9 +206,50 @@ public class SharedChangeset
         lock (_lock) _entries.AddRange(entries);
     }
 
+    /// <summary>Add a parsed diff hunk to the canonical store.</summary>
+    public void AddHunk(Diffing.DiffHunk hunk)
+    {
+        lock (_lock) _hunks.Add(hunk);
+    }
+
+    /// <summary>Add multiple parsed diff hunks.</summary>
+    public void AddHunks(IEnumerable<Diffing.DiffHunk> hunks)
+    {
+        lock (_lock) _hunks.AddRange(hunks);
+    }
+
+    /// <summary>Update the status of a hunk by ID.</summary>
+    public bool UpdateHunkStatus(string hunkId, Diffing.HunkStatus status)
+    {
+        lock (_lock)
+        {
+            var index = _hunks.FindIndex(h => h.HunkId == hunkId);
+            if (index < 0) return false;
+            var existing = _hunks[index];
+            _hunks[index] = existing with { Status = status };
+            return true;
+        }
+    }
+
+    /// <summary>Get hunks for a specific file path.</summary>
+    public IEnumerable<Diffing.DiffHunk> GetHunksForFile(string filePath)
+    {
+        lock (_lock) return _hunks.Where(h => h.FilePath == filePath).ToList();
+    }
+
+    /// <summary>Get hunks attributed to a specific agent.</summary>
+    public IEnumerable<Diffing.DiffHunk> GetHunksByAgent(string agentId)
+    {
+        lock (_lock) return _hunks.Where(h => h.AgentId == agentId).ToList();
+    }
+
     public void Clear()
     {
-        lock (_lock) _entries.Clear();
+        lock (_lock)
+        {
+            _entries.Clear();
+            _hunks.Clear();
+        }
     }
 
     public IEnumerable<DiffEntry> GetByAgent(string agentId)
