@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AiCodeAgent.App.ViewModels"
         xmlns:views="using:AiCodeAgent.App.Views"
+        xmlns:cmd="using:AiCodeAgent.App.CommandPalette"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
@@ -29,8 +30,10 @@
         <KeyBinding Gesture="Ctrl+B" Command="{Binding ToggleFileExplorerCommand}"/>
         <!-- Ctrl+`: Toggle Terminal -->
         <KeyBinding Gesture="Ctrl+Oem3" Command="{Binding ToggleTerminalCommand}"/>
-        <!-- Ctrl+Shift+P: Open Settings -->
-        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding NavigateToSettingsCommand}"/>
+        <!-- Ctrl+Shift+P: Command Palette -->
+        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding ToggleCommandPaletteCommand}"/>
+        <!-- Ctrl+,: Open Settings -->
+        <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding NavigateToSettingsCommand}"/>
     </Window.KeyBindings>
 
     <Grid RowDefinitions="Auto,*,Auto" Name="RootGrid">
@@ -45,6 +48,9 @@
 
                 <!-- Toolbar Buttons -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <Button Content="⌘" Command="{Binding ToggleCommandPaletteCommand}" 
+                            ToolTip.Tip="Command Palette (Ctrl+Shift+P)" 
+                            Width="32" Height="28" Padding="0"/>
                     <Button Content="📁" Command="{Binding ToggleFileExplorerCommand}" 
                             ToolTip.Tip="Toggle File Explorer (Ctrl+B)" 
                             Width="32" Height="28" Padding="0"/>
@@ -91,7 +97,7 @@
                 <!-- Navigation -->
                 <Button Grid.Column="5" Content="⚙️" 
                         Command="{Binding NavigateToSettingsCommand}"
-                        ToolTip.Tip="Settings (Ctrl+Shift+P)"
+                        ToolTip.Tip="Settings (Ctrl+,)"
                         Width="32" Height="28" Padding="0" Margin="4,0"/>
 
                 <!-- Cancel Button -->
@@ -449,5 +455,75 @@
                 </SplitView.Content>
             </SplitView>
         </Grid>
+
+        <!-- Command Palette Overlay -->
+        <Border Grid.RowSpan="3"
+                IsVisible="{Binding CommandPalette.IsOpen}"
+                Background="#88000000"
+                ZIndex="100"
+                PointerPressed="OnPaletteBackdropPressed">
+            <Border Width="640"
+                    MaxHeight="480"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    BoxShadow="0 8 24 0 #66000000">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <TextBox Name="PaletteSearchBox"
+                                 Watermark="Type a command or search..."
+                                 Text="{Binding CommandPalette.SearchText}"
+                                 KeyDown="OnPaletteKeyDown"
+                                 MinHeight="34"
+                                 FontSize="14"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="Ctrl+Shift+P"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding CommandPalette.FilteredEntries.Count, StringFormat='{}{0} commands'}"
+                               FontSize="11"
+                               Opacity="0.5"
+                               Margin="0,0,0,8"/>
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding CommandPalette.FilteredEntries}"
+                             SelectedIndex="{Binding CommandPalette.SelectedIndex, Mode=TwoWay}"
+                             MaxHeight="320"
+                             Background="Transparent"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="cmd:ICommandPaletteEntry">
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="4">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Category}"
+                                               FontSize="10"
+                                               Opacity="0.6"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Title}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding KeybindingHint}"
+                                               FontSize="11"
+                                               Opacity="0.5"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Border>
     </Grid>
 </Window>

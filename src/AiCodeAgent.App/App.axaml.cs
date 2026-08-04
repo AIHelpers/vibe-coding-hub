@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using System;
 using System.IO;
+using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.App.ViewModels;
 using AiCodeAgent.App.Views;
@@ -177,6 +178,10 @@ public partial class App : Application
         services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
         services.AddSingleton<LanguageProviderRegistry>();
         services.AddSingleton<LspDocumentService>();
+
+        // Command Palette
+        services.AddSingleton<CommandPaletteRegistry>();
+        services.AddSingleton<CommandPaletteViewModel>();
 
         // New ViewModels - Workspace components
         services.AddSingleton<FileExplorerViewModel>();

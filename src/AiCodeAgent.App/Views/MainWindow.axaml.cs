@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.ReactiveUI;
+using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.App.ViewModels;
 using ReactiveUI;
 
@@ -19,6 +20,14 @@ public partial class MainWindow : Window
     {
         if (DataContext is MainViewModel mainVm && mainVm.CurrentViewModel is ChatViewModel chatVm)
             return chatVm;
+        return null;
+    }
+
+    // Helper to access the command palette view model
+    private CommandPaletteViewModel? GetCommandPalette()
+    {
+        if (DataContext is MainViewModel mainVm)
+            return mainVm.CommandPalette;
         return null;
     }
 
@@ -107,6 +116,74 @@ public partial class MainWindow : Window
                 }
                 parent = parent.Parent;
             }
+        }
+    }
+
+    private void OnPaletteKeyDown(object? sender, KeyEventArgs e)
+    {
+        var palette = GetCommandPalette();
+        if (palette == null)
+            return;
+
+        switch (e.Key)
+        {
+            case Key.Down:
+                palette.SelectNext();
+                e.Handled = true;
+                break;
+
+            case Key.Up:
+                palette.SelectPrevious();
+                e.Handled = true;
+                break;
+
+            case Key.Enter:
+                palette.ExecuteSelected();
+                e.Handled = true;
+                break;
+
+            case Key.Escape:
+                palette.Close();
+                e.Handled = true;
+                break;
+        }
+        _ = HandlePaletteFocusAsync(palette);
+    }
+
+    private void OnPaletteBackdropPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var palette = GetCommandPalette();
+        if (palette == null)
+            return;
+
+        // Only dismiss when clicking the backdrop itself (not the inner card)
+        if (e.Source is Border border && ReferenceEquals(border, sender))
+        {
+            palette.Close();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Keeps keyboard focus on the palette search box while the palette is open.
+    /// Called after each key event and when the palette opens/closes.
+    /// </summary>
+    private async Task HandlePaletteFocusAsync(CommandPaletteViewModel? palette = null)
+    {
+        palette ??= GetCommandPalette();
+        if (palette == null)
+            return;
+
+        if (palette.IsOpen)
+        {
+            // Defer so the palette is visible and layout has run.
+            await Task.Delay(1);
+            PaletteSearchBox?.Focus();
+        }
+        else
+        {
+            // Return focus to the main input box.
+            InputBox?.Focus();
         }
     }
 }
