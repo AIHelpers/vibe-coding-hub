@@ -208,6 +208,18 @@ public sealed class LspClient : IAsyncDisposable
         return ParseDocumentSymbols(result);
     }
 
+    /// <summary>Request workspace-wide symbol search.</summary>
+    public async Task<List<SymbolInformation>> WorkspaceSymbolsAsync(string query, CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+        var result = await _rpc!.InvokeWithCancellationAsync<JsonNode?>(
+            "workspace/symbol",
+            new object?[] { new { query } },
+            cancellationToken);
+
+        return ParseSymbolInformation(result);
+    }
+
     /// <summary>Shutdown the server gracefully.</summary>
     public async Task ShutdownAsync(CancellationToken cancellationToken = default)
     {
@@ -558,6 +570,53 @@ public sealed class LspClient : IAsyncDisposable
         }
 
         return new DocumentSymbol(name, detail, kind, range, selectionRange, children);
+    }
+
+    private static List<SymbolInformation> ParseSymbolInformation(JsonNode? result)
+    {
+        var symbols = new List<SymbolInformation>();
+
+        if (result is JsonArray array)
+        {
+            foreach (var item in array)
+            {
+                if (item is JsonObject obj)
+                {
+                    var name = obj["name"]?.GetValue<string>() ?? string.Empty;
+                    var kind = obj["kind"]?.GetValue<int>() ?? 0;
+                    var containerName = obj["containerName"]?.GetValue<string>();
+
+                    var location = ParseSymbolLocation(obj);
+                    if (location != null)
+                    {
+                        symbols.Add(new SymbolInformation(name, kind, location, containerName));
+                    }
+                }
+            }
+        }
+
+        return symbols;
+    }
+
+    private static Location? ParseSymbolLocation(JsonObject obj)
+    {
+        // LSP SymbolInformation uses a "location" field.
+        if (obj["location"] is JsonObject locObj)
+        {
+            var uri = locObj["uri"]?.GetValue<string>() ?? string.Empty;
+            var range = ParseRange(locObj["range"] as JsonObject);
+            if (range != null)
+                return new Location(uri, range);
+            return null;
+        }
+
+        // Some servers return a flat "uri" + "range" layout (deprecated form).
+        var flatUri = obj["uri"]?.GetValue<string>();
+        var flatRange = ParseRange(obj["range"] as JsonObject);
+        if (flatUri != null && flatRange != null)
+            return new Location(flatUri, flatRange);
+
+        return null;
     }
 
     private static string NormalizeUri(string uri) =>

@@ -9,6 +9,7 @@ using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Indexing;
 using System.Collections.Generic;
 using System.IO;
 
@@ -20,6 +21,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly IAgentEventBus _eventBus;
     private readonly EditorPaneViewModel _editorPane;
     private readonly SharedChangeset _changeset;
+    private readonly WorkspaceIndexQueryService? _indexQueryService;
     private CancellationTokenSource? _cancellationTokenSource;
 
     [ObservableProperty]
@@ -104,12 +106,17 @@ public partial class ChatViewModel : ObservableObject
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/help"
     };
 
-    public ChatViewModel(AgentService agentService, EditorPaneViewModel editorPane, SharedChangeset changeset)
+    public ChatViewModel(
+        AgentService agentService,
+        EditorPaneViewModel editorPane,
+        SharedChangeset changeset,
+        WorkspaceIndexQueryService? indexQueryService = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
         _editorPane = editorPane;
         _changeset = changeset;
+        _indexQueryService = indexQueryService;
 
         // Initialize slash commands
         SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
@@ -555,6 +562,12 @@ public partial class ChatViewModel : ObservableObject
 
     private void FilterMentions(string filter)
     {
+        if (_indexQueryService != null)
+        {
+            _ = PopulateMentionsFromIndexAsync(filter);
+            return;
+        }
+
         var files = GetProjectFiles();
         MentionItems.Clear();
 
@@ -573,6 +586,12 @@ public partial class ChatViewModel : ObservableObject
 
     private void ShowAllMentions()
     {
+        if (_indexQueryService != null)
+        {
+            _ = PopulateMentionsFromIndexAsync(string.Empty);
+            return;
+        }
+
         var files = GetProjectFiles();
         MentionItems.Clear();
 
@@ -584,6 +603,31 @@ public partial class ChatViewModel : ObservableObject
                 FileName = Path.GetFileName(file),
                 Icon = GetFileIcon(file)
             });
+        }
+    }
+
+    private async Task PopulateMentionsFromIndexAsync(string filter)
+    {
+        try
+        {
+            var matches = await _indexQueryService!.SearchFilesAsync(
+                filter: filter,
+                limit: 25).ConfigureAwait(true);
+
+            MentionItems.Clear();
+            foreach (var match in matches)
+            {
+                MentionItems.Add(new MentionItem
+                {
+                    FilePath = match.Path,
+                    FileName = match.FileName,
+                    Icon = GetFileIcon(match.Path)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Index mention query failed: {ex.Message}");
         }
     }
 

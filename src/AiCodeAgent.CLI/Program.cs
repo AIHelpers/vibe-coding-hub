@@ -4,6 +4,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
@@ -211,6 +212,23 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
     services.AddSingleton<LanguageProviderRegistry>();
 
+    // Workspace indexing (Priority 4)
+    var workspaceRoot = DetectWorkspaceRootForIndexing(dir);
+    services.AddSingleton<WorkspaceIndexStore>(sp =>
+        new WorkspaceIndexStore(workspaceRoot, sp.GetRequiredService<ILogger<WorkspaceIndexStore>>()));
+    services.AddSingleton<WorkspaceIndexer>(sp =>
+        new WorkspaceIndexer(
+            sp.GetRequiredService<WorkspaceIndexStore>(),
+            sp.GetRequiredService<ILogger<WorkspaceIndexer>>(),
+            workspaceRoot));
+    services.AddSingleton<WorkspaceIndexQueryService>();
+    services.AddSingleton<SymbolIndexer>(sp =>
+        new SymbolIndexer(
+            sp.GetRequiredService<WorkspaceIndexStore>(),
+            sp.GetRequiredService<LanguageProviderRegistry>(),
+            workspaceRoot,
+            sp.GetRequiredService<ILogger<SymbolIndexer>>()));
+
     // UI
     services.AddSingleton<TerminalUI>();
     services.AddSingleton<SingleRunMode>();
@@ -222,7 +240,48 @@ static async Task<ServiceProvider> BuildServiceProvider(
     foreach (var tool in sp.GetServices<ITool>())
         registry.Register(tool);
 
+    // Wire the SharedContextStore's index query delegate so agents can
+    // query the workspace index for relevant files by name/symbol match.
+    try
+    {
+        var coordinator = sp.GetRequiredService<AgentSessionCoordinator>();
+        var indexQuery = sp.GetRequiredService<WorkspaceIndexQueryService>();
+        coordinator.Context.FileQueryDelegate = async (filter, limit) =>
+        {
+            var matches = await indexQuery.SearchFilesAsync(filter, limit);
+            return matches.Select(m => m.Path).ToList();
+        };
+    }
+    catch { /* best-effort */ }
+
     return sp;
+}
+
+static string DetectWorkspaceRootForIndexing(string? dir)
+{
+    var start = string.IsNullOrEmpty(dir)
+        ? Directory.GetCurrentDirectory()
+        : Path.GetFullPath(dir);
+    try
+    {
+        var d = new DirectoryInfo(start);
+        while (d != null)
+        {
+            if (File.Exists(Path.Combine(d.FullName, "AiCodeAgent.slnx")) ||
+                Directory.GetFiles(d.FullName, "*.sln").Length > 0 ||
+                Directory.GetFiles(d.FullName, "*.slnx").Length > 0 ||
+                File.Exists(Path.Combine(d.FullName, "package.json")) ||
+                File.Exists(Path.Combine(d.FullName, "pyproject.toml")) ||
+                Directory.GetFiles(d.FullName, "*.csproj").Length > 0)
+            {
+                return d.FullName;
+            }
+            d = d.Parent;
+        }
+    }
+    catch { /* fall through */ }
+
+    return start;
 }
 
 static void RegisterProvider(

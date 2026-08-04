@@ -30,6 +30,7 @@
     <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Tools\AiCodeAgent.Tools.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Context\AiCodeAgent.Context.csproj" />
+    <ProjectReference Include="..\AiCodeAgent.Indexing\AiCodeAgent.Indexing.csproj" />
     <ProjectReference Include="..\AiCodeAgent.LanguageServices\AiCodeAgent.LanguageServices.csproj" />
   </ItemGroup>
 </Project>

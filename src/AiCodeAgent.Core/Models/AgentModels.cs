@@ -285,6 +285,13 @@ public class SharedContextStore
     private readonly Dictionary<string, object> _symbolCache = new(StringComparer.OrdinalIgnoreCase);
     private int _tokenBudget;
 
+    /// <summary>
+    /// Optional delegate used to query the workspace index for relevant files
+    /// by name/symbol match when building agent context automatically.
+    /// Set by the host (App/CLI) to avoid a hard dependency on the indexing project.
+    /// </summary>
+    public Func<string, int, Task<IReadOnlyList<string>>>? FileQueryDelegate { get; set; }
+
     public int TokenBudget
     {
         get { lock (_lock) return _tokenBudget; }
@@ -309,6 +316,27 @@ public class SharedContextStore
     public bool TryGetSymbol(string key, out object? value)
     {
         lock (_lock) return _symbolCache.TryGetValue(key, out value);
+    }
+
+    /// <summary>
+    /// Query the workspace index for files relevant to a filter (name/symbol match).
+    /// Falls back to an empty list when no index query delegate is configured.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> QueryRelevantFilesAsync(
+        string filter,
+        int limit = 20)
+    {
+        if (FileQueryDelegate == null)
+            return Array.Empty<string>();
+
+        try
+        {
+            return await FileQueryDelegate(filter, limit).ConfigureAwait(false);
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     public void Clear()

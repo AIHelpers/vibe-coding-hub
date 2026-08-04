@@ -69,6 +69,16 @@ public enum CompletionItemKind
 
 public record TextEdit(Range Range, string NewText);
 
+/// <summary>
+/// Represents a symbol information entry returned by the LSP
+/// <c>workspace/symbol</c> request.
+/// </summary>
+public record SymbolInformation(
+    string Name,
+    int Kind,
+    Location Location,
+    string? ContainerName = null);
+
 public record CompletionList(bool IsIncomplete, List<CompletionItem> Items);
 
 public record Hover(HoverContents? Contents, Range? Range = null);

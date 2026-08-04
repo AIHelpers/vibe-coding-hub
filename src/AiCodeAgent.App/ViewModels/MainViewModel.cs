@@ -7,6 +7,8 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.App.CommandPalette;
+using AiCodeAgent.Indexing;
+using AiCodeAgent.Indexing.Models;
 
 namespace AiCodeAgent.App.ViewModels;
 
@@ -35,6 +37,7 @@ public partial class MainViewModel : ObservableObject
 
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
+    private readonly WorkspaceIndexQueryService? _indexQueryService;
 
     public ChatViewModel? ChatViewModel => _chatViewModel;
     public FileExplorerViewModel FileExplorer { get; }
@@ -49,7 +52,8 @@ public partial class MainViewModel : ObservableObject
         TerminalViewModel terminal,
         EditorPaneViewModel editorPane,
         CheckpointBrowserViewModel checkpointBrowser,
-        CommandPaletteViewModel commandPalette)
+        CommandPaletteViewModel commandPalette,
+        WorkspaceIndexQueryService? indexQueryService = null)
     {
         _serviceProvider = serviceProvider;
         FileExplorer = fileExplorer;
@@ -57,6 +61,7 @@ public partial class MainViewModel : ObservableObject
         EditorPane = editorPane;
         CheckpointBrowser = checkpointBrowser;
         CommandPalette = commandPalette;
+        _indexQueryService = indexQueryService;
 
         WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory;
 
@@ -252,6 +257,26 @@ public partial class MainViewModel : ObservableObject
             CreateSlashCommandEntry("slash.refactor", "/refactor", "Refactor code", chat, "refactoring"),
             CreateSlashCommandEntry("slash.help", "/help", "Show available commands", chat, "help", "commands"),
 
+            // ---- Workspace Index (Go to file / Go to symbol) ----
+            new CommandPaletteEntry
+            {
+                Id = "index.goToFile",
+                Title = "Go to File...",
+                Category = "Workspace",
+                Keywords = new[] { "file", "open", "goto", "navigate", "index" },
+                KeybindingHint = "Ctrl+P",
+                Action = () => SafeFireAndForget(OpenIndexedFileAsync(), "OpenIndexedFile")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "index.goToSymbol",
+                Title = "Go to Symbol...",
+                Category = "Workspace",
+                Keywords = new[] { "symbol", "goto", "navigate", "index", "class", "method" },
+                KeybindingHint = "Ctrl+Shift+O",
+                Action = () => SafeFireAndForget(OpenIndexedSymbolAsync(), "OpenIndexedSymbol")
+            },
+
             // ---- Editor ----
             new CommandPaletteEntry
             {
@@ -353,6 +378,52 @@ public partial class MainViewModel : ObservableObject
             _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
         }
         return _chatViewModel;
+    }
+
+    /// <summary>
+    /// Opens a lightweight "Go to file" flow: queries the workspace index and
+    /// opens the first matching file in the editor.
+    /// </summary>
+    private async Task OpenIndexedFileAsync()
+    {
+        if (_indexQueryService == null)
+            return;
+
+        try
+        {
+            var matches = await _indexQueryService.SearchFilesAsync(limit: 1);
+            if (matches.Count > 0)
+            {
+                await EditorPane.OpenFileAsync(matches[0].Path);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Go to file failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Opens a lightweight "Go to symbol" flow: queries the workspace index for
+    /// symbols and opens the first matching file at the symbol's line.
+    /// </summary>
+    private async Task OpenIndexedSymbolAsync()
+    {
+        if (_indexQueryService == null)
+            return;
+
+        try
+        {
+            var matches = await _indexQueryService.SearchSymbolsAsync(limit: 1);
+            if (matches.Count > 0)
+            {
+                await EditorPane.OpenFileAsync(matches[0].FilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Go to symbol failed: {ex.Message}");
+        }
     }
 
     /// <summary>

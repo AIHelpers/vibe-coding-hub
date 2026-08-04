@@ -15,6 +15,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
@@ -61,6 +62,34 @@ public partial class App : Application
             var registry = Services.GetRequiredService<IToolRegistry>();
             foreach (var tool in Services.GetServices<ITool>())
                 registry.Register(tool);
+
+            // Start background workspace indexing (fire-and-forget full scan)
+            try
+            {
+                var indexer = Services.GetRequiredService<WorkspaceIndexer>();
+                _ = indexer.StartAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to start workspace indexer: {ex.Message}");
+            }
+
+            // Wire the SharedContextStore's index query delegate so agents can
+            // query the workspace index for relevant files by name/symbol match.
+            try
+            {
+                var coordinator = Services.GetRequiredService<AgentSessionCoordinator>();
+                var indexQuery = Services.GetRequiredService<WorkspaceIndexQueryService>();
+                coordinator.Context.FileQueryDelegate = async (filter, limit) =>
+                {
+                    var matches = await indexQuery.SearchFilesAsync(filter, limit);
+                    return matches.Select(m => m.Path).ToList();
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to wire index query delegate: {ex.Message}");
+            }
 
             var mainWindow = new MainWindow
             {
@@ -179,6 +208,23 @@ public partial class App : Application
         services.AddSingleton<LanguageProviderRegistry>();
         services.AddSingleton<LspDocumentService>();
 
+        // Workspace indexing (Priority 4)
+        var workspaceRoot = DetectWorkspaceRootForIndexing();
+        services.AddSingleton<WorkspaceIndexStore>(sp =>
+            new WorkspaceIndexStore(workspaceRoot, sp.GetRequiredService<ILogger<WorkspaceIndexStore>>()));
+        services.AddSingleton<WorkspaceIndexer>(sp =>
+            new WorkspaceIndexer(
+                sp.GetRequiredService<WorkspaceIndexStore>(),
+                sp.GetRequiredService<ILogger<WorkspaceIndexer>>(),
+                workspaceRoot));
+        services.AddSingleton<WorkspaceIndexQueryService>();
+        services.AddSingleton<SymbolIndexer>(sp =>
+            new SymbolIndexer(
+                sp.GetRequiredService<WorkspaceIndexStore>(),
+                sp.GetRequiredService<LanguageProviderRegistry>(),
+                workspaceRoot,
+                sp.GetRequiredService<ILogger<SymbolIndexer>>()));
+
         // Command Palette
         services.AddSingleton<CommandPaletteRegistry>();
         services.AddSingleton<CommandPaletteViewModel>();
@@ -196,5 +242,30 @@ public partial class App : Application
 
         // Services
         services.AddSingleton<AgentService>();
+    }
+
+    private static string DetectWorkspaceRootForIndexing()
+    {
+        var start = Directory.GetCurrentDirectory();
+        try
+        {
+            var dir = new DirectoryInfo(start);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "AiCodeAgent.slnx")) ||
+                    Directory.GetFiles(dir.FullName, "*.sln").Length > 0 ||
+                    Directory.GetFiles(dir.FullName, "*.slnx").Length > 0 ||
+                    File.Exists(Path.Combine(dir.FullName, "package.json")) ||
+                    File.Exists(Path.Combine(dir.FullName, "pyproject.toml")) ||
+                    Directory.GetFiles(dir.FullName, "*.csproj").Length > 0)
+                {
+                    return dir.FullName;
+                }
+                dir = dir.Parent;
+            }
+        }
+        catch { /* fall through */ }
+
+        return start;
     }
 }
