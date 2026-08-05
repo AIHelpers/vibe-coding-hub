@@ -92,6 +92,33 @@ public class CheckpointManager : ICheckpointManager
         return Task.FromResult(entries);
     }
 
+    public Task<CheckpointEntry> ImportCheckpointAsync(
+        string checkpointId,
+        string filePath,
+        string originalContent,
+        string turnId,
+        string? sessionId = null)
+    {
+        var backupPath = Path.Combine(_checkpointDir, $"{checkpointId}.bak");
+        File.WriteAllText(backupPath, originalContent);
+
+        var entry = new CheckpointEntry
+        {
+            CheckpointId = checkpointId,
+            FilePath = filePath,
+            BackupPath = backupPath,
+            OriginalContent = originalContent,
+            Timestamp = DateTime.UtcNow,
+            TurnId = turnId,
+            SessionId = sessionId ?? string.Empty
+        };
+
+        _checkpoints[checkpointId] = entry;
+        _logger.LogInformation("Imported checkpoint {CheckpointId} for {FilePath}", checkpointId, filePath);
+
+        return Task.FromResult(entry);
+    }
+
     public Task CleanupAsync(string turnId)
     {
         var keysToRemove = _checkpoints

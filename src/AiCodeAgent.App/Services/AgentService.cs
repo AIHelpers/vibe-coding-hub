@@ -6,6 +6,7 @@ using System.Text;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Core.Sessions;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.App.Services;
@@ -17,6 +18,7 @@ public class AgentService
     private readonly IContextManager _contextManager;
     private readonly ILogger<AgentService> _logger;
     private readonly IAgentEventBus _eventBus;
+    private readonly SessionRecorder _recorder;
     private CancellationTokenSource? _currentCts;
 
     public IAgentEventBus EventBus => _eventBus;
@@ -26,13 +28,19 @@ public class AgentService
         IToolRegistry toolRegistry,
         IContextManager contextManager,
         ILogger<AgentService> logger,
-        IAgentEventBus eventBus)
+        IAgentEventBus eventBus,
+        SessionRecorder recorder)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
         _contextManager = contextManager;
         _logger = logger;
         _eventBus = eventBus;
+        _recorder = recorder;
+
+        // Begin recording all agent events from the shared bus so the
+        // current chat session can be exported (Priority 5).
+        _recorder.Start("default");
     }
 
     public async Task<string> SendMessageAsync(string message, string sessionId = "default")

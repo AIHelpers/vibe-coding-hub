@@ -35,6 +35,9 @@ public interface IContextManager
     Task<int> GetTokenCountAsync(string sessionId);
     Task TrimContextAsync(string sessionId, int maxTokens);
     Task ClearAsync(string sessionId);
+
+    /// <summary>List all known session IDs (for the session history panel).</summary>
+    Task<IReadOnlyList<string>> GetSessionsAsync();
 }
 
 public interface IMemoryStore
@@ -81,6 +84,17 @@ public interface ICheckpointManager
     Task<List<CheckpointEntry>> GetCheckpointsAsync(string turnId);
     Task<List<CheckpointEntry>> GetCheckpointsForSessionAsync(string sessionId);
     Task CleanupAsync(string turnId);
+
+    /// <summary>
+    /// Import a checkpoint snapshot (e.g. from a session bundle) into local
+    /// checkpoint storage so it can be restored later.
+    /// </summary>
+    Task<CheckpointEntry> ImportCheckpointAsync(
+        string checkpointId,
+        string filePath,
+        string originalContent,
+        string turnId,
+        string? sessionId = null);
 }
 
 public interface IPermissionService

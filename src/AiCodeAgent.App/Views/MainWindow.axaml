@@ -13,7 +13,10 @@
         Height="800"
         MinWidth="800"
         MinHeight="500"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        DragDrop.AllowDrop="True"
+        DragDrop.DragOver="OnDragOver"
+        DragDrop.Drop="OnDrop">
 
     <Design.DataContext>
         <vm:MainViewModel/>
@@ -59,6 +62,9 @@
                             Width="32" Height="28" Padding="0"/>
                     <Button Content="📄" Command="{Binding ToggleCheckpointBrowserCommand}" 
                             ToolTip.Tip="Toggle Checkpoint Browser" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="📦" Command="{Binding ToggleSessionHistoryCommand}" 
+                            ToolTip.Tip="Toggle Session History (export/import)" 
                             Width="32" Height="28" Padding="0"/>
                     <Button Content="🔄" Command="{Binding RefreshFileExplorerCommand}" 
                             ToolTip.Tip="Refresh File Explorer" 
@@ -128,18 +134,95 @@
                 </ContentControl.DataTemplates>
             </ContentControl>
 
-            <!-- Checkpoint Browser Overlay -->
-            <Border IsVisible="{Binding IsCheckpointBrowserOpen}"
-                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                    CornerRadius="4"
-                    Margin="8"
-                    Padding="8"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Stretch"
-                    Width="360"
-                    ZIndex="50">
-                <views:CheckpointBrowserView DataContext="{Binding CheckpointBrowser}"/>
-            </Border>
+        <!-- Checkpoint Browser Overlay -->
+        <Border IsVisible="{Binding IsCheckpointBrowserOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="8"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <views:CheckpointBrowserView DataContext="{Binding CheckpointBrowser}"/>
+        </Border>
+
+        <!-- Session History Overlay (Priority 5 — export/import session bundles) -->
+        <Border IsVisible="{Binding IsSessionHistoryOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="8"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBlock Grid.Column="0" Text="📦 Sessions" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            Content="✕" 
+                            Command="{Binding ToggleSessionHistoryCommand}"
+                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Session History"
+                                   FontSize="11"
+                                   Opacity="0.6"
+                                   Margin="2,0,0,4"/>
+                        <ItemsControl ItemsSource="{Binding SessionManager.SessionHistory}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2" Padding="8" Background="#2A2A3A" CornerRadius="6">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" 
+                                                       Text="{Binding}" 
+                                                       FontSize="12" 
+                                                       FontFamily="Consolas"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1"
+                                                    Content="⬇ Export"
+                                                    FontSize="10"
+                                                    Padding="8,3"
+                                                    Command="{Binding $parent[Window].DataContext.SessionManager.ExportSessionCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Recently Exported"
+                                   FontSize="11"
+                                   Opacity="0.6"
+                                   Margin="2,12,0,4"/>
+                        <ItemsControl ItemsSource="{Binding SessionManager.ExportedSessions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" 
+                                               FontSize="10"
+                                               FontFamily="Consolas"
+                                               TextWrapping="Wrap"
+                                               Opacity="0.7"
+                                               Margin="2,2"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding SessionManager.StatusText}"
+                           FontSize="10"
+                           Opacity="0.6"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,0"
+                           MaxHeight="48"/>
+            </Grid>
+        </Border>
 
             <!-- SplitView for sidebar (visible in Chat mode) -->
             <SplitView Name="MainSplitView"

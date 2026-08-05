@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.App.CommandPalette;
+using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.Indexing.Models;
 
@@ -35,6 +36,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckpointBrowserOpen;
 
+    [ObservableProperty]
+    private bool _isSessionHistoryOpen;
+
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
     private readonly WorkspaceIndexQueryService? _indexQueryService;
@@ -44,6 +48,7 @@ public partial class MainViewModel : ObservableObject
     public TerminalViewModel Terminal { get; }
     public EditorPaneViewModel EditorPane { get; }
     public CheckpointBrowserViewModel CheckpointBrowser { get; }
+    public SessionManagerViewModel SessionManager { get; }
     public CommandPaletteViewModel CommandPalette { get; }
 
     public MainViewModel(
@@ -52,6 +57,7 @@ public partial class MainViewModel : ObservableObject
         TerminalViewModel terminal,
         EditorPaneViewModel editorPane,
         CheckpointBrowserViewModel checkpointBrowser,
+        SessionManagerViewModel sessionManager,
         CommandPaletteViewModel commandPalette,
         WorkspaceIndexQueryService? indexQueryService = null)
     {
@@ -60,6 +66,7 @@ public partial class MainViewModel : ObservableObject
         Terminal = terminal;
         EditorPane = editorPane;
         CheckpointBrowser = checkpointBrowser;
+        SessionManager = sessionManager;
         CommandPalette = commandPalette;
         _indexQueryService = indexQueryService;
 
@@ -101,6 +108,7 @@ public partial class MainViewModel : ObservableObject
             {
                 SafeFireAndForget(EditorPane.OpenFileAsync(selected.FullPath), "OpenFile");
                 IsCheckpointBrowserOpen = false;
+                IsSessionHistoryOpen = false;
             }
         }
     }
@@ -114,6 +122,7 @@ public partial class MainViewModel : ObservableObject
         CurrentViewModel = _chatViewModel;
         IsSettingsMode = false;
         IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
         StatusText = "Chat Mode";
     }
 
@@ -123,6 +132,7 @@ public partial class MainViewModel : ObservableObject
         CurrentViewModel = _serviceProvider.GetRequiredService<SettingsViewModel>();
         IsSettingsMode = true;
         IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
         StatusText = "Settings Mode";
     }
 
@@ -159,6 +169,22 @@ public partial class MainViewModel : ObservableObject
         {
             IsSettingsMode = false;
             CheckpointBrowser.RefreshCommand.Execute(null);
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleSessionHistory()
+    {
+        IsSessionHistoryOpen = !IsSessionHistoryOpen;
+        if (IsSessionHistoryOpen)
+        {
+            IsSettingsMode = false;
+            IsCheckpointBrowserOpen = false;
+            SessionManager.RefreshSessionHistoryCommand.Execute(null);
+        }
+        else
+        {
+            SessionManager.CloseSessionHistory();
         }
     }
 
@@ -246,6 +272,37 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "terminal", "console", "shell", "command" },
                 KeybindingHint = "Ctrl+`",
                 Action = ToggleTerminal
+            },
+
+            // ---- Session Export/Import (Priority 5) ----
+            new CommandPaletteEntry
+            {
+                Id = "nav.sessionHistory",
+                Title = "Toggle Session History",
+                Category = "Navigation",
+                Keywords = new[] { "session", "history", "export", "import", "bundle" },
+                KeybindingHint = "",
+                Action = ToggleSessionHistory
+            },
+            new CommandPaletteEntry
+            {
+                Id = "session.export",
+                Title = "Export Session...",
+                Category = "Session",
+                Keywords = new[] { "export", "session", "bundle", "save", "backup" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(
+                    SessionManager.ExportSessionCommand.ExecuteAsync(null), "ExportSession")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "session.import",
+                Title = "Import Session...",
+                Category = "Session",
+                Keywords = new[] { "import", "session", "bundle", "open", "restore" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(
+                    SessionManager.ImportSessionCommand.ExecuteAsync(null), "ImportSession")
             },
 
             // ---- Chat Slash Commands (invoke the same handlers as the input popup) ----
@@ -362,6 +419,7 @@ public partial class MainViewModel : ObservableObject
                 CurrentViewModel = chat;
                 IsSettingsMode = false;
                 IsCheckpointBrowserOpen = false;
+                IsSessionHistoryOpen = false;
                 StatusText = "Chat Mode";
 
                 // Insert the slash command into the input, exactly as the

@@ -2,6 +2,7 @@ using System.Text;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Core.Sessions;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.CLI;
@@ -11,6 +12,9 @@ public class TerminalUI
     private readonly IAgentOrchestrator _orchestrator;
     private readonly IToolRegistry _toolRegistry;
     private readonly ILogger<TerminalUI> _logger;
+    private readonly SessionRecorder _recorder;
+    private readonly SessionExportService _exportService;
+    private readonly SessionImporter _importer;
     private string _sessionId = Guid.NewGuid().ToString();
 
     private static class Colors
@@ -28,11 +32,17 @@ public class TerminalUI
     public TerminalUI(
         IAgentOrchestrator orchestrator,
         IToolRegistry toolRegistry,
-        ILogger<TerminalUI> logger)
+        ILogger<TerminalUI> logger,
+        SessionRecorder recorder,
+        SessionExportService exportService,
+        SessionImporter importer)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
         _logger = logger;
+        _recorder = recorder;
+        _exportService = exportService;
+        _importer = importer;
     }
 
     public async Task RunAsync(AgentOptions options)
@@ -42,6 +52,8 @@ public class TerminalUI
 
         PrintBanner();
         PrintHelp();
+
+        _recorder.Start(_sessionId);
 
         var history = new List<string>();
         var historyIndex = 0;
@@ -177,8 +189,18 @@ public class TerminalUI
                 return true;
 
             case "/reset":
+                _recorder.Stop();
                 _sessionId = Guid.NewGuid().ToString();
+                _recorder.Start(_sessionId);
                 WriteColored("Session reset\n", Colors.Success);
+                return true;
+
+            case var s when s.StartsWith("/export "):
+                await ExportSessionAsync(s[8..].Trim());
+                return true;
+
+            case var s when s.StartsWith("/import "):
+                await ImportSessionAsync(s[8..].Trim());
                 return true;
 
             case "/tools":
@@ -210,6 +232,51 @@ public class TerminalUI
 
             default:
                 return false;
+        }
+    }
+
+    private async Task ExportSessionAsync(string outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            WriteColored("Usage: /export <path>  (e.g. /export session.agentsession)\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            await _exportService.ExportAsync(_sessionId, outputPath);
+            WriteColored($"Session exported to {outputPath}\n", Colors.Success);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Export failed: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task ImportSessionAsync(string bundlePath)
+    {
+        if (string.IsNullOrWhiteSpace(bundlePath))
+        {
+            WriteColored("Usage: /import <path>  (e.g. /import session.agentsession)\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var result = await _importer.ImportAsync(bundlePath);
+            WriteColored($"Session imported: {result.MessageCount} messages, " +
+                         $"{result.ToolCallCount} tool calls, {result.HunkCount} hunks, " +
+                         $"{result.CheckpointCount} checkpoints\n", Colors.Success);
+
+            foreach (var conflict in result.Conflicts)
+            {
+                WriteColored($"  ⚠ {conflict.Message}\n", Colors.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Import failed: {ex.Message}\n", Colors.Error);
         }
     }
 

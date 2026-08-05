@@ -1,10 +1,14 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.ReactiveUI;
 using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.App.ViewModels;
 using ReactiveUI;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AiCodeAgent.App.Views;
 
@@ -161,6 +165,51 @@ public partial class MainWindow : Window
         {
             palette.Close();
             e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Accepts a drag if the payload contains at least one `.agentsession` file.
+    /// </summary>
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        if (e.Data.Contains(DataFormats.Files))
+        {
+            var files = e.Data.GetFiles()?.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrEmpty(p));
+            if (files != null && files.Any(p => p != null && p.EndsWith(".agentsession", StringComparison.OrdinalIgnoreCase)))
+            {
+                e.DragEffects = DragDropEffects.Copy;
+                e.Handled = true;
+                return;
+            }
+        }
+
+        e.DragEffects = DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Imports the first dropped `.agentsession` file into a new session.
+    /// </summary>
+    private async void OnDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is MainViewModel mainVm && e.Data.Contains(DataFormats.Files))
+        {
+            var files = e.Data.GetFiles()?.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrEmpty(p));
+            var bundlePath = files?.FirstOrDefault(p => p != null && p.EndsWith(".agentsession", StringComparison.OrdinalIgnoreCase));
+            if (bundlePath != null)
+            {
+                e.Handled = true;
+                try
+                {
+                    await mainVm.SessionManager.ImportSessionFromPathAsync(bundlePath);
+                    mainVm.ToggleSessionHistoryCommand.Execute(null);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Session import via drop failed: {ex.Message}");
+                }
+            }
         }
     }
 

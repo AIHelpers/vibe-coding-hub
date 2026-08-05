@@ -4,6 +4,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
@@ -146,6 +147,9 @@ configCommand.AddCommand(setKeyCommand);
 configCommand.AddCommand(listProvidersCommand);
 configCommand.AddCommand(addProviderCommand);
 
+// Session export/import + prompt pack commands (Priority 5)
+SessionCommands.AddCommands(configCommand);
+
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(configCommand);
@@ -191,6 +195,12 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);
     services.AddSingleton<RolePresetLoader>();
     services.AddSingleton<AgentSessionCoordinator>();
+
+    // Session export/import services (Priority 5)
+    services.AddSingleton<SessionRecorder>();
+    services.AddSingleton<SessionExportService>();
+    services.AddSingleton<SessionImporter>();
+    services.AddSingleton<PromptPackService>();
 
     // Register tools
     services.AddSingleton<ITool, ReadFileTool>();

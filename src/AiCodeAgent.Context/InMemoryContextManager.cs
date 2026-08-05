@@ -104,6 +104,11 @@ public class InMemoryContextManager : IContextManager
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<string>> GetSessionsAsync()
+    {
+        return Task.FromResult<IReadOnlyList<string>>(_sessions.Keys.ToList());
+    }
+
     private static int EstimateTokens(string? content) =>
         (content?.Length ?? 0) / ApproxCharsPerToken + 1;
 }

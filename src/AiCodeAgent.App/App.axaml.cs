@@ -15,6 +15,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
@@ -91,10 +92,13 @@ public partial class App : Application
                 System.Diagnostics.Debug.WriteLine($"Failed to wire index query delegate: {ex.Message}");
             }
 
+            var mainViewModel = Services.GetRequiredService<MainViewModel>();
             var mainWindow = new MainWindow
             {
-                DataContext = Services.GetRequiredService<MainViewModel>()
+                DataContext = mainViewModel
             };
+            // Attach the host window so session export/import file pickers work
+            mainViewModel.SessionManager.AttachHostWindow(mainWindow);
             desktop.MainWindow = mainWindow;
             mainWindow.Show();
             mainWindow.Activate();
@@ -157,6 +161,12 @@ public partial class App : Application
         
         // Agent Session Coordinator (multi-agent orchestration)
         services.AddSingleton<AgentSessionCoordinator>();
+
+        // Session export/import services (Priority 5)
+        services.AddSingleton<SessionRecorder>();
+        services.AddSingleton<SessionExportService>();
+        services.AddSingleton<SessionImporter>();
+        services.AddSingleton<PromptPackService>();
 
         // Register AI provider
         services.AddSingleton<IAiProvider>(sp =>
@@ -234,7 +244,8 @@ public partial class App : Application
         services.AddSingleton<TerminalViewModel>();
         services.AddSingleton<EditorPaneViewModel>();
         services.AddSingleton<CheckpointBrowserViewModel>();
-        
+        services.AddSingleton<SessionManagerViewModel>();
+
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<ChatViewModel>();
