@@ -128,6 +128,12 @@ public class TerminalUI
                         Console.WriteLine();
                         WriteColored($"\nError: {error.Error.Message}\n", Colors.Error);
                         break;
+
+                    case ApprovalRequestEvent approval:
+                        Console.WriteLine();
+                        var approved = PromptApproval(approval.Call);
+                        approval.Approval.TrySetResult(approved);
+                        break;
                 }
             }
         }
@@ -135,6 +141,14 @@ public class TerminalUI
         {
             WriteColored("\nCancelled\n", Colors.Info);
         }
+    }
+
+    private bool PromptApproval(ToolCall call)
+    {
+        WriteColored($"Approve {call.Name}? [y/N] ", Colors.Prompt);
+        var key = Console.ReadKey(intercept: false);
+        Console.WriteLine();
+        return key.Key == ConsoleKey.Y;
     }
 
     private void WriteToolCallStart(ToolCall call, int depth)

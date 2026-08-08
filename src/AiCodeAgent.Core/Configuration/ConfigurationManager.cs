@@ -37,6 +37,13 @@ public class ConfigurationService
             _config = JsonSerializer.Deserialize<AppConfiguration>(json, JsonOptions.Default)
                       ?? AppConfiguration.GetDefaults();
 
+            // Normalize the default provider name to lowercase so it always
+            // matches the provider dictionary key casing (e.g. "Ollama" -> "ollama").
+            if (!string.IsNullOrEmpty(_config.DefaultProvider))
+            {
+                _config.DefaultProvider = _config.DefaultProvider.ToLowerInvariant();
+            }
+
             // Decrypt any encrypted API keys
             var decryptedProviders = new Dictionary<string, ProviderConfiguration>();
             foreach (var (key, provider) in _config.Providers)
@@ -83,14 +90,26 @@ public class ConfigurationService
 
     public void SetApiKey(string provider, string apiKey)
     {
-        if (_config.Providers.TryGetValue(provider, out var cfg))
+        // Case-insensitive lookup so "Ollama" matches the lowercase key "ollama"
+        var key = _config.Providers.Keys
+            .FirstOrDefault(k => string.Equals(k, provider, StringComparison.OrdinalIgnoreCase));
+        if (key != null)
         {
-            _config.Providers[provider] = cfg with { ApiKey = apiKey };
+            _config.Providers[key] = _config.Providers[key] with { ApiKey = apiKey };
         }
     }
 
-    public ProviderConfiguration? GetProvider(string name) =>
-        _config.Providers.TryGetValue(name, out var cfg) ? cfg : null;
+    public ProviderConfiguration? GetProvider(string name)
+    {
+        if (_config.Providers.TryGetValue(name, out var cfg))
+            return cfg;
+
+        // Fall back to a case-insensitive lookup so config values like
+        // "Ollama" match the lowercase provider key "ollama".
+        var match = _config.Providers.Keys
+            .FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
+        return match != null ? _config.Providers[match] : null;
+    }
 
     /// <summary>
     /// Encrypts a string using AES-256-GCM with a machine-derived key.

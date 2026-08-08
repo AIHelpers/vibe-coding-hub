@@ -55,7 +55,11 @@ public class RolePresetLoader
                 Focus on analysis and planning only.
                 """,
             DefaultPermissionMode = PermissionMode.Plan,
-            AllowedTools = new List<string> { "ReadFile", "SearchCode", "ListDirectory", "Grep" }
+            AllowedTools = new List<string>
+            {
+                "read_file", "list_directory", "grep",
+                "get_diagnostics", "go_to_definition", "find_references"
+            }
         };
 
         _presets["implementer"] = new AgentRolePreset
@@ -79,8 +83,8 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.AutoEdit,
             AllowedTools = new List<string>
             {
-                "ReadFile", "WriteFile", "EditFile", "ListDirectory", "Grep",
-                "ExecuteCommand", "RunDiagnostics", "Git"
+                "read_file", "write_file", "edit_file", "list_directory", "grep",
+                "execute_command", "run_diagnostics", "git", "go_to_definition", "find_references"
             }
         };
 
@@ -103,7 +107,65 @@ public class RolePresetLoader
                 Your output is a review report with actionable feedback.
                 """,
             DefaultPermissionMode = PermissionMode.Plan,
-            AllowedTools = new List<string> { "ReadFile", "SearchCode", "ListDirectory", "Grep", "RunDiagnostics" }
+            AllowedTools = new List<string>
+            {
+                "read_file", "list_directory", "grep", "run_diagnostics",
+                "get_diagnostics", "go_to_definition", "find_references"
+            }
+        };
+
+        _presets["tester"] = new AgentRolePreset
+        {
+            Role = "tester",
+            Description = "Writes and runs automated tests (backend and frontend) and reports pass/fail results.",
+            SystemPrompt = """
+                You are the TESTER agent in a multi-agent coding session.
+                Your job is to verify the implementer's changes actually work.
+
+                Responsibilities:
+                - Identify what needs test coverage (unit, integration, backend, frontend, as applicable)
+                - Write missing automated tests when appropriate for the project's existing test framework
+                - Run the test suite and any relevant build/lint/diagnostics commands
+                - Clearly report pass/fail status, failing test names, and likely root causes
+                - Do NOT mark a task as done if tests fail or you were unable to run them; say so explicitly
+
+                Prefer running the project's existing test tooling over inventing new frameworks.
+                Keep new tests small, deterministic, and focused on the behavior that changed.
+                """,
+            DefaultPermissionMode = PermissionMode.AutoEdit,
+            AllowedTools = new List<string>
+            {
+                "read_file", "write_file", "edit_file", "list_directory", "grep",
+                "execute_command", "run_diagnostics", "git", "get_diagnostics"
+            }
+        };
+
+        _presets["deployer"] = new AgentRolePreset
+        {
+            Role = "deployer",
+            Description = "Prepares and performs deployment: build artifacts, deploy scripts/CI config, release steps.",
+            SystemPrompt = """
+                You are the DEPLOYER agent in a multi-agent coding session.
+                Your job is to prepare and, once approved, carry out deployment of the reviewed
+                and tested changes.
+
+                Responsibilities:
+                - Verify the build is green and tests have passed before proceeding
+                - Prepare or update deployment artifacts/config (e.g. Dockerfiles, CI/CD pipelines,
+                  release notes, version bumps) as needed for this project
+                - Run the project's deploy/release commands when available and approved
+                - Never invent credentials, secrets, or infrastructure that doesn't already exist
+                - Clearly report what was deployed, where, and how to roll back if something breaks
+
+                Deployment is high-risk: prefer dry-runs and clear, minimal steps. If you are unsure
+                whether an action is safe or reversible, stop and explain the risk instead of proceeding.
+                """,
+            DefaultPermissionMode = PermissionMode.Ask,
+            AllowedTools = new List<string>
+            {
+                "read_file", "write_file", "edit_file", "list_directory",
+                "execute_command", "run_diagnostics", "git"
+            }
         };
     }
 

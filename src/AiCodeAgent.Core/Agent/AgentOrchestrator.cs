@@ -396,6 +396,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         var agentLine = string.IsNullOrEmpty(options.AgentId)
             ? string.Empty
             : $"Agent ID: {options.AgentId}";
+        var roleInstructions = string.IsNullOrWhiteSpace(options.RoleSystemPrompt)
+            ? string.Empty
+            : $"\n{options.RoleSystemPrompt.Trim()}\n";
 
         return $"""
             You are an expert AI coding assistant with deep knowledge of software development.
@@ -407,7 +410,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             Permission mode: {options.PermissionMode}
             {roleLine}
             {agentLine}
-            
+            {roleInstructions}
             Guidelines:
             - Always read files before editing them to understand current state
             - Make minimal, targeted changes when fixing bugs

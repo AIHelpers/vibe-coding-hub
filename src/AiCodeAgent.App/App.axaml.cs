@@ -161,6 +161,8 @@ public partial class App : Application
         
         // Agent Session Coordinator (multi-agent orchestration)
         services.AddSingleton<AgentSessionCoordinator>();
+        services.AddSingleton<SdlcPipelineLoader>();
+        services.AddSingleton<SdlcPipelineRunner>();
 
         // Session export/import services (Priority 5)
         services.AddSingleton<SessionRecorder>();
@@ -176,6 +178,8 @@ public partial class App : Application
             var providerName = configSvc.Config.DefaultProvider;
             var cfg = configSvc.GetProvider(providerName)
                 ?? throw new InvalidOperationException($"Provider not found: {providerName}");
+            // Normalize the provider name to lowercase so it matches the provider key casing
+            providerName = providerName.ToLowerInvariant();
 
             // Try to get API key from environment (both legacy and new naming are supported)
             var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";

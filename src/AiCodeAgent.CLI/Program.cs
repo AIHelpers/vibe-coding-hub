@@ -69,6 +69,50 @@ runCommand.SetHandler(async (prompt, provider, model, dir) =>
     });
 }, promptArg, providerOption, modelOption, dirOption);
 
+// pipeline command - run the full (or a custom) SDLC as a multi-agent session
+var pipelineCommand = new Command("pipeline", "Run a configurable multi-agent SDLC pipeline (analyze/implement/review/test/deploy)");
+
+var pipelineRunCommand = new Command("run", "Run a pipeline against a task");
+var pipelineTaskArg = new Argument<string>("task", "Description of the task to carry through the pipeline");
+var pipelineNameOption = new Option<string>("--pipeline", () => "full-sdlc", "Pipeline to run (see 'pipeline list')");
+pipelineRunCommand.AddArgument(pipelineTaskArg);
+pipelineRunCommand.AddOption(pipelineNameOption);
+pipelineRunCommand.AddOption(providerOption);
+pipelineRunCommand.AddOption(modelOption);
+pipelineRunCommand.AddOption(dirOption);
+pipelineRunCommand.SetHandler(async (task, pipelineName, provider, model, dir) =>
+{
+    var services = await BuildServiceProvider(provider, model, dir);
+    var loader = services.GetRequiredService<SdlcPipelineLoader>();
+    var pipeline = loader.GetPipeline(pipelineName);
+    if (pipeline == null)
+    {
+        Console.Error.WriteLine($"Unknown pipeline '{pipelineName}'. Run 'pipeline list' to see available pipelines.");
+        Environment.Exit(1);
+        return;
+    }
+
+    var runner = new PipelineRunMode(services.GetRequiredService<SdlcPipelineRunner>());
+    await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model);
+}, pipelineTaskArg, pipelineNameOption, providerOption, modelOption, dirOption);
+
+var pipelineListCommand = new Command("list", "List available pipelines");
+pipelineListCommand.SetHandler(async () =>
+{
+    var services = await BuildServiceProvider(null, null, null);
+    var loader = services.GetRequiredService<SdlcPipelineLoader>();
+    Console.WriteLine("Available pipelines:");
+    foreach (var p in loader.GetAllPipelines())
+    {
+        Console.WriteLine($"  {p.Name,-12} {p.Description}");
+        foreach (var stage in p.Stages)
+            Console.WriteLine($"      - [{(stage.Enabled ? "x" : " ")}] {stage.Name} ({stage.Role})");
+    }
+});
+
+pipelineCommand.AddCommand(pipelineRunCommand);
+pipelineCommand.AddCommand(pipelineListCommand);
+
 // config command
 var configCommand = new Command("config", "Configure the agent");
 var setKeyCommand = new Command("set-key", "Set API key for a provider");
@@ -152,6 +196,7 @@ SessionCommands.AddCommands(configCommand);
 
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
+rootCommand.AddCommand(pipelineCommand);
 rootCommand.AddCommand(configCommand);
 
 return await rootCommand.InvokeAsync(args);
@@ -195,6 +240,8 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);
     services.AddSingleton<RolePresetLoader>();
     services.AddSingleton<AgentSessionCoordinator>();
+    services.AddSingleton<SdlcPipelineLoader>();
+    services.AddSingleton<SdlcPipelineRunner>();
 
     // Session export/import services (Priority 5)
     services.AddSingleton<SessionRecorder>();
@@ -301,6 +348,8 @@ static void RegisterProvider(
 {
     var cfg = configSvc.GetProvider(providerName)
         ?? throw new InvalidOperationException($"Provider not found: {providerName}");
+    // Normalize the provider name to lowercase so it matches the provider key casing
+    providerName = providerName.ToLowerInvariant();
 
     // Try to get API key from environment (both legacy and new naming are supported)
     var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";

@@ -36,6 +36,13 @@ public class SingleRunMode
                     Console.Error.WriteLine($"Error: {error.Error.Message}");
                     Environment.Exit(1);
                     break;
+
+                case ApprovalRequestEvent approval:
+                    Console.Error.Write($"\nApprove {approval.Call.Name}? [y/N] ");
+                    var key = Console.ReadKey(intercept: false);
+                    Console.Error.WriteLine();
+                    approval.Approval.TrySetResult(key.Key == ConsoleKey.Y);
+                    break;
             }
         }
     }

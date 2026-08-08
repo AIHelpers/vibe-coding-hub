@@ -96,6 +96,13 @@ public record AgentOptions
     public string? AgentId { get; init; }
     /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
     public string? Role { get; init; }
+    /// <summary>
+    /// Role-specific system prompt instructions (typically sourced from an
+    /// <see cref="AgentRolePreset"/>). When set, these are injected into the
+    /// live system prompt sent to the model, in addition to the generic
+    /// agent instructions. Without this, a Role label was cosmetic only.
+    /// </summary>
+    public string? RoleSystemPrompt { get; init; }
 }
 
 public record AgentResponse

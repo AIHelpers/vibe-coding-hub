@@ -73,6 +73,28 @@ dotnet run --project src/AiCodeAgent.CLI -- run "Add unit tests for the UserServ
 dotnet run --project src/AiCodeAgent.CLI -- run "Fix all compilation errors" --dir ./myproject
 ```
 
+## SDLC Pipelines (multi-agent)
+
+Run the full software development lifecycle as a chain of specialized agents — each stage runs
+under its own role preset (system prompt, allowed tools, permission mode) and all stages share one
+session, so later stages see what earlier stages did:
+
+```bash
+# List built-in and user-defined pipelines
+dotnet run --project src/AiCodeAgent.CLI -- pipeline list
+
+# Run the full pipeline: analyze -> implement -> review -> test -> deploy
+dotnet run --project src/AiCodeAgent.CLI -- pipeline run "Add pagination to the /users endpoint"
+
+# Use a lighter pipeline for small changes
+dotnet run --project src/AiCodeAgent.CLI -- pipeline run "Fix off-by-one in date parsing" --pipeline quick-fix
+```
+
+Pipelines are plain JSON and fully configurable — drop a file in `~/.aiagent/pipelines/*.json` to add
+your own stage sequence (custom roles, prompts, or a subset of the SDLC). Agent roles themselves are
+equally configurable via `~/.aiagent/presets/*.json` (see `RolePresetLoader`); built-in roles are
+`planner`, `implementer`, `reviewer`, `tester`, and `deployer`.
+
 ## Interactive Commands
 
 ```

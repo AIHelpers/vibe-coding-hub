@@ -408,7 +408,7 @@
                             </Border>
 
                             <!-- Input Area -->
-                            <Grid Grid.Row="3" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto">
+                            <Grid Grid.Row="3" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
                                 <Grid Grid.Column="0" RowDefinitions="*,Auto">
                                     <Popup Grid.Row="0" 
                                            IsOpen="{Binding ChatViewModel.ShowMentionPopup}"
@@ -483,13 +483,25 @@
                                                Margin="0,2,4,0"/>
                                 </Grid>
 
-                                <Button Grid.Column="1" 
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="8,0,0,0">
+                                    <ComboBox ItemsSource="{Binding ChatViewModel.AvailablePipelines}"
+                                              SelectedItem="{Binding ChatViewModel.SelectedPipeline}"
+                                              ToolTip.Tip="SDLC pipeline to run (analyze / implement / review / test / deploy)"
+                                              MinHeight="36" MinWidth="110"/>
+                                    <Button Content="🚀 Pipeline"
+                                            Command="{Binding ChatViewModel.RunPipelineCommand}"
+                                            ToolTip.Tip="Run the selected SDLC pipeline against this task"
+                                            Padding="12,8"
+                                            MinHeight="36"/>
+                                </StackPanel>
+
+                                <Button Grid.Column="2" 
                                         Content="➤ Send" 
                                         Command="{Binding ChatViewModel.SendCommand}" 
                                         Margin="8,0,0,0" 
                                         Padding="16,8"
                                         MinHeight="36"/>
-                                <Button Grid.Column="2" 
+                                <Button Grid.Column="3" 
                                         Content="🗑️" 
                                         Command="{Binding ChatViewModel.ClearChatCommand}"
                                         ToolTip.Tip="Clear Chat (Ctrl+L)"

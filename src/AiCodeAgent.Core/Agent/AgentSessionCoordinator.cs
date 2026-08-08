@@ -17,6 +17,7 @@ public class AgentSessionCoordinator
     private readonly SharedContextStore _context = new();
     private readonly IAgentEventBus? _eventBus;
     private readonly ILogger<AgentSessionCoordinator> _logger;
+    private readonly RolePresetLoader? _presetLoader;
 
     public SharedChangeset Changeset => _changeset;
     public SharedContextStore Context => _context;
@@ -24,10 +25,35 @@ public class AgentSessionCoordinator
 
     public AgentSessionCoordinator(
         ILogger<AgentSessionCoordinator> logger,
-        IAgentEventBus? eventBus = null)
+        IAgentEventBus? eventBus = null,
+        RolePresetLoader? presetLoader = null)
     {
         _logger = logger;
         _eventBus = eventBus;
+        _presetLoader = presetLoader;
+    }
+
+    /// <summary>
+    /// Resolves the effective options for a step: fills in the role preset's
+    /// system prompt and allowed tools when the step didn't already specify them,
+    /// so a step's Role is more than a display label.
+    /// </summary>
+    private AgentOptions ResolveStepOptions(SessionStep step)
+    {
+        var options = step.Options with { AgentId = step.AgentId, Role = step.Role };
+        if (_presetLoader == null || string.IsNullOrEmpty(step.Role))
+            return options;
+
+        var preset = _presetLoader.GetPreset(step.Role);
+        if (preset == null)
+            return options;
+
+        if (string.IsNullOrWhiteSpace(options.RoleSystemPrompt))
+            options = options with { RoleSystemPrompt = preset.SystemPrompt };
+        if (options.EnabledTools.Count == 0 && preset.AllowedTools.Count > 0)
+            options = options with { EnabledTools = preset.AllowedTools };
+
+        return options;
     }
 
     /// <summary>Register an agent orchestrator instance under a given agent ID.</summary>
@@ -78,7 +104,7 @@ public class AgentSessionCoordinator
             await foreach (var evt in orchestrator.StreamRunAsync(
                 step.Prompt,
                 plan.SessionId,
-                step.Options with { AgentId = step.AgentId, Role = step.Role },
+                ResolveStepOptions(step),
                 cancellationToken))
             {
                 var tagged = new AgentTaggedEvent(evt, step.AgentId, step.Role);
@@ -122,7 +148,7 @@ public class AgentSessionCoordinator
         await foreach (var evt in orchestrator.StreamRunAsync(
             step.Prompt,
             sessionId,
-            step.Options with { AgentId = step.AgentId, Role = step.Role },
+            ResolveStepOptions(step),
             cancellationToken))
         {
             var tagged = new AgentTaggedEvent(evt, step.AgentId, step.Role);

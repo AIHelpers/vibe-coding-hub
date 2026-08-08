@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using AiCodeAgent.App.Services;
+using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
@@ -22,6 +23,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly EditorPaneViewModel _editorPane;
     private readonly SharedChangeset _changeset;
     private readonly WorkspaceIndexQueryService? _indexQueryService;
+    private readonly SdlcPipelineRunner? _pipelineRunner;
+    private readonly SdlcPipelineLoader? _pipelineLoader;
     private CancellationTokenSource? _cancellationTokenSource;
 
     [ObservableProperty]
@@ -89,6 +92,12 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedModel = "Auto";
 
+    [ObservableProperty]
+    private string _selectedPipeline = "full-sdlc";
+
+    [ObservableProperty]
+    private bool _isPipelineRunning;
+
     private TaskCompletionSource<bool>? _pendingApproval;
 
     public ObservableCollection<ChatMessage> Messages { get; } = new();
@@ -96,6 +105,7 @@ public partial class ChatViewModel : ObservableObject
     public ObservableCollection<MentionItem> MentionItems { get; } = new();
     public ObservableCollection<SlashCommandItem> SlashCommandItems { get; } = new();
     public ObservableCollection<AgentSessionItem> AgentSessions { get; } = new();
+    public ObservableCollection<string> AvailablePipelines { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new()
     {
         "Auto", "Fast", "Smart"
@@ -110,13 +120,25 @@ public partial class ChatViewModel : ObservableObject
         AgentService agentService,
         EditorPaneViewModel editorPane,
         SharedChangeset changeset,
-        WorkspaceIndexQueryService? indexQueryService = null)
+        WorkspaceIndexQueryService? indexQueryService = null,
+        SdlcPipelineRunner? pipelineRunner = null,
+        SdlcPipelineLoader? pipelineLoader = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
         _editorPane = editorPane;
         _changeset = changeset;
         _indexQueryService = indexQueryService;
+        _pipelineRunner = pipelineRunner;
+        _pipelineLoader = pipelineLoader;
+
+        if (_pipelineLoader != null)
+        {
+            foreach (var pipeline in _pipelineLoader.GetAllPipelines())
+                AvailablePipelines.Add(pipeline.Name);
+            if (AvailablePipelines.Count > 0 && !AvailablePipelines.Contains(SelectedPipeline))
+                SelectedPipeline = AvailablePipelines[0];
+        }
 
         // Initialize slash commands
         SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
@@ -216,6 +238,102 @@ public partial class ChatViewModel : ObservableObject
             _cancellationTokenSource = null;
 
             // Ensure the assistant message has content
+            if (string.IsNullOrEmpty(assistantMessage.Content))
+            {
+                assistantMessage.Content = "*(No response generated)*";
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs the selected SDLC pipeline (e.g. full-sdlc: analyze -> implement -> review -> test -> deploy)
+    /// against the current input text as a multi-agent session. Reuses the same event bus as SendAsync,
+    /// so pipeline stages stream into the chat transcript and the AgentSessions sidebar exactly like a
+    /// regular multi-agent turn.
+    /// </summary>
+    [RelayCommand]
+    private async Task RunPipelineAsync()
+    {
+        if (string.IsNullOrWhiteSpace(InputText) || IsProcessing || _pipelineRunner == null || _pipelineLoader == null)
+            return;
+
+        var pipeline = _pipelineLoader.GetPipeline(SelectedPipeline);
+        if (pipeline == null)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = $"*Unknown pipeline '{SelectedPipeline}'.*",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        var task = InputText.Trim();
+        InputText = string.Empty;
+        ShowMentionPopup = false;
+        ShowSlashCommands = false;
+
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"**Run pipeline: {pipeline.Name}**\n{task}",
+            Timestamp = DateTime.Now
+        });
+
+        IsProcessing = true;
+        IsPipelineRunning = true;
+        IsCancellable = true;
+        StatusText = $"Running pipeline '{pipeline.Name}'...";
+
+        var assistantMessage = new ChatMessage
+        {
+            Role = "Assistant",
+            Content = string.Empty,
+            Timestamp = DateTime.Now
+        };
+        Messages.Add(assistantMessage);
+
+        ToolCallCards.Clear();
+        AgentSessions.Clear();
+
+        _cancellationTokenSource = new CancellationTokenSource();
+        var token = _cancellationTokenSource.Token;
+        var pipelineSessionId = Guid.NewGuid().ToString();
+
+        try
+        {
+            // Start listening for events (the coordinator publishes onto the same shared event bus).
+            _ = Task.Run(() => ProcessEventsAsync(assistantMessage, token), token);
+
+            // Drive the pipeline to completion; events are consumed via the event bus subscription above.
+            await foreach (var _ in _pipelineRunner.RunAsync(
+                pipeline,
+                task,
+                pipelineSessionId,
+                Directory.GetCurrentDirectory(),
+                cancellationToken: token))
+            {
+                // no-op: ProcessEventsAsync handles rendering
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            assistantMessage.Content += "\n\n*Cancelled*";
+        }
+        catch (Exception ex)
+        {
+            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+        }
+        finally
+        {
+            IsProcessing = false;
+            IsPipelineRunning = false;
+            IsCancellable = false;
+            StatusText = "Ready";
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+
             if (string.IsNullOrEmpty(assistantMessage.Content))
             {
                 assistantMessage.Content = "*(No response generated)*";

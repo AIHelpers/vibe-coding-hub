@@ -52,7 +52,7 @@ public partial class SettingsViewModel : ObservableObject
         foreach (var name in config.Providers.Keys)
             AvailableProviders.Add(name);
 
-        SelectedProvider = config.DefaultProvider;
+        SelectedProvider = config.DefaultProvider.ToLowerInvariant();
         LoadProviderSettings(config.DefaultProvider);
         
         WorkingDirectory = Directory.GetCurrentDirectory();
@@ -112,7 +112,8 @@ public partial class SettingsViewModel : ObservableObject
     {
         var config = _configurationService.Config;
 
-        config.DefaultProvider = SelectedProvider;
+        // Normalize to lowercase so DefaultProvider always matches the provider key casing
+        config.DefaultProvider = SelectedProvider.ToLowerInvariant();
         config.Agent ??= new AgentConfiguration();
         config.Agent.AutoApprove = AutoApprove;
 
