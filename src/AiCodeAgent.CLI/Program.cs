@@ -187,9 +187,70 @@ addProviderCommand.SetHandler(async (name, url, model, apiKey, timeout, noVerify
     Console.WriteLine("Use it with: aicodeagent chat --provider " + name.ToLowerInvariant());
 }, addProviderName, addProviderUrl, addProviderModel, addProviderApiKey, addProviderTimeout, addProviderNoVerifySsl);
 
+// config models command - list available models for a provider
+var modelsCommand = new Command("models", "List available models for a provider");
+var modelsProviderArg = new Argument<string>("provider", "Provider name (e.g. openai, anthropic, ollama, or a custom provider)");
+modelsCommand.AddArgument(modelsProviderArg);
+modelsCommand.SetHandler(async (provider) =>
+{
+    var configSvc = new ConfigurationService();
+    await configSvc.LoadAsync();
+    var cfg = configSvc.GetProvider(provider);
+    if (cfg == null)
+    {
+        Console.Error.WriteLine($"Provider not found: {provider}");
+        Console.Error.WriteLine("Run 'config providers' to see available providers.");
+        return;
+    }
+
+    // Resolve API key from environment (same logic as RegisterProvider)
+    var providerKey = provider.ToLowerInvariant();
+    var envKeyNew = $"AI_CODE_AGENT_{providerKey.ToUpper()}_API_KEY";
+    var envKeyLegacy = $"AIAGENT_{providerKey.ToUpper()}_API_KEY";
+    var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
+              ?? Environment.GetEnvironmentVariable(envKeyLegacy)
+              ?? cfg.ApiKey;
+    cfg = cfg with { ApiKey = apiKey };
+
+    using var loggerFactory = LoggerFactory.Create(b => { b.ClearProviders(); });
+    IAiProvider aiProvider;
+    try
+    {
+        aiProvider = ProviderFactory.Create(providerKey, cfg, loggerFactory);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Failed to create provider '{provider}': {ex.Message}");
+        return;
+    }
+
+    Console.WriteLine($"Available models for provider '{provider}' ({aiProvider.Name}):");
+    try
+    {
+        var models = await aiProvider.GetAvailableModelsAsync();
+        if (models.Length == 0)
+        {
+            Console.WriteLine("  (no models returned)");
+        }
+        else
+        {
+            foreach (var m in models)
+                Console.WriteLine($"  - {m}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Failed to fetch models: {ex.Message}");
+        Console.Error.WriteLine("Falling back to statically known models:");
+        foreach (var m in aiProvider.SupportedModels)
+            Console.Error.WriteLine($"  - {m}");
+    }
+}, modelsProviderArg);
+
 configCommand.AddCommand(setKeyCommand);
 configCommand.AddCommand(listProvidersCommand);
 configCommand.AddCommand(addProviderCommand);
+configCommand.AddCommand(modelsCommand);
 
 // Session export/import + prompt pack commands (Priority 5)
 SessionCommands.AddCommands(configCommand);

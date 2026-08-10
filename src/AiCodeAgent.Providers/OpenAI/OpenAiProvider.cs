@@ -24,6 +24,20 @@ public class OpenAiProvider : BaseHttpProvider
     public override string Name => "OpenAI";
     public override string[] SupportedModels => Models;
 
+    public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await HttpClient.GetFromJsonAsync<OpenAiModelsResponse>(
+                "/v1/models", cancellationToken);
+            return response?.Data.Select(m => m.Id).ToArray() ?? Models;
+        }
+        catch
+        {
+            return Models;
+        }
+    }
+
     public override async Task<CompletionResponse> CompleteAsync(
         CompletionRequest request,
         CancellationToken cancellationToken = default)

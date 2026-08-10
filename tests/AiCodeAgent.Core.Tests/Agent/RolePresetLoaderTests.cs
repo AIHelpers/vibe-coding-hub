@@ -34,8 +34,8 @@ public class RolePresetLoaderTests
 
         Assert.NotNull(planner);
         Assert.Equal(PermissionMode.Plan, planner!.DefaultPermissionMode);
-        Assert.DoesNotContain("WriteFile", planner.AllowedTools);
-        Assert.DoesNotContain("ExecuteCommand", planner.AllowedTools);
+        Assert.DoesNotContain("write_file", planner.AllowedTools);
+        Assert.DoesNotContain("execute_command", planner.AllowedTools);
     }
 
     [Fact]
@@ -46,9 +46,9 @@ public class RolePresetLoaderTests
 
         Assert.NotNull(implementer);
         Assert.Equal(PermissionMode.AutoEdit, implementer!.DefaultPermissionMode);
-        Assert.Contains("WriteFile", implementer.AllowedTools);
-        Assert.Contains("EditFile", implementer.AllowedTools);
-        Assert.Contains("ExecuteCommand", implementer.AllowedTools);
+        Assert.Contains("write_file", implementer.AllowedTools);
+        Assert.Contains("edit_file", implementer.AllowedTools);
+        Assert.Contains("execute_command", implementer.AllowedTools);
     }
 
     [Fact]
@@ -59,8 +59,8 @@ public class RolePresetLoaderTests
 
         Assert.NotNull(reviewer);
         Assert.Equal(PermissionMode.Plan, reviewer!.DefaultPermissionMode);
-        Assert.DoesNotContain("WriteFile", reviewer.AllowedTools);
-        Assert.DoesNotContain("ExecuteCommand", reviewer.AllowedTools);
+        Assert.DoesNotContain("write_file", reviewer.AllowedTools);
+        Assert.DoesNotContain("execute_command", reviewer.AllowedTools);
     }
 
     [Fact]

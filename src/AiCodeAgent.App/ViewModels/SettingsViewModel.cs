@@ -1,10 +1,15 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.App.ViewModels;
 
@@ -12,6 +17,8 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly ConfigurationService _configurationService;
     private readonly IStorageProvider? _storageProvider;
+    private readonly ILoggerFactory? _loggerFactory;
+    private CancellationTokenSource? _loadModelsCts;
 
     [ObservableProperty]
     private string _selectedProvider = string.Empty;
@@ -34,12 +41,24 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _verifySsl = true;
 
+    [ObservableProperty]
+    private bool _isLoadingModels;
+
+    [ObservableProperty]
+    private string _modelsStatus = string.Empty;
+
     public ObservableCollection<string> AvailableProviders { get; } = new();
 
-    public SettingsViewModel(ConfigurationService configurationService, IStorageProvider? storageProvider = null)
+    public ObservableCollection<string> AvailableModels { get; } = new();
+
+    public SettingsViewModel(
+        ConfigurationService configurationService,
+        IStorageProvider? storageProvider = null,
+        ILoggerFactory? loggerFactory = null)
     {
         _configurationService = configurationService;
         _storageProvider = storageProvider;
+        _loggerFactory = loggerFactory;
         LoadSettings();
     }
 
@@ -54,15 +73,22 @@ public partial class SettingsViewModel : ObservableObject
 
         SelectedProvider = config.DefaultProvider.ToLowerInvariant();
         LoadProviderSettings(config.DefaultProvider);
-        
+
         WorkingDirectory = Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
+
+        // Kick off model loading for the initial provider so the
+        // dropdown is populated as soon as the Settings view opens.
+        _ = LoadModelsAsync(SelectedProvider);
     }
 
     partial void OnSelectedProviderChanged(string value)
     {
         if (!string.IsNullOrEmpty(value))
+        {
             LoadProviderSettings(value);
+            _ = LoadModelsAsync(value);
+        }
     }
 
     private void LoadProviderSettings(string providerName)
@@ -88,6 +114,121 @@ public partial class SettingsViewModel : ObservableObject
             ApiKey = string.Empty;
             VerifySsl = true;
         }
+    }
+
+    /// <summary>
+    /// Queries the selected provider for its available models and populates
+    /// the <see cref="AvailableModels"/> collection. Runs on a background
+    /// thread; failures fall back to the provider's static SupportedModels.
+    /// A 15-second timeout prevents long hangs when a local provider is offline.
+    /// </summary>
+    private async Task LoadModelsAsync(string providerName)
+    {
+        // Cancel any in-flight request
+        _loadModelsCts?.Cancel();
+        _loadModelsCts = new CancellationTokenSource();
+        var token = _loadModelsCts.Token;
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            IsLoadingModels = true;
+            ModelsStatus = "Loading models…";
+        });
+
+        try
+        {
+            var config = _configurationService.Config;
+            if (!config.Providers.TryGetValue(providerName.ToLowerInvariant(), out var providerConfig))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    AvailableModels.Clear();
+                    ModelsStatus = string.Empty;
+                });
+                return;
+            }
+
+            // Build a temporary provider instance to query models. We use
+            // CreateOrFallback so a misconfigured provider doesn't throw.
+            IAiProvider provider;
+            ILoggerFactory lf;
+            if (_loggerFactory != null)
+            {
+                lf = _loggerFactory;
+                provider = ProviderFactory.CreateOrFallback(
+                    providerName, providerConfig, _loggerFactory);
+            }
+            else
+            {
+                // Without a logger factory, create a minimal one on the fly.
+                lf = LoggerFactory.Create(b => { });
+                provider = ProviderFactory.CreateOrFallback(providerName, providerConfig, lf);
+            }
+
+            // Apply a 15-second timeout so unreachable local providers don't
+            // leave the spinner running for minutes (default HttpClient timeout
+            // can be 300s).
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+            string[] models;
+            try
+            {
+                models = await provider.GetAvailableModelsAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                // Timeout, not cancellation from a newer request — fall back.
+                models = provider.SupportedModels;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    ModelsStatus = "Timed out — showing fallback models");
+            }
+
+            if (token.IsCancellationRequested)
+                return;
+
+            // Marshal collection updates to the UI thread — Avalonia requires
+            // ObservableCollection changes to happen on the dispatcher thread.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AvailableModels.Clear();
+                foreach (var m in models)
+                    AvailableModels.Add(m);
+
+                // Ensure the current Model is in the list; if not, prepend it so
+                // the user can still see/keep their configured value.
+                if (!string.IsNullOrEmpty(Model) && !AvailableModels.Contains(Model))
+                    AvailableModels.Insert(0, Model);
+
+                ModelsStatus = AvailableModels.Count > 0
+                    ? $"{AvailableModels.Count} models available"
+                    : "No models found";
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer request; ignore.
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load models for {providerName}: {ex.Message}");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                ModelsStatus = "Failed to load models");
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    IsLoadingModels = false);
+            }
+        }
+    }
+
+    [RelayCommand]
+    private Task RefreshModels()
+    {
+        return LoadModelsAsync(SelectedProvider);
     }
 
     [RelayCommand]

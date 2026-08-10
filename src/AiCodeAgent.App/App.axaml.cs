@@ -253,7 +253,11 @@ public partial class App : Application
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<ChatViewModel>();
-        services.AddTransient<SettingsViewModel>();
+        services.AddTransient<SettingsViewModel>(sp =>
+            new SettingsViewModel(
+                sp.GetRequiredService<ConfigurationService>(),
+                null,
+                sp.GetRequiredService<ILoggerFactory>()));
 
         // Services
         services.AddSingleton<AgentService>();
