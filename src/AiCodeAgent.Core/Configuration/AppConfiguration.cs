@@ -50,6 +50,12 @@ public class AgentConfiguration
     public bool AutoApprove { get; set; } = false;
     public bool EnableMemory { get; set; } = true;
     public List<string> DefaultTools { get; set; } = new();
+    /// <summary>
+    /// Working directory the agent operates in (project root). When null/empty,
+    /// the current process directory is used. Persisted in app settings so the
+    /// user can change the project work dir without re-launching from a path.
+    /// </summary>
+    public string? WorkingDirectory { get; set; }
 }
 
 public class UiConfiguration

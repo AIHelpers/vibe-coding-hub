@@ -169,6 +169,36 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Opens a folder picker to change the current working directory.
+    /// </summary>
+    private async void OnWorkingDirectoryPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (DataContext is MainViewModel mainVm)
+        {
+            var topLevel = GetTopLevel(this);
+            if (topLevel == null)
+                return;
+
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Select Working Directory",
+                AllowMultiple = false
+            });
+
+            if (folders.Count > 0)
+            {
+                var path = folders[0].TryGetLocalPath();
+                if (!string.IsNullOrEmpty(path))
+                {
+                    await mainVm.SetWorkingDirectoryAsync(path);
+                }
+            }
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
     /// Accepts a drag if the payload contains at least one `.agentsession` file.
     /// </summary>
     private void OnDragOver(object? sender, DragEventArgs e)

@@ -16,8 +16,18 @@ namespace AiCodeAgent.App.ViewModels;
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly ConfigurationService _configurationService;
-    private readonly IStorageProvider? _storageProvider;
+    private IStorageProvider? _storageProvider;
     private readonly ILoggerFactory? _loggerFactory;
+
+    /// <summary>
+    /// Allows the host window to inject its storage provider after construction
+    /// so the folder-picker button works (DI registers this VM with a null provider).
+    /// </summary>
+    public IStorageProvider? StorageProvider
+    {
+        get => _storageProvider;
+        set => _storageProvider = value;
+    }
     private CancellationTokenSource? _loadModelsCts;
 
     [ObservableProperty]
@@ -74,7 +84,9 @@ public partial class SettingsViewModel : ObservableObject
         SelectedProvider = config.DefaultProvider.ToLowerInvariant();
         LoadProviderSettings(config.DefaultProvider);
 
-        WorkingDirectory = Directory.GetCurrentDirectory();
+        WorkingDirectory = !string.IsNullOrWhiteSpace(config.Agent?.WorkingDirectory)
+            ? config.Agent.WorkingDirectory
+            : Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
 
         // Kick off model loading for the initial provider so the
@@ -257,6 +269,7 @@ public partial class SettingsViewModel : ObservableObject
         config.DefaultProvider = SelectedProvider.ToLowerInvariant();
         config.Agent ??= new AgentConfiguration();
         config.Agent.AutoApprove = AutoApprove;
+        config.Agent.WorkingDirectory = WorkingDirectory;
 
         // Update provider config with model, URL, and API key
         var providerKey = SelectedProvider.ToLowerInvariant();

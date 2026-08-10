@@ -9,6 +9,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
@@ -27,7 +28,24 @@ public partial class ChatViewModel : ObservableObject
     private readonly WorkspaceIndexQueryService? _indexQueryService;
     private readonly SdlcPipelineRunner? _pipelineRunner;
     private readonly SdlcPipelineLoader? _pipelineLoader;
+    private readonly ConfigurationService? _configurationService;
     private CancellationTokenSource? _cancellationTokenSource;
+
+    /// <summary>
+    /// The working directory the agent operates in. Falls back to the
+    /// configured <see cref="AgentConfiguration.WorkingDirectory"/>, then to
+    /// <see cref="Directory.GetCurrentDirectory"/> if unset.
+    /// </summary>
+    public string WorkingDirectory
+    {
+        get
+        {
+            var configured = _configurationService?.Config.Agent?.WorkingDirectory;
+            return !string.IsNullOrWhiteSpace(configured)
+                ? configured!
+                : Directory.GetCurrentDirectory();
+        }
+    }
 
     [ObservableProperty]
     private string _inputText = string.Empty;
@@ -124,7 +142,8 @@ public partial class ChatViewModel : ObservableObject
         SharedChangeset changeset,
         WorkspaceIndexQueryService? indexQueryService = null,
         SdlcPipelineRunner? pipelineRunner = null,
-        SdlcPipelineLoader? pipelineLoader = null)
+        SdlcPipelineLoader? pipelineLoader = null,
+        ConfigurationService? configurationService = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -133,6 +152,7 @@ public partial class ChatViewModel : ObservableObject
         _indexQueryService = indexQueryService;
         _pipelineRunner = pipelineRunner;
         _pipelineLoader = pipelineLoader;
+        _configurationService = configurationService;
 
         if (_pipelineLoader != null)
         {
@@ -219,7 +239,8 @@ public partial class ChatViewModel : ObservableObject
                 "default",
                 new AgentOptions
                 {
-                    PermissionMode = ParsePermissionMode(PermissionMode)
+                    PermissionMode = ParsePermissionMode(PermissionMode),
+                    WorkingDirectory = WorkingDirectory
                 },
                 token);
         }
@@ -313,7 +334,7 @@ public partial class ChatViewModel : ObservableObject
                 pipeline,
                 task,
                 pipelineSessionId,
-                Directory.GetCurrentDirectory(),
+                WorkingDirectory,
                 cancellationToken: token))
             {
                 // no-op: ProcessEventsAsync handles rendering
@@ -820,7 +841,7 @@ public partial class ChatViewModel : ObservableObject
     private List<string> GetProjectFiles()
     {
         var files = new List<string>();
-        var rootDir = Directory.GetCurrentDirectory();
+        var rootDir = WorkingDirectory;
 
         try
         {

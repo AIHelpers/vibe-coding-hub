@@ -1,12 +1,16 @@
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.App.CommandPalette;
+using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.Indexing.Models;
@@ -42,6 +46,8 @@ public partial class MainViewModel : ObservableObject
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
     private readonly WorkspaceIndexQueryService? _indexQueryService;
+    private readonly ConfigurationService? _configurationService;
+    private Window? _hostWindow;
 
     public ChatViewModel? ChatViewModel => _chatViewModel;
     public FileExplorerViewModel FileExplorer { get; }
@@ -69,8 +75,18 @@ public partial class MainViewModel : ObservableObject
         SessionManager = sessionManager;
         CommandPalette = commandPalette;
         _indexQueryService = indexQueryService;
+        _configurationService = serviceProvider.GetService<ConfigurationService>();
 
-        WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        // Initialize working directory from persisted configuration, falling
+        // back to the application base directory when unset.
+        var configuredDir = _configurationService?.Config.Agent?.WorkingDirectory;
+        WorkingDirectory = !string.IsNullOrWhiteSpace(configuredDir) && Directory.Exists(configuredDir)
+            ? configuredDir
+            : AppDomain.CurrentDomain.BaseDirectory;
+
+        // Sync the file explorer to the same root so it shows the configured
+        // workspace immediately on startup.
+        FileExplorer.RootPath = WorkingDirectory;
 
         // Default to Chat view (reuse the same instance, don't create a new one)
         _currentViewModel ??= GetOrCreateChatViewModel();
@@ -89,6 +105,34 @@ public partial class MainViewModel : ObservableObject
 
         // Wire file explorer file-click to editor
         FileExplorer.PropertyChanged += OnFileExplorerPropertyChanged;
+
+        // React to configuration saves (e.g. when the user changes the working
+        // directory in Settings) so the file explorer and status update live.
+        if (_configurationService != null)
+        {
+            _configurationService.Saved += OnConfigurationSaved;
+        }
+    }
+
+    /// <summary>
+    /// Attaches the host window so view-models can access window-scoped
+    /// services such as the <see cref="Avalonia.Platform.Storage.IStorageProvider"/>.
+    /// </summary>
+    public void AttachHostWindow(Window window) => _hostWindow = window;
+
+    /// <summary>
+    /// Handles <see cref="ConfigurationService.Saved"/> by refreshing the working
+    /// directory from the persisted configuration and reloading the file explorer.
+    /// </summary>
+    private void OnConfigurationSaved(object? sender, EventArgs e)
+    {
+        var newDir = _configurationService?.Config.Agent?.WorkingDirectory;
+        if (!string.IsNullOrWhiteSpace(newDir) && Directory.Exists(newDir) && newDir != WorkingDirectory)
+        {
+            WorkingDirectory = newDir;
+            FileExplorer.SetRootPathCommand.Execute(newDir);
+            UpdateFileExplorerStatus();
+        }
     }
 
     /// <summary>
@@ -96,6 +140,10 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     public void Dispose()
     {
+        if (_configurationService != null)
+        {
+            _configurationService.Saved -= OnConfigurationSaved;
+        }
         FileExplorer.PropertyChanged -= OnFileExplorerPropertyChanged;
     }
 
@@ -129,7 +177,14 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void NavigateToSettings()
     {
-        CurrentViewModel = _serviceProvider.GetRequiredService<SettingsViewModel>();
+        var settings = _serviceProvider.GetRequiredService<SettingsViewModel>();
+        // Wire up the host window's storage provider so the folder picker
+        // button works (DI registers SettingsViewModel with a null provider).
+        if (_hostWindow != null && settings.StorageProvider == null)
+        {
+            settings.StorageProvider = _hostWindow.StorageProvider;
+        }
+        CurrentViewModel = settings;
         IsSettingsMode = true;
         IsCheckpointBrowserOpen = false;
         IsSessionHistoryOpen = false;
@@ -186,6 +241,73 @@ public partial class MainViewModel : ObservableObject
         {
             SessionManager.CloseSessionHistory();
         }
+    }
+
+    [RelayCommand]
+    private async Task ChangeWorkingDirectoryAsync()
+    {
+        if (_hostWindow == null)
+            return;
+
+        var options = new FolderPickerOpenOptions
+        {
+            Title = "Select Working Directory",
+            AllowMultiple = false
+        };
+
+        // Seed the picker with the current directory if it exists
+        if (Directory.Exists(WorkingDirectory))
+        {
+            try
+            {
+                var folder = await _hostWindow.StorageProvider.TryGetFolderFromPathAsync(WorkingDirectory);
+                if (folder != null)
+                {
+                    options.SuggestedStartLocation = folder;
+                }
+            }
+            catch { /* ignore seeding errors */ }
+        }
+
+        var result = await _hostWindow.StorageProvider.OpenFolderPickerAsync(options);
+        if (result.Count == 0)
+            return; // user cancelled
+
+        var selected = result[0];
+        var newPath = selected.Path.LocalPath;
+
+        await ApplyWorkingDirectoryAsync(newPath);
+    }
+
+    /// <summary>
+    /// Changes the working directory to the specified path and updates
+    /// dependent services (file explorer, configuration).
+    /// Called from the view when the user picks a folder via the header.
+    /// </summary>
+    public async Task SetWorkingDirectoryAsync(string newPath)
+    {
+        await ApplyWorkingDirectoryAsync(newPath);
+    }
+
+    private async Task ApplyWorkingDirectoryAsync(string newPath)
+    {
+        if (string.IsNullOrWhiteSpace(newPath) || newPath == WorkingDirectory)
+            return;
+
+        // Update runtime state
+        WorkingDirectory = newPath;
+        FileExplorer.RootPath = newPath;
+        FileExplorer.SetRootPathCommand.Execute(newPath);
+        UpdateFileExplorerStatus();
+
+        // Persist to configuration
+        if (_configurationService?.Config.Agent != null)
+        {
+            _configurationService.Config.Agent.WorkingDirectory = newPath;
+            await _configurationService.SaveAsync();
+        }
+
+        StatusText = $"Working directory: {newPath}";
     }
 
     [RelayCommand]

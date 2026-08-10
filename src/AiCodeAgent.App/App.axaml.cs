@@ -97,7 +97,9 @@ public partial class App : Application
             {
                 DataContext = mainViewModel
             };
-            // Attach the host window so session export/import file pickers work
+            // Attach the host window so view-models can access window-scoped
+            // services (file/folder pickers, etc.)
+            mainViewModel.AttachHostWindow(mainWindow);
             mainViewModel.SessionManager.AttachHostWindow(mainWindow);
             desktop.MainWindow = mainWindow;
             mainWindow.Show();

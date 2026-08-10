@@ -11,6 +11,12 @@ public class ConfigurationService
     private readonly ILogger<ConfigurationService>? _logger;
     private AppConfiguration _config = AppConfiguration.GetDefaults();
 
+    /// <summary>
+    /// Raised after configuration is saved via <see cref="SaveAsync"/>. Subscribers
+    /// (e.g. view-models) use this to react to changes such as a new working directory.
+    /// </summary>
+    public event EventHandler? Saved;
+
     public ConfigurationService(string? configDir = null, ILogger<ConfigurationService>? logger = null)
     {
         _logger = logger;
@@ -86,6 +92,8 @@ public class ConfigurationService
         _config.Providers = encryptedProviders;
         var json = JsonSerializer.Serialize(_config, JsonOptions.Pretty);
         await File.WriteAllTextAsync(_configPath, json);
+
+        Saved?.Invoke(this, EventArgs.Empty);
     }
 
     public void SetApiKey(string provider, string apiKey)
