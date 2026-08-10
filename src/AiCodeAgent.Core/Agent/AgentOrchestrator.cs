@@ -123,48 +123,56 @@ public class AgentOrchestrator : IAgentOrchestrator
             List<ToolCall>? pendingToolCalls = null;
 
             var wasCancelled = false;
-            var pendingEvents = new List<AgentEvent>();
-            
-            try
+
+            // Use an explicit enumerator so we can yield text deltas immediately
+            // as they arrive (instead of buffering them until the stream completes).
+            // C# forbids yield inside a try-catch, but allows it inside the
+            // try-finally that 'await using' generates.
+            await using var streamEnumerator = _provider
+                .StreamAsync(request, cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+
+            while (!cancellationToken.IsCancellationRequested)
             {
-                await foreach (var chunk in _provider.StreamAsync(request, cancellationToken).ConfigureAwait(false))
+                bool hasMore;
+                try
                 {
-                    if (!string.IsNullOrEmpty(chunk.Delta))
-                    {
-                        currentContent.Append(chunk.Delta);
-                        fullContent.Append(chunk.Delta);
-                        var textEvent = new TextDeltaEvent(chunk.Delta);
-                        pendingEvents.Add(textEvent);
-                    }
-
-                    if (chunk.Usage != null)
-                    {
-                        totalUsage = new TokenUsage
-                        {
-                            PromptTokens = totalUsage.PromptTokens + chunk.Usage.PromptTokens,
-                            CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens
-                        };
-                        var usageEvent = new TokenUsageEvent(totalUsage);
-                        _eventBus?.Publish(usageEvent);
-                    }
-
-                    if (chunk.IsFinished)
-                    {
-                        pendingToolCalls = chunk.ToolCalls;
-                        break;
-                    }
+                    hasMore = await streamEnumerator.MoveNextAsync().ConfigureAwait(false);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                wasCancelled = true;
-            }
+                catch (OperationCanceledException)
+                {
+                    wasCancelled = true;
+                    break;
+                }
 
-            // Yield collected pending events (text deltas, checkpoints, etc.)
-            foreach (var evt in pendingEvents)
-            {
-                yield return evt;
-                _eventBus?.Publish(evt);
+                if (!hasMore) break;
+
+                var chunk = streamEnumerator.Current;
+                if (!string.IsNullOrEmpty(chunk.Delta))
+                {
+                    currentContent.Append(chunk.Delta);
+                    fullContent.Append(chunk.Delta);
+                    var textEvent = new TextDeltaEvent(chunk.Delta);
+                    yield return textEvent;
+                    _eventBus?.Publish(textEvent);
+                }
+
+                if (chunk.Usage != null)
+                {
+                    totalUsage = new TokenUsage
+                    {
+                        PromptTokens = totalUsage.PromptTokens + chunk.Usage.PromptTokens,
+                        CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens
+                    };
+                    var usageEvent = new TokenUsageEvent(totalUsage);
+                    _eventBus?.Publish(usageEvent);
+                }
+
+                if (chunk.IsFinished)
+                {
+                    pendingToolCalls = chunk.ToolCalls;
+                    break;
+                }
             }
 
             if (wasCancelled)
@@ -286,17 +294,22 @@ public class AgentOrchestrator : IAgentOrchestrator
                     if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
                     {
                         // Create checkpoint without yield in try-catch
+                        CheckpointCreatedEvent? checkpointEvent = null;
                         try
                         {
                             var checkpoint = await _checkpointManager.CreateCheckpointAsync(filePath, turnId, sessionId);
-                            var checkpointEvent = new CheckpointCreatedEvent(checkpoint);
+                            checkpointEvent = new CheckpointCreatedEvent(checkpoint);
                             _eventBus?.Publish(checkpointEvent);
-                            // Store the event to yield later (outside try-catch)
-                            pendingEvents.Add(new CheckpointCreatedEvent(checkpoint));
                         }
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, "Failed to create checkpoint for {Path}", filePath);
+                        }
+
+                        // Yield the checkpoint event outside the try-catch
+                        if (checkpointEvent != null)
+                        {
+                            yield return checkpointEvent;
                         }
                     }
                 }

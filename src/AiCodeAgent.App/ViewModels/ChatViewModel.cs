@@ -5,6 +5,8 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Diffing;
@@ -901,11 +903,31 @@ public partial class ChatViewModel : ObservableObject
     };
 }
 
-public class ChatMessage
+public class ChatMessage : INotifyPropertyChanged
 {
+    private string _content = string.Empty;
+
     public string Role { get; set; } = string.Empty;
-    public string Content { get; set; } = string.Empty;
+
+    public string Content
+    {
+        get => _content;
+        set
+        {
+            if (_content != value)
+            {
+                _content = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     public DateTime Timestamp { get; set; } = DateTime.Now;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
 public partial class ToolCallCardViewModel : ObservableObject

@@ -13,7 +13,12 @@ namespace AiCodeAgent.Providers.Ollama;
 public class OllamaProvider : BaseHttpProvider
 {
     public OllamaProvider(ProviderConfiguration config, ILogger<OllamaProvider> logger)
-        : base(config, logger) { }
+        : base(config, logger)
+    {
+        // Ollama's local server doesn't use Bearer token authentication.
+        // Sending an unexpected Authorization header causes a 403 Forbidden response.
+        HttpClient.DefaultRequestHeaders.Remove("Authorization");
+    }
 
     public override string Name => "Ollama";
     public override string[] SupportedModels => _cachedModels;
@@ -54,7 +59,12 @@ public class OllamaProvider : BaseHttpProvider
         };
 
         var response = await HttpClient.PostAsJsonAsync("/api/chat", payload, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Ollama API error ({(int)response.StatusCode}): {errorBody}");
+        }
 
         var result = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(
             cancellationToken: cancellationToken) ?? throw new InvalidOperationException("Empty response");
@@ -66,9 +76,12 @@ public class OllamaProvider : BaseHttpProvider
         CompletionRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var model = request.Options.Model ?? Config.DefaultModel;
+        Logger.LogInformation("Starting Ollama stream to model {Model} at {BaseUrl}", model, Config.BaseUrl);
+
         var payload = new
         {
-            model = request.Options.Model ?? Config.DefaultModel,
+            model = model,
             messages = BuildMessages(request),
             tools = BuildTools(request.Tools),
             stream = true,
@@ -84,21 +97,53 @@ public class OllamaProvider : BaseHttpProvider
             Content = JsonContent.Create(payload)
         };
 
-        var response = await HttpClient.SendAsync(
-            httpRequest,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        response.EnsureSuccessStatusCode();
+        HttpResponseMessage response;
+        try
+        {
+            response = await HttpClient.SendAsync(
+                httpRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Logger.LogError(ex, "Failed to connect to Ollama at {BaseUrl} for streaming. Is Ollama running?", Config.BaseUrl);
+            throw;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            Logger.LogError("Ollama streaming API returned {Status}: {Body}", (int)response.StatusCode, errorBody);
+            throw new HttpRequestException(
+                $"Ollama API error ({(int)response.StatusCode}): {errorBody}");
+        }
+
+        Logger.LogInformation("Ollama stream connected, reading response stream...");
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
+        var chunkCount = 0;
+        var hasYieldedContent = false;
+
         while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            string? line;
+            try
+            {
+                line = await reader.ReadLineAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException)
+            {
+                Logger.LogWarning("Ollama stream read interrupted: {Message}", ex.Message);
+                throw;
+            }
+
             if (line == null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
 
+            chunkCount++;
             OllamaChatResponse? chunk;
             try
             {
@@ -106,7 +151,7 @@ public class OllamaProvider : BaseHttpProvider
             }
             catch (JsonException ex)
             {
-                Logger.LogDebug(ex, "Failed to parse Ollama streaming chunk: {Line}", line);
+                Logger.LogDebug(ex, "Failed to parse Ollama streaming chunk #{Count}: {Line}", chunkCount, line);
                 continue;
             }
 
@@ -114,6 +159,7 @@ public class OllamaProvider : BaseHttpProvider
 
             if (chunk.Message?.ToolCalls?.Count > 0)
             {
+                Logger.LogInformation("Ollama stream received {Count} tool calls (done={Done})", chunk.Message.ToolCalls.Count, chunk.Done);
                 var toolCalls = chunk.Message.ToolCalls.Select(tc => new ToolCall
                 {
                     // Ollama doesn't provide tool call IDs, so generate unique ones
@@ -131,13 +177,25 @@ public class OllamaProvider : BaseHttpProvider
             }
             else
             {
+                var delta = chunk.Message?.Content ?? string.Empty;
+                if (!string.IsNullOrEmpty(delta))
+                    hasYieldedContent = true;
+
                 yield return new StreamChunk
                 {
-                    Delta = chunk.Message?.Content ?? string.Empty,
+                    Delta = delta,
                     IsFinished = chunk.Done
                 };
             }
+
+            if (chunk.Done)
+            {
+                Logger.LogInformation("Ollama stream completed after {Count} chunks (done_reason={Reason}, hasContent={HasContent})",
+                    chunkCount, chunk.DoneReason, hasYieldedContent);
+            }
         }
+
+        Logger.LogInformation("Ollama stream ended after {Count} total chunks", chunkCount);
     }
 
     private static List<object> BuildMessages(CompletionRequest request)
