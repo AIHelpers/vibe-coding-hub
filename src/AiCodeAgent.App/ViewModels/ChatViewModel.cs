@@ -277,8 +277,39 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task RunPipelineAsync()
     {
-        if (string.IsNullOrWhiteSpace(InputText) || IsProcessing || _pipelineRunner == null || _pipelineLoader == null)
+        // Guard conditions — provide user-visible feedback instead of a silent no-op.
+        if (IsProcessing)
+        {
+            System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because a turn is already in progress.");
+            StatusText = "A turn is already running. Cancel it first.";
             return;
+        }
+
+        if (_pipelineRunner == null || _pipelineLoader == null)
+        {
+            System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the SDLC pipeline services are not registered.");
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = "⚠️ SDLC pipeline services are not available. Please check the application configuration.",
+                Timestamp = DateTime.Now
+            });
+            StatusText = "Pipeline unavailable";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(InputText))
+        {
+            System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the input text is empty.");
+            StatusText = "Enter a task before running a pipeline.";
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = "Please enter a task description before running a pipeline.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
 
         var pipeline = _pipelineLoader.GetPipeline(SelectedPipeline);
         if (pipeline == null)
