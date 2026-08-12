@@ -120,6 +120,16 @@ public partial class ChatViewModel : ObservableObject
 
     private TaskCompletionSource<bool>? _pendingApproval;
 
+    /// <summary>
+    /// Set by <see cref="ProcessEventsAsync"/> when it has finished draining the
+    /// terminal event (<see cref="AgentFinishedEvent"/> or
+    /// <see cref="AgentErrorEvent"/>) for the current turn. Awaited by
+    /// <see cref="SendAsync"/>/<see cref="RunPipelineAsync"/> before the
+    /// "*(No response generated)*" fallback so the check doesn't race ahead of
+    /// in-flight UI-thread event dispatch.
+    /// </summary>
+    private TaskCompletionSource? _eventProcessingComplete;
+
     public ObservableCollection<ChatMessage> Messages { get; } = new();
     public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
     public ObservableCollection<MentionItem> MentionItems { get; } = new();
@@ -162,6 +172,17 @@ public partial class ChatViewModel : ObservableObject
                 SelectedPipeline = AvailablePipelines[0];
         }
 
+        // Restore the last selected model from persisted UI settings so the
+        // user's choice survives application restarts. Fall back to "Auto"
+        // when unset or no longer in the available list.
+        var savedModel = _configurationService?.Config.Ui?.SelectedModel;
+        if (!string.IsNullOrWhiteSpace(savedModel))
+        {
+            SelectedModel = AvailableModels.Contains(savedModel)
+                ? savedModel
+                : savedModel; // keep even if not in the static list (may be a provider model id)
+        }
+
         // Initialize slash commands
         SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "🔍" });
@@ -188,6 +209,28 @@ public partial class ChatViewModel : ObservableObject
                       "- /slash commands for quick actions",
             Timestamp = DateTime.Now
         });
+    }
+
+    /// <summary>
+    /// Persists the user's model selection to the UI configuration so it is
+    /// restored on the next application launch. Fire-and-forget: failures are
+    /// logged to the debug output and never crash the UI.
+    /// </summary>
+    partial void OnSelectedModelChanged(string value)
+    {
+        if (_configurationService == null || string.IsNullOrEmpty(value))
+            return;
+
+        _configurationService.Config.Ui ??= new UiConfiguration();
+        _configurationService.Config.Ui.SelectedModel = value;
+        _ = _configurationService.SaveAsync().ContinueWith(t =>
+        {
+            if (t.IsFaulted && t.Exception != null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"Failed to persist SelectedModel: {t.Exception.GetBaseException().Message}");
+            }
+        }, TaskScheduler.Default);
     }
 
     [RelayCommand]
@@ -228,11 +271,18 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
 
+        _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Start the event-processing loop on the calling (UI) thread so it
+        // captures the real SynchronizationContext. Previously this was wrapped
+        // in Task.Run, which runs on a thread-pool thread where
+        // SynchronizationContext.Current is null — causing
+        // TaskScheduler.FromCurrentSynchronizationContext() to throw, so no
+        // events were ever applied and the assistant message stayed empty.
+        var processingTask = ProcessEventsAsync(assistantMessage, token);
+
         try
         {
-            // Start listening for events
-            _ = Task.Run(() => ProcessEventsAsync(assistantMessage, token), token);
-
             // Start streaming
             await _agentService.StreamMessageAsync(
                 userMessage,
@@ -252,19 +302,23 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-        finally
-        {
-            IsProcessing = false;
-            IsCancellable = false;
-            StatusText = "Ready";
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
 
-            // Ensure the assistant message has content
-            if (string.IsNullOrEmpty(assistantMessage.Content))
-            {
-                assistantMessage.Content = "*(No response generated)*";
-            }
+        // Wait for the event-processing loop to finish draining the event
+        // bus (including the terminal AgentFinishedEvent/AgentErrorEvent)
+        // before deciding whether content is empty. This guarantees every
+        // TextDeltaEvent has been applied to the assistant message.
+        await processingTask;
+
+        IsProcessing = false;
+        IsCancellable = false;
+        StatusText = "Ready";
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        // Ensure the assistant message has content
+        if (string.IsNullOrEmpty(assistantMessage.Content))
+        {
+            assistantMessage.Content = "*(No response generated)*";
         }
     }
 
@@ -355,11 +409,14 @@ public partial class ChatViewModel : ObservableObject
         var token = _cancellationTokenSource.Token;
         var pipelineSessionId = Guid.NewGuid().ToString();
 
+        _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Start the event-processing loop on the calling (UI) thread so it
+        // captures the real SynchronizationContext (see SendAsync for rationale).
+        var processingTask = ProcessEventsAsync(assistantMessage, token);
+
         try
         {
-            // Start listening for events (the coordinator publishes onto the same shared event bus).
-            _ = Task.Run(() => ProcessEventsAsync(assistantMessage, token), token);
-
             // Drive the pipeline to completion; events are consumed via the event bus subscription above.
             await foreach (var _ in _pipelineRunner.RunAsync(
                 pipeline,
@@ -379,19 +436,21 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-        finally
-        {
-            IsProcessing = false;
-            IsPipelineRunning = false;
-            IsCancellable = false;
-            StatusText = "Ready";
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
 
-            if (string.IsNullOrEmpty(assistantMessage.Content))
-            {
-                assistantMessage.Content = "*(No response generated)*";
-            }
+        // Wait for the event-processing loop to finish draining the event
+        // bus before deciding whether content is empty (see SendAsync).
+        await processingTask;
+
+        IsProcessing = false;
+        IsPipelineRunning = false;
+        IsCancellable = false;
+        StatusText = "Ready";
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        if (string.IsNullOrEmpty(assistantMessage.Content))
+        {
+            assistantMessage.Content = "*(No response generated)*";
         }
     }
 
@@ -514,6 +573,7 @@ public partial class ChatViewModel : ObservableObject
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
+                        _eventProcessingComplete?.TrySetResult();
                         break;
 
                     case AgentErrorEvent error:
@@ -526,6 +586,7 @@ public partial class ChatViewModel : ObservableObject
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
+                        _eventProcessingComplete?.TrySetResult();
                         break;
                 }
             }
@@ -659,6 +720,7 @@ public partial class ChatViewModel : ObservableObject
                     existing.Status = "Done";
                 }
                 StatusText = "Done";
+                _eventProcessingComplete?.TrySetResult();
                 break;
 
             case AgentErrorEvent error:
@@ -668,6 +730,7 @@ public partial class ChatViewModel : ObservableObject
                     existing.Status = "Error";
                 }
                 StatusText = "Error";
+                _eventProcessingComplete?.TrySetResult();
                 break;
         }
     }

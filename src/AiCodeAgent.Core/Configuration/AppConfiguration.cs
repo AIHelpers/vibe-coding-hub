@@ -64,4 +64,10 @@ public class UiConfiguration
     public bool ShowTokenCount { get; set; } = true;
     public bool ShowToolOutput { get; set; } = true;
     public bool SyntaxHighlight { get; set; } = true;
+    /// <summary>
+    /// The last model the user picked in the chat model selector. Persisted so
+    /// the selection survives application restarts (e.g. "Auto", "Fast", "Smart",
+    /// or a concrete provider model id).
+    /// </summary>
+    public string? SelectedModel { get; set; }
 }
