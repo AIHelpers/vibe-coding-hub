@@ -135,6 +135,9 @@ public class OpenAiStreamChunk
 
     [JsonPropertyName("choices")]
     public List<OpenAiChoice>? Choices { get; set; }
+
+    [JsonPropertyName("usage")]
+    public OpenAiUsage? Usage { get; set; }
 }
 
 public class OpenAiModelsResponse

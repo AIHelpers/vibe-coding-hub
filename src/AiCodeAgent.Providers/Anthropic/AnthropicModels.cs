@@ -66,6 +66,24 @@ public class AnthropicStreamEvent
 
     [JsonPropertyName("delta")]
     public AnthropicDelta? Delta { get; set; }
+
+    [JsonPropertyName("message")]
+    public AnthropicMessageStart? Message { get; set; }
+
+    [JsonPropertyName("usage")]
+    public AnthropicUsage? Usage { get; set; }
+}
+
+public class AnthropicMessageStart
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("usage")]
+    public AnthropicUsage? Usage { get; set; }
 }
 
 public class AnthropicDelta
@@ -78,6 +96,12 @@ public class AnthropicDelta
 
     [JsonPropertyName("partial_json")]
     public string? PartialJson { get; set; }
+
+    [JsonPropertyName("stop_reason")]
+    public string? StopReason { get; set; }
+
+    [JsonPropertyName("usage")]
+    public AnthropicUsage? Usage { get; set; }
 }
 
 public class AnthropicModelsResponse

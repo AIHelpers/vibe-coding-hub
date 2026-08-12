@@ -70,6 +70,13 @@ public class OpenAiProvider : BaseHttpProvider
 
         var toolCallsAccumulator = new Dictionary<int, ToolCallAccumulator>();
 
+        // When include_usage is true, OpenAI sends a final chunk with the usage
+        // populated but an empty choices array. The orchestrator stops as soon as
+        // it sees IsFinished, so we buffer the finished state and keep reading
+        // until the usage chunk arrives (or the stream ends), then emit a single
+        // finished StreamChunk carrying both the finish reason and the usage.
+        StreamChunk? pendingFinishedChunk = null;
+
         await foreach (var line in ReadSseStreamAsync(response, cancellationToken))
         {
             if (line == "[DONE]") break;
@@ -83,6 +90,28 @@ public class OpenAiProvider : BaseHttpProvider
             catch (JsonException ex)
             {
                 Logger.LogDebug(ex, "Failed to parse streaming chunk: {Line}", line);
+                continue;
+            }
+
+            // Terminal usage chunk: choices is empty, usage is populated.
+            // Merge it into the buffered finished chunk and emit it.
+            if (chunk?.Usage != null)
+            {
+                var usage = new TokenUsage
+                {
+                    PromptTokens = chunk.Usage.PromptTokens,
+                    CompletionTokens = chunk.Usage.CompletionTokens
+                };
+
+                if (pendingFinishedChunk != null)
+                {
+                    yield return pendingFinishedChunk with { Usage = usage };
+                    pendingFinishedChunk = null;
+                }
+                else
+                {
+                    yield return new StreamChunk { IsFinished = true, Usage = usage };
+                }
                 continue;
             }
 
@@ -112,34 +141,56 @@ public class OpenAiProvider : BaseHttpProvider
             var delta = choice.Delta?.Content ?? string.Empty;
             var isFinished = choice.FinishReason != null;
 
-            if (isFinished && toolCallsAccumulator.Count > 0)
+            if (isFinished)
             {
-                var toolCalls = toolCallsAccumulator.Values
-                    .Select(acc => new ToolCall
-                    {
-                        Id = acc.Id,
-                        Name = acc.Name,
-                        Arguments = ParseArguments(acc.Arguments)
-                    })
-                    .ToList();
-
-                yield return new StreamChunk
+                StreamChunk finishedChunk;
+                if (toolCallsAccumulator.Count > 0)
                 {
-                    IsFinished = true,
-                    ToolCalls = toolCalls,
-                    FinishReason = choice.FinishReason
-                };
+                    var toolCalls = toolCallsAccumulator.Values
+                        .Select(acc => new ToolCall
+                        {
+                            Id = acc.Id,
+                            Name = acc.Name,
+                            Arguments = ParseArguments(acc.Arguments)
+                        })
+                        .ToList();
+
+                    finishedChunk = new StreamChunk
+                    {
+                        IsFinished = true,
+                        ToolCalls = toolCalls,
+                        FinishReason = choice.FinishReason
+                    };
+                }
+                else
+                {
+                    finishedChunk = new StreamChunk
+                    {
+                        Delta = delta,
+                        IsFinished = true,
+                        FinishReason = choice.FinishReason
+                    };
+                }
+
+                // Buffer the finished chunk: a usage chunk may follow. If the
+                // stream ends without one, we still need to emit it.
+                if (pendingFinishedChunk != null)
+                    yield return pendingFinishedChunk;
+                pendingFinishedChunk = finishedChunk;
             }
             else
             {
                 yield return new StreamChunk
                 {
                     Delta = delta,
-                    IsFinished = isFinished,
-                    FinishReason = choice.FinishReason
+                    IsFinished = false
                 };
             }
         }
+
+        // Stream ended without a separate usage chunk; emit the buffered finish.
+        if (pendingFinishedChunk != null)
+            yield return pendingFinishedChunk;
     }
 
     private object BuildPayload(CompletionRequest request, bool stream)

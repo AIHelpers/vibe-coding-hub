@@ -83,6 +83,15 @@ public class AnthropicProvider : BaseHttpProvider
         var toolCallsBuffer = new Dictionary<int, AnthropicToolUseBuffer>();
         var currentToolIndex = -1;
 
+        // Anthropic streams usage in two places: message_start carries
+        // input_tokens (and an initial output_tokens of 0), and message_delta
+        // carries the final output_tokens plus the stop_reason. We accumulate
+        // both and attach them to the terminal finished chunk so the
+        // orchestrator (which breaks on IsFinished) actually records usage.
+        var inputTokens = 0;
+        var outputTokens = 0;
+        var stopReason = "stop";
+
         await foreach (var line in ReadSseStreamAsync(response, cancellationToken))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
@@ -102,6 +111,11 @@ public class AnthropicProvider : BaseHttpProvider
 
             switch (evt.Type)
             {
+                case "message_start":
+                    inputTokens = evt.Message?.Usage?.InputTokens ?? 0;
+                    outputTokens = evt.Message?.Usage?.OutputTokens ?? 0;
+                    break;
+
                 case "content_block_start":
                     if (evt.ContentBlock?.Type == "tool_use")
                     {
@@ -125,7 +139,22 @@ public class AnthropicProvider : BaseHttpProvider
                     }
                     break;
 
+                case "message_delta":
+                    // message_delta carries the final stop_reason and the
+                    // cumulative output_tokens count.
+                    if (evt.Delta?.StopReason != null)
+                        stopReason = evt.Delta.StopReason;
+                    if (evt.Delta?.Usage != null)
+                        outputTokens = evt.Delta.Usage.OutputTokens;
+                    break;
+
                 case "message_stop":
+                    var usage = new TokenUsage
+                    {
+                        PromptTokens = inputTokens,
+                        CompletionTokens = outputTokens
+                    };
+
                     if (toolCallsBuffer.Count > 0)
                     {
                         var toolCalls = toolCallsBuffer.Values.Select(buf => new ToolCall
@@ -139,12 +168,18 @@ public class AnthropicProvider : BaseHttpProvider
                         {
                             IsFinished = true,
                             ToolCalls = toolCalls,
-                            FinishReason = "tool_use"
+                            FinishReason = stopReason == "stop" ? "tool_use" : stopReason,
+                            Usage = usage
                         };
                     }
                     else
                     {
-                        yield return new StreamChunk { IsFinished = true, FinishReason = "stop" };
+                        yield return new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = stopReason,
+                            Usage = usage
+                        };
                     }
                     break;
             }
