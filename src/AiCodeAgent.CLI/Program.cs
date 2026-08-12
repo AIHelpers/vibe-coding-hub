@@ -255,6 +255,9 @@ configCommand.AddCommand(modelsCommand);
 // Session export/import + prompt pack commands (Priority 5)
 SessionCommands.AddCommands(configCommand);
 
+// Task history commands (list/show/delete saved tasks)
+TaskHistoryCommands.AddCommands(rootCommand);
+
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);
@@ -309,6 +312,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<SessionExportService>();
     services.AddSingleton<SessionImporter>();
     services.AddSingleton<PromptPackService>();
+
+    // Task history service
+    services.AddSingleton<TaskHistoryStore>();
 
     // Register tools
     services.AddSingleton<ITool, ReadFileTool>();

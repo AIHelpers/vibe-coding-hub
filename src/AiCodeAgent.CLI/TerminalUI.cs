@@ -15,7 +15,9 @@ public class TerminalUI
     private readonly SessionRecorder _recorder;
     private readonly SessionExportService _exportService;
     private readonly SessionImporter _importer;
+    private readonly TaskHistoryStore _taskHistory;
     private string _sessionId = Guid.NewGuid().ToString();
+    private string _taskTitle = "Untitled Task";
 
     private static class Colors
     {
@@ -35,7 +37,8 @@ public class TerminalUI
         ILogger<TerminalUI> logger,
         SessionRecorder recorder,
         SessionExportService exportService,
-        SessionImporter importer)
+        SessionImporter importer,
+        TaskHistoryStore taskHistory)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -43,6 +46,7 @@ public class TerminalUI
         _recorder = recorder;
         _exportService = exportService;
         _importer = importer;
+        _taskHistory = taskHistory;
     }
 
     public async Task RunAsync(AgentOptions options)
@@ -71,6 +75,16 @@ public class TerminalUI
 
             if (await HandleCommandAsync(input, options)) continue;
 
+            // Save user message to task history
+            if (_taskTitle == "Untitled Task")
+                _taskTitle = input.Length > 60 ? input[..60] : input;
+            await _taskHistory.AddMessageAsync(_sessionId, _taskTitle, new TaskMessageRecord
+            {
+                Role = "User",
+                Content = input,
+                Timestamp = DateTime.UtcNow
+            });
+
             Console.WriteLine();
             await StreamResponseAsync(input, options);
             Console.WriteLine();
@@ -90,6 +104,7 @@ public class TerminalUI
 
         var isFirstToken = true;
         var toolDepth = 0;
+        var assistantText = new StringBuilder();
 
         try
         {
@@ -105,6 +120,7 @@ public class TerminalUI
                             isFirstToken = false;
                         }
                         WriteColored(delta.Delta, Colors.Assistant);
+                        assistantText.Append(delta.Delta);
                         break;
 
                     case ToolCallStartEvent toolStart:
@@ -117,11 +133,30 @@ public class TerminalUI
                         WriteToolCallEnd(toolEnd.Call, toolEnd.Result, toolEnd.Duration);
                         toolDepth--;
                         isFirstToken = true;
+                        // Save tool call to task history
+                        await _taskHistory.AddToolCallAsync(_sessionId, new TaskToolCallRecord
+                        {
+                            ToolName = toolEnd.Call.Name,
+                            Arguments = toolEnd.Call.Arguments?.ToString(),
+                            Output = toolEnd.Result.Content,
+                            IsError = toolEnd.Result.IsError,
+                            Timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case AgentFinishedEvent finished:
                         Console.WriteLine();
                         WriteStats(finished.Response);
+                        // Save assistant response to task history
+                        if (assistantText.Length > 0)
+                        {
+                            await _taskHistory.AddMessageAsync(_sessionId, _taskTitle, new TaskMessageRecord
+                            {
+                                Role = "Assistant",
+                                Content = assistantText.ToString(),
+                                Timestamp = DateTime.UtcNow
+                            });
+                        }
                         break;
 
                     case AgentErrorEvent error:
@@ -205,8 +240,17 @@ public class TerminalUI
             case "/reset":
                 _recorder.Stop();
                 _sessionId = Guid.NewGuid().ToString();
+                _taskTitle = "Untitled Task";
                 _recorder.Start(_sessionId);
                 WriteColored("Session reset\n", Colors.Success);
+                return true;
+
+            case "/tasks":
+                await ListTasksAsync();
+                return true;
+
+            case var s when s.StartsWith("/task "):
+                await ShowTaskAsync(s[6..].Trim());
                 return true;
 
             case var s when s.StartsWith("/export "):
@@ -317,7 +361,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /tools /model <name> /cd <dir> /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /tools /model <name> /cd <dir> /tasks /task <id> /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
@@ -407,5 +451,81 @@ public class TerminalUI
         Console.ForegroundColor = color;
         Console.Write(text);
         Console.ResetColor();
+    }
+
+    private async Task ListTasksAsync()
+    {
+        try
+        {
+            var tasks = await _taskHistory.ListAsync();
+            if (tasks.Count == 0)
+            {
+                WriteColored("No saved tasks found.\n", Colors.Info);
+                return;
+            }
+
+            WriteColored($"\nSaved tasks ({tasks.Count}):\n", Colors.Info);
+            WriteColored($"  {"ID",-12} {"Title",-40} {"Msgs",-5} {"Updated"}\n", ConsoleColor.DarkGray);
+            WriteColored(new string('-', 75) + "\n", ConsoleColor.DarkGray);
+            foreach (var t in tasks.Take(20))
+            {
+                var title = t.Title.Length > 38 ? t.Title[..35] + "..." : t.Title;
+                WriteColored($"  {t.Id,-12} ", Colors.Tool);
+                WriteColored($"{title,-40} ", Colors.Assistant);
+                WriteColored($"{t.Messages.Count,-5} ", ConsoleColor.Gray);
+                WriteColored($"{t.UpdatedAt:yyyy-MM-dd HH:mm}\n", ConsoleColor.DarkGray);
+            }
+            WriteColored("\nUse /task <id> to view a task's dialog\n", Colors.Info);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Error listing tasks: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task ShowTaskAsync(string taskId)
+    {
+        try
+        {
+            var entry = await _taskHistory.LoadAsync(taskId);
+            if (entry == null)
+            {
+                WriteColored($"Task '{taskId}' not found.\n", Colors.Error);
+                return;
+            }
+
+            WriteColored($"\nTask: {entry.Title}\n", Colors.Info);
+            WriteColored($"ID:      {entry.Id}\n", ConsoleColor.DarkGray);
+            WriteColored($"Created: {entry.CreatedAt:yyyy-MM-dd HH:mm}\n", ConsoleColor.DarkGray);
+            WriteColored($"Updated: {entry.UpdatedAt:yyyy-MM-dd HH:mm}\n", ConsoleColor.DarkGray);
+            WriteColored($"Messages: {entry.Messages.Count}, Tool calls: {entry.ToolCalls.Count}\n\n", ConsoleColor.DarkGray);
+
+            foreach (var msg in entry.Messages)
+            {
+                var (label, color) = msg.Role switch
+                {
+                    "User" => ("[USER]", Colors.User),
+                    "Assistant" => ("[ASSISTANT]", Colors.Assistant),
+                    "System" => ("[SYSTEM]", ConsoleColor.DarkGray),
+                    _ => ($"[{msg.Role}]", ConsoleColor.Gray)
+                };
+                WriteColored($"{label} ({msg.Timestamp:HH:mm:ss}): ", color);
+                WriteColored($"{msg.Content}\n\n", ConsoleColor.Gray);
+            }
+
+            if (entry.ToolCalls.Count > 0)
+            {
+                WriteColored($"Tool Calls ({entry.ToolCalls.Count}):\n", Colors.Tool);
+                foreach (var tc in entry.ToolCalls)
+                {
+                    var icon = tc.IsError ? "X" : "OK";
+                    WriteColored($"  [{icon}] {tc.ToolName} ({tc.Timestamp:HH:mm:ss})\n", tc.IsError ? Colors.Error : Colors.ToolResult);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Error showing task: {ex.Message}\n", Colors.Error);
+        }
     }
 }
