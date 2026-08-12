@@ -123,7 +123,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CopyMessageButton_Click(object? sender, RoutedEventArgs e)
+    private async void CopyMessageButton_ClickAsync(object? sender, RoutedEventArgs e)
     {
         if (sender is Button button && button.DataContext is ChatMessage chatMessage)
         {
@@ -183,7 +183,13 @@ public partial class MainWindow : Window
     /// <summary>
     /// Opens a folder picker to change the current working directory.
     /// </summary>
-    private async void OnWorkingDirectoryPressed(object? sender, PointerPressedEventArgs e)
+    private void OnWorkingDirectoryPressedAsync(object? sender, PointerPressedEventArgs e)
+    {
+        _ = OnWorkingDirectoryPressedCoreAsync(sender, e);
+        e.Handled = true;
+    }
+
+    private async Task OnWorkingDirectoryPressedCoreAsync(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is MainViewModel mainVm)
         {
@@ -206,8 +212,6 @@ public partial class MainWindow : Window
                 }
             }
         }
-
-        e.Handled = true;
     }
 
     /// <summary>
@@ -233,7 +237,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Imports the first dropped `.agentsession` file into a new session.
     /// </summary>
-    private async void OnDrop(object? sender, DragEventArgs e)
+    private async void OnDropAsync(object? sender, DragEventArgs e)
     {
         if (DataContext is MainViewModel mainVm && e.Data.Contains(DataFormats.Files))
         {

@@ -16,7 +16,7 @@
         WindowStartupLocation="CenterScreen"
         DragDrop.AllowDrop="True"
         DragDrop.DragOver="OnDragOver"
-        DragDrop.Drop="OnDrop">
+        DragDrop.Drop="OnDropAsync">
 
     <Design.DataContext>
         <vm:MainViewModel/>
@@ -82,7 +82,7 @@
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center"
                         Cursor="Hand"
-                        PointerPressed="OnWorkingDirectoryPressed">
+                        PointerPressed="OnWorkingDirectoryPressedAsync">
                     <Border.Styles>
                         <Style Selector="Border:pointerover">
                             <Setter Property="Background" Value="#2A2A3A"/>
@@ -354,7 +354,7 @@
                                                                     Padding="4,2"
                                                                     Margin="8,0,0,0"
                                                                     Cursor="Hand"
-                                                                    Click="CopyMessageButton_Click"
+                         Click="CopyMessageButton_ClickAsync"
                                                                     Background="Transparent"
                                                                     BorderThickness="0"/>
                                                         </Grid>

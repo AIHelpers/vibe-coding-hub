@@ -397,6 +397,8 @@ public partial class ChatViewModel : ObservableObject
 
     private async Task ProcessEventsAsync(ChatMessage assistantMessage, CancellationToken token)
     {
+        var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
+        
         try
         {
             await foreach (var evt in _eventBus.GetEventsAsync(token))
@@ -404,34 +406,59 @@ public partial class ChatViewModel : ObservableObject
                 switch (evt)
                 {
                     case TextDeltaEvent delta:
-                        assistantMessage.Content += delta.Delta;
+                        await Task.Factory.StartNew(
+                            () => assistantMessage.Content += delta.Delta,
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case ToolCallStartEvent start:
-                        var card = new ToolCallCardViewModel
-                        {
-                            ToolName = start.Call.Name,
-                            Arguments = FormatArguments(start.Call.Arguments),
-                            IsExpanded = false
-                        };
-                        ToolCallCards.Add(card);
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                var card = new ToolCallCardViewModel
+                                {
+                                    ToolName = start.Call.Name,
+                                    Arguments = FormatArguments(start.Call.Arguments),
+                                    IsExpanded = false
+                                };
+                                ToolCallCards.Add(card);
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case ToolCallEndEvent end:
-                        var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name);
-                        if (existingCard != null)
-                        {
-                            existingCard.Output = TruncateOutput(end.Result.Content, 500);
-                            existingCard.Duration = end.Duration;
-                            existingCard.IsError = end.Result.IsError;
-                        }
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name);
+                                if (existingCard != null)
+                                {
+                                    existingCard.Output = TruncateOutput(end.Result.Content, 500);
+                                    existingCard.Duration = end.Duration;
+                                    existingCard.IsError = end.Result.IsError;
+                                }
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case ApprovalRequestEvent approval:
-                        ShowApprovalDialog = true;
-                        ApprovalToolName = approval.Call.Name;
-                        ApprovalArgs = FormatArguments(approval.Call.Arguments);
-                        _pendingApproval = approval.Approval;
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                ShowApprovalDialog = true;
+                                ApprovalToolName = approval.Call.Name;
+                                ApprovalArgs = FormatArguments(approval.Call.Arguments);
+                                _pendingApproval = approval.Approval;
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case DiffProducedEvent diffProduced:
@@ -451,28 +478,54 @@ public partial class ChatViewModel : ObservableObject
 
                     case AgentTaggedEvent tagged:
                         // Handle agent-tagged events from multi-agent sessions
-                        HandleAgentTaggedEvent(tagged, assistantMessage);
+                        await Task.Factory.StartNew(
+                            () => HandleAgentTaggedEvent(tagged, assistantMessage),
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case StatusUpdateEvent status:
-                        StatusText = status.Status;
+                        await Task.Factory.StartNew(
+                            () => StatusText = status.Status,
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case TokenUsageEvent usage:
-                        TokenUsage = $"Tokens: {usage.Usage.TotalTokens}";
+                        await Task.Factory.StartNew(
+                            () => TokenUsage = $"Tokens: {usage.Usage.TotalTokens}",
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case AgentFinishedEvent finished:
-                        if (finished.Response.WasCancelled)
-                        {
-                            assistantMessage.Content += "\n\n*Cancelled*";
-                        }
-                        StatusText = "Done";
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                if (finished.Response.WasCancelled)
+                                {
+                                    assistantMessage.Content += "\n\n*Cancelled*";
+                                }
+                                StatusText = "Done";
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
 
                     case AgentErrorEvent error:
-                        assistantMessage.Content += $"\n\n**Error:** {error.Error.Message}";
-                        StatusText = "Error";
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                assistantMessage.Content += $"\n\n**Error:** {error.Error.Message}";
+                                StatusText = "Error";
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
                         break;
                 }
             }
