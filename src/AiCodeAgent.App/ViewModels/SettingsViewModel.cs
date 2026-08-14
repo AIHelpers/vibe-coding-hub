@@ -29,6 +29,7 @@ public partial class SettingsViewModel : ObservableObject
         set => _storageProvider = value;
     }
     private CancellationTokenSource? _loadModelsCts;
+    private bool _modelsLoadedForCurrentProvider;
 
     [ObservableProperty]
     private string _selectedProvider = string.Empty;
@@ -89,18 +90,36 @@ public partial class SettingsViewModel : ObservableObject
             : Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
 
-        // Kick off model loading for the initial provider so the
-        // dropdown is populated as soon as the Settings view opens.
-        _ = LoadModelsAsync(SelectedProvider);
+        // Models are loaded lazily — only when the user opens the model
+        // dropdown to choose a model (see EnsureModelsLoaded command).
+        // This avoids reloading the list every time the Settings page opens.
+        _modelsLoadedForCurrentProvider = false;
     }
 
     partial void OnSelectedProviderChanged(string value)
     {
         if (!string.IsNullOrEmpty(value))
         {
+            // Invalidate the cached list when the provider changes; the list
+            // will be (re)loaded lazily when the user opens the dropdown.
+            _modelsLoadedForCurrentProvider = false;
+            AvailableModels.Clear();
+            ModelsStatus = string.Empty;
             LoadProviderSettings(value);
-            _ = LoadModelsAsync(value);
         }
+    }
+
+    /// <summary>
+    /// Loads the model list for the current provider only if it hasn't been
+    /// loaded yet. Intended to be invoked when the user opens the model
+    /// dropdown to choose a model — avoids reloading on every Settings open.
+    /// </summary>
+    [RelayCommand]
+    public Task EnsureModelsLoaded()
+    {
+        if (_modelsLoadedForCurrentProvider)
+            return Task.CompletedTask;
+        return LoadModelsAsync(SelectedProvider);
     }
 
     private void LoadProviderSettings(string providerName)
@@ -111,6 +130,15 @@ public partial class SettingsViewModel : ObservableObject
             Model = provider.DefaultModel ?? "gpt-4o";
             BaseUrl = provider.BaseUrl ?? string.Empty;
             VerifySsl = provider.VerifySsl;
+
+            // Seed the model list with the currently-configured model so the
+            // ComboBox can display the saved selection without triggering a
+            // network load. The full list is fetched lazily when the user opens
+            // the dropdown (see EnsureModelsLoaded).
+            AvailableModels.Clear();
+            if (!string.IsNullOrEmpty(Model))
+                AvailableModels.Add(Model);
+            _modelsLoadedForCurrentProvider = false;
 
             // Try to get API key from environment or config
             var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpperInvariant()}_API_KEY";
@@ -215,6 +243,7 @@ public partial class SettingsViewModel : ObservableObject
                 ModelsStatus = AvailableModels.Count > 0
                     ? $"{AvailableModels.Count} models available"
                     : "No models found";
+                _modelsLoadedForCurrentProvider = true;
             });
         }
         catch (OperationCanceledException)

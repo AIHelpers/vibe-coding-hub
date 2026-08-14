@@ -38,12 +38,14 @@
                 <TextBlock Text="Model" FontSize="13" FontWeight="SemiBold"/>
                 <Grid ColumnDefinitions="*,Auto,Auto" Width="400">
                     <ComboBox Grid.Column="0"
+                              x:Name="ModelComboBox"
                               ItemsSource="{Binding AvailableModels}"
                               SelectedItem="{Binding Model}"
                               PlaceholderText="Select a model"
                               ToolTip.Tip="Select a model from the list"
                               MinWidth="300"
-                              VerticalAlignment="Center"/>
+                              VerticalAlignment="Center"
+                              PointerPressed="ModelComboBox_OnPointerPressed"/>
                     <Button Grid.Column="1"
                             Content="🔄"
                             Command="{Binding RefreshModelsCommand}"
