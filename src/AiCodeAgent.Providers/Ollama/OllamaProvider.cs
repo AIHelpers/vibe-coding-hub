@@ -223,10 +223,10 @@ public class OllamaProvider : BaseHttpProvider
                     {
                         role = "assistant",
                         content = msg.Content,
+                        // Ollama's native tool_calls format: array of {function: {name, arguments}}
+                        // No id/type fields — Ollama matches tool results by the `name` field on the tool-role message.
                         tool_calls = msg.ToolCalls.Select(tc => new
                         {
-                            id = tc.Id,
-                            type = "function",
                             function = new
                             {
                                 name = tc.Name,
@@ -244,6 +244,7 @@ public class OllamaProvider : BaseHttpProvider
                     {
                         role = "tool",
                         tool_call_id = msg.ToolCallId,
+                        name = msg.Name ?? string.Empty,
                         content = msg.Content
                     });
                     break;

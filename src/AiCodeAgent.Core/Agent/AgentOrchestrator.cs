@@ -443,10 +443,18 @@ public class AgentOrchestrator : IAgentOrchestrator
                 }).ConfigureAwait(false);
             }
 
-            // If all tool results are errors, break to prevent infinite loop
-            if (pendingToolCalls.Count > 0 && toolExecutions.Count > 0 && 
-                toolExecutions.All(te => te.Result.IsError))
+            // If all tool results in this iteration are errors, break to prevent infinite loop
+            // (toolExecutions accumulates across iterations, so check only this iteration's batch)
+            var currentIterationExecutions = toolExecutions
+                .Skip(toolExecutions.Count - pendingToolCalls.Count)
+                .ToList();
+            if (pendingToolCalls.Count > 0 && currentIterationExecutions.Count > 0 &&
+                currentIterationExecutions.All(te => te.Result.IsError))
+            {
+                _logger.LogWarning("All {Count} tool calls in iteration {Iteration} returned errors — breaking to prevent infinite loop",
+                    currentIterationExecutions.Count, iteration);
                 break;
+            }
         }
 
         var response = new AgentResponse
@@ -506,7 +514,17 @@ public class AgentOrchestrator : IAgentOrchestrator
             - If a task is ambiguous, ask for clarification
             - Prefer editing specific code over rewriting entire files
             - Use git to understand history when helpful
-            
+
+            Important — "write" does not always mean "create a file":
+            - When the user asks you to "write a plan", "write an outline",
+              "write a summary", "write a description", or similar, they want
+              you to produce that content as your chat response (text), NOT to
+              call the write_file tool.
+            - Only use the write_file/edit tools when the user explicitly asks
+              you to create, modify, or save a file (e.g. "create a file
+              named X", "save this to a file", "edit the file at path Y").
+            - When in doubt, answer in chat and ask before touching the filesystem.
+
             When writing code:
             - Follow existing code style and conventions
             - Add appropriate error handling

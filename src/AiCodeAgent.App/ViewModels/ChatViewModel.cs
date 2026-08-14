@@ -574,7 +574,7 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         _eventProcessingComplete?.TrySetResult();
-                        break;
+                        return;
 
                     case AgentErrorEvent error:
                         await Task.Factory.StartNew(
@@ -587,7 +587,7 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         _eventProcessingComplete?.TrySetResult();
-                        break;
+                        return;
                 }
             }
         }
