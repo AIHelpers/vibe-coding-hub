@@ -22,6 +22,22 @@ public enum PermissionMode
     Plan = 3
 }
 
+/// <summary>
+/// Granular permission flags that control which risk categories
+/// the agent is allowed to perform without asking.
+/// When a flag is false the agent will prompt for approval on
+/// any tool call that carries the corresponding risk level.
+/// </summary>
+public record GranularRights
+{
+    /// <summary>Allow read-only operations (file reads, grep, etc.) without asking.</summary>
+    public bool AllowRead { get; init; } = true;
+    /// <summary>Allow file edit/write operations without asking.</summary>
+    public bool AllowEdit { get; init; } = false;
+    /// <summary>Allow shell command execution without asking.</summary>
+    public bool AllowExecute { get; init; } = false;
+}
+
 public record PermissionSettings
 {
     public PermissionMode Mode { get; init; } = PermissionMode.Ask;
@@ -91,6 +107,8 @@ public record AgentOptions
     public List<string> EnabledTools { get; init; } = new();
     public bool IsReadOnly { get; init; } = false;
     public PermissionMode PermissionMode { get; init; } = PermissionMode.Ask;
+    /// <summary>Granular per-risk-category rights (read/edit/execute). When set, these override the coarse PermissionMode for the corresponding risk levels.</summary>
+    public GranularRights? Rights { get; init; }
     public string? SessionId { get; init; }
     /// <summary>Agent instance key for multi-agent sessions.</summary>
     public string? AgentId { get; init; }
@@ -128,7 +146,7 @@ public record ToolCallStartEvent(ToolCall Call) : AgentEvent;
 public record ToolCallEndEvent(ToolCall Call, ToolResult Result, TimeSpan Duration) : AgentEvent;
 public record AgentFinishedEvent(AgentResponse Response) : AgentEvent;
 public record AgentErrorEvent(Exception Error) : AgentEvent;
-public record ApprovalRequestEvent(ToolCall Call, TaskCompletionSource<bool> Approval) : AgentEvent;
+public record ApprovalRequestEvent(ToolCall Call, TaskCompletionSource<bool> Approval, RiskLevel Risk = RiskLevel.Write) : AgentEvent;
 public record DiffProducedEvent(DiffEntry Diff) : AgentEvent;
 public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;

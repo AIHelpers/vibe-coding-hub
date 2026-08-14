@@ -68,6 +68,16 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private string _permissionMode = "Ask";
 
+    // Granular rights toggles (independent of PermissionMode)
+    [ObservableProperty]
+    private bool _allowRead = true;
+
+    [ObservableProperty]
+    private bool _allowEdit;
+
+    [ObservableProperty]
+    private bool _allowExecute;
+
     [ObservableProperty]
     private bool _showApprovalDialog;
 
@@ -82,6 +92,9 @@ public partial class ChatViewModel : ObservableObject
 
     [ObservableProperty]
     private string _approvalRole = "";
+
+    [ObservableProperty]
+    private string _approvalRisk = "Write";
 
     // Agent session sidebar
     [ObservableProperty]
@@ -290,7 +303,13 @@ public partial class ChatViewModel : ObservableObject
                 new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
-                    WorkingDirectory = WorkingDirectory
+                    WorkingDirectory = WorkingDirectory,
+                    Rights = new GranularRights
+                    {
+                        AllowRead = AllowRead,
+                        AllowEdit = AllowEdit,
+                        AllowExecute = AllowExecute
+                    }
                 },
                 token);
         }
@@ -510,10 +529,24 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
+                                ApprovalRisk = approval.Risk.ToString();
                                 ShowApprovalDialog = true;
                                 ApprovalToolName = approval.Call.Name;
                                 ApprovalArgs = FormatArguments(approval.Call.Arguments);
                                 _pendingApproval = approval.Approval;
+
+                                // Show an explicit, user-visible approval request in the
+                                // chat transcript so the user knows a decision is needed
+                                // and where to approve/decline — previously the agent
+                                // could appear to hang with no visible prompt.
+                                Messages.Add(new ChatMessage
+                                {
+                                    Role = "System",
+                                    Content = $"🔔 **Approval required** — `{approval.Call.Name}` (risk: {approval.Risk})\n" +
+                                              $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
+                                              "Use the approval dialog below to **Approve** or **Decline**.",
+                                    Timestamp = DateTime.Now
+                                });
                             },
                             token,
                             TaskCreationOptions.None,
@@ -694,12 +727,25 @@ public partial class ChatViewModel : ObservableObject
                 break;
 
             case ApprovalRequestEvent approval:
+                ApprovalRisk = approval.Risk.ToString();
                 ShowApprovalDialog = true;
                 ApprovalToolName = approval.Call.Name;
                 ApprovalArgs = FormatArguments(approval.Call.Arguments);
                 ApprovalAgent = tagged.AgentId;
                 ApprovalRole = tagged.Role ?? "";
                 _pendingApproval = approval.Approval;
+
+                // Show an explicit, user-visible approval request in the
+                // chat transcript for multi-agent sessions too.
+                Messages.Add(new ChatMessage
+                {
+                    Role = "System",
+                    Content = $"🔔 **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) — " +
+                              $"`{approval.Call.Name}` (risk: {approval.Risk})\n" +
+                              $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
+                              "Use the approval dialog below to **Approve** or **Decline**.",
+                    Timestamp = DateTime.Now
+                });
                 break;
 
             case StatusUpdateEvent status:

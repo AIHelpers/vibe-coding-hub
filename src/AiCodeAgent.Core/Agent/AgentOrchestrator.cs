@@ -291,7 +291,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
                         // Emit approval request event - UI will handle this
                         var approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                        var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs);
+                        var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs, tool.Risk);
                         yield return approvalEvent;
                         _eventBus?.Publish(approvalEvent);
 

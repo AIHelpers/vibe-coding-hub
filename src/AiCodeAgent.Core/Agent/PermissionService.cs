@@ -7,7 +7,8 @@ namespace AiCodeAgent.Core.Agent;
 
 /// <summary>
 /// Permission service that manages tool approval workflows.
-/// Supports Ask, AutoEdit, FullAuto, and Plan modes.
+/// Supports Ask, AutoEdit, FullAuto, and Plan modes, plus granular
+/// per-risk-category rights (read/edit/execute).
 /// Persists per-project allowlists.
 /// Modes can be set globally or per-agent (for multi-agent sessions).
 /// </summary>
@@ -16,9 +17,11 @@ public class PermissionService : IPermissionService
     private readonly ILogger<PermissionService> _logger;
     private readonly ConcurrentDictionary<string, bool> _persistentAllowlist = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, PermissionMode> _agentModes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, GranularRights> _agentRights = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _allowlistPath;
-    
+
     private PermissionMode _currentMode = PermissionMode.Ask;
+    private GranularRights _currentRights = new();
 
     public PermissionMode CurrentMode => _currentMode;
 
@@ -47,6 +50,32 @@ public class PermissionService : IPermissionService
         }
     }
 
+    /// <summary>Set granular rights globally or for a specific agent.</summary>
+    public void SetRights(GranularRights rights, string? agentId = null)
+    {
+        if (string.IsNullOrEmpty(agentId))
+        {
+            _currentRights = rights;
+            _logger.LogInformation(
+                "Granular rights set: read={Read}, edit={Edit}, execute={Exec}",
+                rights.AllowRead, rights.AllowEdit, rights.AllowExecute);
+        }
+        else
+        {
+            _agentRights[agentId] = rights;
+            _logger.LogInformation(
+                "Granular rights set for agent {AgentId}: read={Read}, edit={Edit}, execute={Exec}",
+                agentId, rights.AllowRead, rights.AllowEdit, rights.AllowExecute);
+        }
+    }
+
+    public GranularRights GetRights(string? agentId = null)
+    {
+        if (!string.IsNullOrEmpty(agentId) && _agentRights.TryGetValue(agentId, out var r))
+            return r;
+        return _currentRights;
+    }
+
     public PermissionMode GetMode(string? agentId = null)
     {
         if (!string.IsNullOrEmpty(agentId) && _agentModes.TryGetValue(agentId, out var agentMode))
@@ -57,6 +86,11 @@ public class PermissionService : IPermissionService
     public async Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null)
     {
         var mode = GetMode(agentId);
+
+        // Granular rights take precedence when provided. The per-call options
+        // Rights override the service-level rights, so the UI can pass in the
+        // latest checkbox state without mutating service state.
+        var rights = options.Rights ?? GetRights(agentId);
 
         // Plan mode: only allow Read operations
         if (mode == PermissionMode.Plan)
@@ -75,6 +109,23 @@ public class PermissionService : IPermissionService
         if (_persistentAllowlist.TryGetValue(allowKey, out var allowed) && allowed)
             return true;
 
+        // Granular rights: if the category is explicitly allowed, approve
+        // without prompting. This lets users grant read/edit/execute
+        // independently of the coarse PermissionMode.
+        if (rights != null)
+        {
+            var categoryAllowed = risk switch
+            {
+                RiskLevel.Read => rights.AllowRead,
+                RiskLevel.Write => rights.AllowEdit,
+                RiskLevel.Execute => rights.AllowExecute,
+                _ => false
+            };
+            if (categoryAllowed)
+                return true;
+            // Otherwise fall through and ask (unless AutoEdit handles it).
+        }
+
         // AutoEdit mode: auto-approve Read and Write, ask for Execute
         if (mode == PermissionMode.AutoEdit)
         {
@@ -85,7 +136,7 @@ public class PermissionService : IPermissionService
             return false; // Will be handled by ApprovalRequestEvent
         }
 
-        // Ask mode: always ask
+        // Ask mode: always ask (except read, which is safe)
         if (risk == RiskLevel.Read)
             return true; // Read operations are always safe
 
