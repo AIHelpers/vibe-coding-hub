@@ -157,9 +157,13 @@ public class OllamaProvider : BaseHttpProvider
 
             if (chunk == null) continue;
 
+            // Ollama emits tool_calls in a chunk where done=false and then keeps
+            // the stream open. The orchestrator only captures tool calls when
+            // IsFinished is true, so emit them immediately as a finished chunk
+            // to let the orchestrator break out and execute the tools.
             if (chunk.Message?.ToolCalls?.Count > 0)
             {
-                Logger.LogInformation("Ollama stream received {Count} tool calls (done={Done})", chunk.Message.ToolCalls.Count, chunk.Done);
+                Logger.LogInformation("Ollama stream received {Count} tool calls (done={Done}) — emitting as finished", chunk.Message.ToolCalls.Count, chunk.Done);
                 var toolCalls = chunk.Message.ToolCalls.Select(tc => new ToolCall
                 {
                     // Ollama doesn't provide tool call IDs, so generate unique ones
@@ -170,29 +174,35 @@ public class OllamaProvider : BaseHttpProvider
 
                 yield return new StreamChunk
                 {
-                    IsFinished = chunk.Done,
+                    IsFinished = true,
                     ToolCalls = toolCalls,
                     FinishReason = "tool_calls"
                 };
+                yield break;
             }
-            else
-            {
-                var delta = chunk.Message?.Content ?? string.Empty;
-                if (!string.IsNullOrEmpty(delta))
-                    hasYieldedContent = true;
 
-                yield return new StreamChunk
-                {
-                    Delta = delta,
-                    IsFinished = chunk.Done
-                };
-            }
+            var delta = chunk.Message?.Content ?? string.Empty;
+            if (!string.IsNullOrEmpty(delta))
+                hasYieldedContent = true;
 
             if (chunk.Done)
             {
                 Logger.LogInformation("Ollama stream completed after {Count} chunks (done_reason={Reason}, hasContent={HasContent})",
                     chunkCount, chunk.DoneReason, hasYieldedContent);
+                yield return new StreamChunk
+                {
+                    Delta = delta,
+                    IsFinished = true,
+                    FinishReason = chunk.DoneReason
+                };
+                yield break;
             }
+
+            yield return new StreamChunk
+            {
+                Delta = delta,
+                IsFinished = false
+            };
         }
 
         Logger.LogInformation("Ollama stream ended after {Count} total chunks", chunkCount);
@@ -206,7 +216,41 @@ public class OllamaProvider : BaseHttpProvider
 
         foreach (var msg in request.Messages)
         {
-            messages.Add(new { role = msg.Role.ToString().ToLower(), content = msg.Content });
+            switch (msg.Role)
+            {
+                case MessageRole.Assistant when msg.ToolCalls?.Count > 0:
+                    messages.Add(new
+                    {
+                        role = "assistant",
+                        content = msg.Content,
+                        tool_calls = msg.ToolCalls.Select(tc => new
+                        {
+                            id = tc.Id,
+                            type = "function",
+                            function = new
+                            {
+                                name = tc.Name,
+                                // Ollama expects arguments as a JSON object, not a string
+                                arguments = tc.Arguments
+                            }
+                        })
+                    });
+                    break;
+                case MessageRole.Assistant:
+                    messages.Add(new { role = "assistant", content = msg.Content });
+                    break;
+                case MessageRole.Tool:
+                    messages.Add(new
+                    {
+                        role = "tool",
+                        tool_call_id = msg.ToolCallId,
+                        content = msg.Content
+                    });
+                    break;
+                default:
+                    messages.Add(new { role = msg.Role.ToString().ToLower(), content = msg.Content });
+                    break;
+            }
         }
         return messages;
     }

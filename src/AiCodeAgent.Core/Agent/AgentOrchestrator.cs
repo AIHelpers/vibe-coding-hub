@@ -92,6 +92,13 @@ public class AgentOrchestrator : IAgentOrchestrator
         }).ConfigureAwait(false);
 
         var tools = _toolRegistry.GetTools(options.EnabledTools) ?? new List<ITool>();
+
+        // In Plan mode, filter out non-Read tools so the model is never
+        // tempted to call write/execute tools (which would all fail).
+        if (options.PermissionMode == PermissionMode.Plan)
+        {
+            tools = tools.Where(t => t.Risk == RiskLevel.Read).ToList();
+        }
         var totalUsage = new TokenUsage();
         var toolExecutions = new List<ToolExecution>();
         var fullContent = new StringBuilder();
@@ -252,14 +259,73 @@ public class AgentOrchestrator : IAgentOrchestrator
                     var isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options, options.AgentId);
                     if (!isApproved)
                     {
+                        // In Plan mode, non-Read tools are silently denied
+                        // (no approval dialog) so the model gets a tool error
+                        // and can continue instead of showing an approval
+                        // dialog that would loop forever.
+                        var mode = _permissionService.GetMode(options.AgentId);
+                        if (mode == PermissionMode.Plan)
+                        {
+                            var planDeniedResult = new ToolResult
+                            {
+                                ToolCallId = toolCall.Id,
+                                ToolName = toolCall.Name,
+                                Content = $"Plan mode: write/execute tools are disabled. {toolCall.Name} not executed.",
+                                IsError = true
+                            };
+                            var planDeniedDuration = TimeSpan.Zero;
+                            toolExecutions.Add(new ToolExecution { Call = toolCall, Result = planDeniedResult, Duration = planDeniedDuration });
+                            var planDeniedEndEvent = new ToolCallEndEvent(toolCall, planDeniedResult, planDeniedDuration);
+                            yield return planDeniedEndEvent;
+                            _eventBus?.Publish(planDeniedEndEvent);
+
+                            await _contextManager.AddMessageAsync(sessionId, new Message
+                            {
+                                Role = MessageRole.Tool,
+                                Content = planDeniedResult.Content,
+                                ToolCallId = toolCall.Id,
+                                Name = toolCall.Name
+                            }).ConfigureAwait(false);
+                            continue;
+                        }
+
                         // Emit approval request event - UI will handle this
-                        var approvalTcs = new TaskCompletionSource<bool>();
+                        var approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                         var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs);
                         yield return approvalEvent;
                         _eventBus?.Publish(approvalEvent);
 
-                        // Wait for user approval
-                        isApproved = await approvalTcs.Task;
+                        // Wait for user approval (cancel-aware to avoid hang)
+                        using var approvalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        approvalCts.CancelAfter(TimeSpan.FromMinutes(10));
+                        var approvalTask = approvalTcs.Task;
+                        var delayTask = Task.Delay(Timeout.InfiniteTimeSpan, approvalCts.Token);
+
+                        try
+                        {
+                            await Task.WhenAny(approvalTask, delayTask).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            wasCancelled = true;
+                            break;
+                        }
+
+                        if (approvalTask.IsCompletedSuccessfully)
+                        {
+                            isApproved = approvalTask.Result;
+                        }
+                        else
+                        {
+                            // Timeout or cancellation
+                            isApproved = false;
+                            if (approvalCts.IsCancellationRequested && cancellationToken.IsCancellationRequested)
+                            {
+                                wasCancelled = true;
+                                break;
+                            }
+                        }
+
                         if (!isApproved)
                         {
                             var deniedResult = new ToolResult
@@ -424,6 +490,14 @@ public class AgentOrchestrator : IAgentOrchestrator
             {roleLine}
             {agentLine}
             {roleInstructions}
+            {(options.PermissionMode == PermissionMode.Plan ? """
+            Plan mode is ACTIVE:
+            - You may ONLY use read-only tools (read files, search, list directories)
+            - Write, execute, and edit tools are DISABLED and will return errors
+            - Do NOT attempt write/execute tools; plan the work and present it instead
+            - Gather information with read tools, then summarize a plan for the user
+            
+            """ : string.Empty)}
             Guidelines:
             - Always read files before editing them to understand current state
             - Make minimal, targeted changes when fixing bugs

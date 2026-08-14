@@ -94,7 +94,12 @@ public class AgentService
                 options ?? new AgentOptions(),
                 token))
             {
-                _eventBus.Publish(evt);
+                // The orchestrator already publishes each event to the
+                // shared event bus. Publishing again here would duplicate
+                // every event (doubled text, duplicate tool cards, double
+                // finished/error signals), so we only consume the stream
+                // to drive it to completion.
+                _ = evt;
             }
         }
         catch (OperationCanceledException)
