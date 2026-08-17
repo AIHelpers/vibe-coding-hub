@@ -19,26 +19,35 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="vm:EditorTabViewModel">
-                                <Border CornerRadius="4"
-                                        Padding="8,4"
-                                        Background="{Binding IsDirty, Converter={StaticResource InverseBool}}">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="{Binding Title}"
-                                                   FontSize="12"
-                                                   VerticalAlignment="Center"/>
-                                        <TextBlock Text="●"
-                                                   FontSize="8"
-                                                   Foreground="#FFB900"
-                                                   IsVisible="{Binding IsDirty}"
-                                                   VerticalAlignment="Center"/>
-                                        <Button Content="✕"
-                                                FontSize="8"
-                                                Width="16" Height="16" Padding="0"
-                                                VerticalAlignment="Center"
-                                                Background="Transparent"
-                                                BorderThickness="0"/>
-                                    </StackPanel>
-                                </Border>
+                                <Button Padding="0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Cursor="Hand"
+                                        Command="{Binding $parent[ItemsControl].DataContext.ActivateTabCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Border CornerRadius="4"
+                                            Padding="8,4"
+                                            Background="{Binding IsDirty, Converter={StaticResource InverseBool}}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding Title}"
+                                                       FontSize="12"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="●"
+                                                       FontSize="8"
+                                                       Foreground="#FFB900"
+                                                       IsVisible="{Binding IsDirty}"
+                                                       VerticalAlignment="Center"/>
+                                            <Button Content="✕"
+                                                    FontSize="8"
+                                                    Width="16" Height="16" Padding="0"
+                                                    VerticalAlignment="Center"
+                                                    Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Command="{Binding $parent[ItemsControl].DataContext.CloseTabCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Button>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -48,16 +57,18 @@
 
         <!-- Editor content -->
         <Grid Grid.Row="1">
-            <Border Background="#1E1E2E" CornerRadius="4" Margin="4">
+            <Border Background="#F5F5F5" CornerRadius="4" Margin="4">
                 <textEditor:TextEditor x:Name="CodeEditor"
-                                       IsVisible="{Binding IsVisible}"
+                                       Document="{Binding ActiveTab.Document}"
+                                       IsReadOnly="{Binding ActiveTab.IsReadOnly}"
+                                       IsVisible="{Binding HasActiveTab}"
                                        FontFamily="Consolas"
                                        FontSize="14"
                                        ShowLineNumbers="True"
                                        HorizontalScrollBarVisibility="Auto"
                                        VerticalScrollBarVisibility="Auto"
-                                       Background="#1E1E2E"
-                                       Foreground="#D4D4D4">
+                                       Background="#FFFFFF"
+                                       Foreground="#1E1E2E">
                     <textEditor:TextEditor.ContextFlyout>
                         <MenuFlyout>
                             <MenuItem Header="Accept Hunk" Command="{Binding AcceptHunkCommand}"/>
@@ -70,12 +81,12 @@
             </Border>
 
             <!-- Empty state when no file is open -->
-            <StackPanel IsVisible="{Binding ActiveTab, Converter={StaticResource InverseBool}}"
+            <StackPanel IsVisible="{Binding HasActiveTab, Converter={StaticResource InverseBool}}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="8">
-                <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center"/>
-                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center"/>
+                <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center" Foreground="#1E1E2E"/>
+                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center" Foreground="#1E1E2E"/>
             </StackPanel>
         </Grid>
     </Grid>

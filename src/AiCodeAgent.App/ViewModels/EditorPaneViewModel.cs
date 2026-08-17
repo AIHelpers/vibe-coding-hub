@@ -32,6 +32,12 @@ public partial class EditorPaneViewModel : ObservableObject
 
     public ObservableCollection<EditorTabViewModel> Tabs { get; } = new();
 
+    /// <summary>True when at least one editor tab is open (for pane visibility).</summary>
+    public bool HasOpenTabs => Tabs.Count > 0;
+
+    /// <summary>True when a file is currently active in the editor.</summary>
+    public bool HasActiveTab => ActiveTab != null;
+
     public EditorPaneViewModel(
         SharedChangeset? changeset = null,
         LspDocumentService? lspService = null)
@@ -47,6 +53,7 @@ public partial class EditorPaneViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(ActiveTabHunks));
         }
+        OnPropertyChanged(nameof(HasActiveTab));
     }
 
     /// <summary>Notify the UI that hunks have changed (for diff overlay refresh).</summary>
@@ -87,6 +94,7 @@ public partial class EditorPaneViewModel : ObservableObject
         tab.Document.TextChanged += OnTabDocumentTextChanged;
         Tabs.Add(tab);
         ActiveTab = tab;
+        OnPropertyChanged(nameof(HasOpenTabs));
 
         // Notify the language server that the document was opened
         if (_lspService != null && !readOnly && tab.Document.TextLength > 0)
@@ -117,6 +125,7 @@ public partial class EditorPaneViewModel : ObservableObject
         {
             ActiveTab = Tabs.LastOrDefault();
         }
+        OnPropertyChanged(nameof(HasOpenTabs));
         return true;
     }
 
@@ -267,6 +276,13 @@ public partial class EditorPaneViewModel : ObservableObject
             _changeset.UpdateHunkStatus(hunk.HunkId, HunkStatus.Rejected);
         }
         OnPropertyChanged(nameof(ActiveTabHunks));
+    }
+
+    [RelayCommand]
+    private void ActivateTab(EditorTabViewModel tab)
+    {
+        if (tab != null && Tabs.Contains(tab))
+            ActiveTab = tab;
     }
 
     [RelayCommand]

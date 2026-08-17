@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -101,6 +102,59 @@ public partial class MainWindow : Window
                 e.Handled = true;
             }
         }
+    }
+
+    private void OnFileExplorerItemDoubleTapped(object? sender, RoutedEventArgs e)
+    {
+        // Resolve the double-clicked item from the event source rather than
+        // relying on TreeView.SelectedItem, which may not be set yet when the
+        // DoubleTapped event fires, leaving the editor stuck on "No file open".
+        var item = ResolveFileExplorerItem(e.Source);
+        if (item != null &&
+            !item.IsDirectory &&
+            DataContext is MainViewModel mainVm)
+        {
+            // Open the file in the editor pane (editable by default).
+            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath);
+            // Collapse the checkpoint browser to give the editor focus.
+            mainVm.IsCheckpointBrowserOpen = false;
+        }
+    }
+
+    /// <summary>
+    /// Handles TreeView selection changes so a single click on a file in the
+    /// explorer opens it in the editor pane. Without this handler the editor
+    /// can remain stuck on "No file open" because the SelectedItem binding
+    /// alone does not reliably push the selection into FileExplorerViewModel
+    /// on every selection change (Avalonia TreeView TwoWay binding quirk).
+    /// </summary>
+    private void OnFileExplorerSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is TreeView treeView &&
+            treeView.SelectedItem is FileExplorerItem item &&
+            !item.IsDirectory &&
+            DataContext is MainViewModel mainVm)
+        {
+            // Open the file in the editor pane (editable by default).
+            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath);
+        }
+    }
+
+    /// <summary>
+    /// Walks up the visual tree from the event source to find the
+    /// <see cref="TreeViewItem"/> that was double-clicked and returns its
+    /// <see cref="FileExplorerItem"/> data context (or null if not found).
+    /// </summary>
+    private static FileExplorerItem? ResolveFileExplorerItem(object? source)
+    {
+        var current = source as StyledElement;
+        while (current != null)
+        {
+            if (current is TreeViewItem tvi && tvi.DataContext is FileExplorerItem item)
+                return item;
+            current = current.Parent as StyledElement;
+        }
+        return null;
     }
 
     private void OnToolCardExpandToggle(object? sender, PointerPressedEventArgs e)

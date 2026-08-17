@@ -292,7 +292,10 @@
                                         Width="24" Height="24" Padding="0" FontSize="12"/>
                             </Grid>
                             <ScrollViewer Grid.Row="1" Margin="0,0,0,8">
-                                <TreeView ItemsSource="{Binding FileExplorer.RootItems}">
+                                <TreeView ItemsSource="{Binding FileExplorer.RootItems}"
+                                          SelectedItem="{Binding FileExplorer.SelectedItem, Mode=TwoWay}"
+                                          SelectionChanged="OnFileExplorerSelectionChanged"
+                                          DoubleTapped="OnFileExplorerItemDoubleTapped">
                                     <TreeView.ItemTemplate>
                                         <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:FileExplorerItem">
                                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -319,22 +322,11 @@
 
                 <!-- Main Content (Editor + Chat + Terminal) -->
                 <SplitView.Content>
-                    <Grid ColumnDefinitions="*,Auto">
-                        <!-- Left Column: Editor + Chat stacked -->
-                        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto,Auto">
-                            <!-- Editor Pane (Top, shown when a file is open) -->
-                            <Border Grid.Row="0"
-                                    IsVisible="{Binding EditorPane.ActiveTab}"
-                                    Background="#1E1E2E"
-                                    CornerRadius="4"
-                                    Margin="0,0,0,8"
-                                    MinHeight="100"
-                                    MaxHeight="300">
-                                <views:EditorView/>
-                            </Border>
-
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <!-- Left Column: Chat + Terminal stacked -->
+                        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto">
                             <!-- Chat Messages -->
-                            <ScrollViewer Grid.Row="1" Margin="0,0,0,8">
+                            <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
                                 <StackPanel Spacing="8" Margin="16,0">
                                     <ItemsControl ItemsSource="{Binding ChatViewModel.Messages}">
                                         <ItemsControl.ItemTemplate>
@@ -426,7 +418,7 @@
                             </ScrollViewer>
 
                             <!-- Terminal Pane -->
-                            <Border Grid.Row="2" 
+                            <Border Grid.Row="1" 
                                     IsVisible="{Binding Terminal.IsVisible}" 
                                     Background="#1E1E2E" 
                                     CornerRadius="4" 
@@ -466,7 +458,7 @@
                             </Border>
 
                             <!-- Input Area -->
-                            <Grid Grid.Row="3" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
+                            <Grid Grid.Row="2" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
                                 <Grid Grid.Column="0" RowDefinitions="*,Auto">
                                     <Popup Grid.Row="0" 
                                            IsOpen="{Binding ChatViewModel.ShowMentionPopup}"
@@ -567,8 +559,19 @@
                             </Grid>
                         </Grid>
 
+                        <!-- Editor Pane (Middle Column - shown when a file is open) -->
+                        <Border Grid.Column="1"
+                                IsVisible="{Binding EditorPane.HasOpenTabs}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Padding="0"
+                                Margin="8,0,0,8"
+                                MinWidth="300"
+                                MaxWidth="500">
+                            <views:EditorView DataContext="{Binding EditorPane}"/>
+                        </Border>
+
                         <!-- Agent Session Sidebar (Right) -->
-                        <Border Grid.Column="1" 
+                        <Border Grid.Column="2" 
                                 IsVisible="{Binding ChatViewModel.IsAgentSidebarOpen}"
                                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" 
                                 Padding="8" 

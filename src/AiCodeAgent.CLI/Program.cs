@@ -258,6 +258,9 @@ SessionCommands.AddCommands(configCommand);
 // Task history commands (list/show/delete saved tasks)
 TaskHistoryCommands.AddCommands(rootCommand);
 
+// File viewing & diff commands
+FileViewCommands.AddCommands(rootCommand);
+
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);
