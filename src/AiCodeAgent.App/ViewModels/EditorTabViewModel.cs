@@ -29,6 +29,16 @@ public partial class EditorTabViewModel : ObservableObject
 
     private TextDocument? _document;
 
+    /// <summary>Current caret offset within the document, updated by the view.</summary>
+    [ObservableProperty]
+    private int _caretOffset;
+
+    /// <summary>1-based caret line, derived from <see cref="CaretOffset"/>.</summary>
+    public int CaretLine => Document.GetLocation(CaretOffset).Line;
+
+    /// <summary>1-based caret column, derived from <see cref="CaretOffset"/>.</summary>
+    public int CaretColumn => Document.GetLocation(CaretOffset).Column;
+
     public TextDocument Document
     {
         get => _document ??= new TextDocument();
@@ -64,6 +74,12 @@ public partial class EditorTabViewModel : ObservableObject
     private void OnDocumentTextChanged(object? sender, EventArgs e)
     {
         IsDirty = true;
+    }
+
+    partial void OnCaretOffsetChanged(int value)
+    {
+        OnPropertyChanged(nameof(CaretLine));
+        OnPropertyChanged(nameof(CaretColumn));
     }
 
     /// <summary>Load file content into the document.</summary>

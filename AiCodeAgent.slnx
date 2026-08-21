@@ -16,5 +16,6 @@
     <Project Path="tests/AiCodeAgent.LanguageServices.Tests/AiCodeAgent.LanguageServices.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Providers.Tests/AiCodeAgent.Providers.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Tools.Tests/AiCodeAgent.Tools.Tests.csproj" />
+    <Project Path="tests/AiCodeAgent.App.Tests/AiCodeAgent.App.Tests.csproj" />
   </Folder>
 </Solution>

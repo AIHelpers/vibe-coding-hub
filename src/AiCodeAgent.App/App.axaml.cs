@@ -7,6 +7,7 @@ using Serilog;
 using System;
 using System.IO;
 using AiCodeAgent.App.CommandPalette;
+using AiCodeAgent.App.EditHistory;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.App.ViewModels;
 using AiCodeAgent.App.Views;
@@ -244,6 +245,11 @@ public partial class App : Application
         // Command Palette
         services.AddSingleton<CommandPaletteRegistry>();
         services.AddSingleton<CommandPaletteViewModel>();
+
+        // Predictive next-edit autocomplete services
+        services.AddSingleton<EditHistoryTracker>();
+        services.AddSingleton<NextEditPredictor>(sp =>
+            new NextEditPredictor(sp.GetRequiredService<IAiProvider>()));
 
         // New ViewModels - Workspace components
         services.AddSingleton<FileExplorerViewModel>();

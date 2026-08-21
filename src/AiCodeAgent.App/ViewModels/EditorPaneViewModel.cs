@@ -6,8 +6,10 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AiCodeAgent.App.EditHistory;
 using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 
 namespace AiCodeAgent.App.ViewModels;
@@ -18,6 +20,7 @@ namespace AiCodeAgent.App.ViewModels;
 public partial class EditorPaneViewModel : ObservableObject
 {
     private static readonly TimeSpan ChangeDebounce = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan PredictionDebounce = TimeSpan.FromMilliseconds(400);
 
     [ObservableProperty]
     private EditorTabViewModel? _activeTab;
@@ -25,9 +28,15 @@ public partial class EditorPaneViewModel : ObservableObject
     [ObservableProperty]
     private bool _isVisible = true;
 
+    [ObservableProperty]
+    private NextEditPrediction? _currentPrediction;
+
     private readonly SharedChangeset? _changeset;
     private readonly LspDocumentService? _lspService;
+    private readonly EditHistoryTracker? _editHistory;
+    private readonly NextEditPredictor? _predictor;
     private CancellationTokenSource? _debounceCts;
+    private CancellationTokenSource? _predictionCts;
     private string? _pendingChangeFile;
 
     public ObservableCollection<EditorTabViewModel> Tabs { get; } = new();
@@ -40,10 +49,14 @@ public partial class EditorPaneViewModel : ObservableObject
 
     public EditorPaneViewModel(
         SharedChangeset? changeset = null,
-        LspDocumentService? lspService = null)
+        LspDocumentService? lspService = null,
+        EditHistoryTracker? editHistory = null,
+        NextEditPredictor? predictor = null)
     {
         _changeset = changeset;
         _lspService = lspService;
+        _editHistory = editHistory;
+        _predictor = predictor;
     }
 
     partial void OnActiveTabChanged(EditorTabViewModel? value)
@@ -174,6 +187,96 @@ public partial class EditorPaneViewModel : ObservableObject
 
                 await _lspService.UpdateDocumentAsync(filePath, target.Document.Text);
             }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
+
+    /// <summary>Trigger a next-edit prediction for the active tab (debounced).</summary>
+    public void RequestPrediction()
+    {
+        if (_predictor == null || _editHistory == null || ActiveTab == null)
+            return;
+
+        _predictionCts?.Cancel();
+        _predictionCts?.Dispose();
+        _predictionCts = new CancellationTokenSource();
+        var token = _predictionCts.Token;
+
+        _ = Task.Delay(PredictionDebounce, token)
+            .ContinueWith(async _ =>
+            {
+                if (token.IsCancellationRequested || ActiveTab == null)
+                    return;
+
+                var filePath = ActiveTab.FilePath;
+                var content = ActiveTab.Document.Text;
+                var line = ActiveTab.CaretLine;
+                var col = ActiveTab.CaretColumn;
+                var recent = _editHistory.GetRecent(20);
+
+                try
+                {
+                    var prediction = await _predictor.PredictAsync(
+                        filePath, content, line, col, recent, token);
+                    if (!token.IsCancellationRequested)
+                        CurrentPrediction = prediction;
+                }
+                catch (OperationCanceledException) { /* ignored */ }
+                catch { /* swallow prediction errors */ }
+            }, token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+    }
+
+    /// <summary>Accept the current prediction: apply its spans to the document.</summary>
+    [RelayCommand]
+    public async Task AcceptPredictionAsync()
+    {
+        if (CurrentPrediction == null || ActiveTab == null)
+            return;
+
+        var doc = ActiveTab.Document;
+        var lines = doc.Lines;
+
+        foreach (var span in CurrentPrediction.Spans)
+        {
+            var startLine = Math.Max(1, span.StartLine);
+            if (startLine > lines.Count + 1)
+                continue;
+
+            var offset = startLine <= lines.Count
+                ? lines[startLine - 1].Offset
+                : doc.TextLength;
+
+            if (span.IsInsert)
+            {
+                doc.Insert(offset, span.NewText + "\n");
+            }
+            else
+            {
+                var endLine = Math.Min(span.EndLine, lines.Count);
+                var endOffset = endLine <= lines.Count
+                    ? lines[endLine - 1].Offset + lines[endLine - 1].Length
+                    : doc.TextLength;
+                doc.Replace(offset, endOffset - offset, span.NewText);
+            }
+
+            // Record the accepted edit in history
+            _editHistory?.Record(new EditRecord
+            {
+                FilePath = ActiveTab.FilePath,
+                Before = string.Empty,
+                After = span.NewText,
+                StartLine = span.StartLine,
+                Timestamp = DateTimeOffset.UtcNow
+            });
+        }
+
+        CurrentPrediction = null;
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Dismiss the current prediction without applying it.</summary>
+    [RelayCommand]
+    public void DismissPrediction()
+    {
+        CurrentPrediction = null;
     }
 
     /// <summary>Save the active tab.</summary>

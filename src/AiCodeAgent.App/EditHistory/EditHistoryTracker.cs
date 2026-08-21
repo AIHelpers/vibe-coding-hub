@@ -13,7 +13,8 @@ public sealed class EditHistoryTracker
     private const int DefaultCapacity = 20;
 
     private readonly int _capacity;
-    private readonly Dictionary<string, LinkedList<EditRecord>> _historyByFile = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LinkedList<EditRecord>> _historyByFile =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public EditHistoryTracker(int capacity = DefaultCapacity)
     {
@@ -47,6 +48,16 @@ public sealed class EditHistoryTracker
         if (string.IsNullOrEmpty(filePath) || !_historyByFile.TryGetValue(filePath, out var list))
             return Array.Empty<EditRecord>();
         return list.ToList();
+    }
+
+    /// <summary>Returns up to <paramref name="count"/> most-recent edits across all files.</summary>
+    public IReadOnlyList<EditRecord> GetRecent(int count)
+    {
+        return _historyByFile.Values
+            .SelectMany(l => l)
+            .OrderByDescending(r => r.Timestamp)
+            .Take(count)
+            .ToList();
     }
 
     /// <summary>Clears the history for a file (e.g. on close or save-and-idle reset).</summary>
