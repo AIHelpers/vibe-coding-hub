@@ -18,6 +18,7 @@ using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
+using AiCodeAgent.Indexing.Semantic;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
@@ -241,6 +242,54 @@ public partial class App : Application
                 sp.GetRequiredService<LanguageProviderRegistry>(),
                 workspaceRoot,
                 sp.GetRequiredService<ILogger<SymbolIndexer>>()));
+
+        // Semantic codebase Q&A (Feature 2)
+        services.AddSingleton<IEmbeddingProvider>(sp =>
+        {
+            var configSvc = sp.GetRequiredService<ConfigurationService>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var providerName = configSvc.Config.DefaultProvider.ToLowerInvariant();
+            var cfg = configSvc.GetProvider(configSvc.Config.DefaultProvider)
+                ?? new Core.Configuration.ProviderConfiguration();
+
+            // Resolve API key from env (same logic as chat provider registration)
+            var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";
+            var envKeyLegacy = $"AIAGENT_{providerName.ToUpper()}_API_KEY";
+            var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
+                      ?? Environment.GetEnvironmentVariable(envKeyLegacy)
+                      ?? cfg.ApiKey;
+            cfg = cfg with { ApiKey = apiKey };
+
+            if (providerName.Equals("openai", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(cfg.ApiKey))
+            {
+                return new Providers.OpenAI.OpenAiEmbeddingProvider(cfg, loggerFactory.CreateLogger<Providers.OpenAI.OpenAiEmbeddingProvider>());
+            }
+
+            // Fallback: deterministic null provider for dev/demo scenarios
+            return new NullEmbeddingProvider();
+        });
+
+        services.AddSingleton<CodeChunker>();
+        services.AddSingleton<EmbeddingService>(sp =>
+            new EmbeddingService(
+                sp.GetRequiredService<IEmbeddingProvider>(),
+                batchSize: 32,
+                sp.GetRequiredService<ILogger<EmbeddingService>>()));
+        services.AddSingleton<VectorStore>();
+        services.AddSingleton<SemanticIndex>(sp =>
+        {
+            var dbDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AiCodeAgent", "semantic");
+            return new SemanticIndex(
+                dbDir,
+                sp.GetRequiredService<CodeChunker>(),
+                sp.GetRequiredService<EmbeddingService>(),
+                sp.GetRequiredService<VectorStore>(),
+                sp.GetRequiredService<ILogger<SemanticIndex>>());
+        });
+        services.AddSingleton<Retriever>(sp =>
+            new Retriever(sp.GetRequiredService<SemanticIndex>(), defaultTopK: 8));
 
         // Command Palette
         services.AddSingleton<CommandPaletteRegistry>();

@@ -14,11 +14,10 @@ using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Indexing;
+using AiCodeAgent.Indexing.Semantic;
 using System.Collections.Generic;
 using System.IO;
-
 namespace AiCodeAgent.App.ViewModels;
-
 public partial class ChatViewModel : ObservableObject
 {
     private readonly AgentService _agentService;
@@ -29,8 +28,9 @@ public partial class ChatViewModel : ObservableObject
     private readonly SdlcPipelineRunner? _pipelineRunner;
     private readonly SdlcPipelineLoader? _pipelineLoader;
     private readonly ConfigurationService? _configurationService;
+    private readonly Retriever? _retriever;
+    private readonly SemanticIndex? _semanticIndex;
     private CancellationTokenSource? _cancellationTokenSource;
-
     /// <summary>
     /// The working directory the agent operates in. Falls back to the
     /// configured <see cref="AgentConfiguration.WorkingDirectory"/>, then to
@@ -46,93 +46,65 @@ public partial class ChatViewModel : ObservableObject
                 : Directory.GetCurrentDirectory();
         }
     }
-
     [ObservableProperty]
     private string _inputText = string.Empty;
-
     [ObservableProperty]
     private bool _isProcessing;
-
     [ObservableProperty]
     private bool _isCancellable;
-
     [ObservableProperty]
     private string _statusText = "Ready";
-
     [ObservableProperty]
     private string _modelName = "";
-
     [ObservableProperty]
     private string _tokenUsage = "";
-
     [ObservableProperty]
     private string _permissionMode = "Ask";
-
     // Granular rights toggles (independent of PermissionMode)
     [ObservableProperty]
     private bool _allowRead = true;
-
     [ObservableProperty]
     private bool _allowEdit;
-
     [ObservableProperty]
     private bool _allowExecute;
-
     [ObservableProperty]
     private bool _showApprovalDialog;
-
     [ObservableProperty]
     private string _approvalToolName = "";
-
     [ObservableProperty]
     private string _approvalArgs = "";
-
     [ObservableProperty]
     private string _approvalAgent = "";
-
     [ObservableProperty]
     private string _approvalRole = "";
-
     [ObservableProperty]
     private string _approvalRisk = "Write";
-
     // Agent session sidebar
     [ObservableProperty]
     private bool _isAgentSidebarOpen = true;
-
     // @-mention system
     [ObservableProperty]
     private bool _showMentionPopup;
-
     [ObservableProperty]
     private string _mentionFilter = "";
-
     [ObservableProperty]
     private int _mentionCursorPosition;
-
     // Slash commands
     [ObservableProperty]
     private bool _showSlashCommands;
-
     [ObservableProperty]
     private string _slashFilter = "";
-
     // Token counter
     [ObservableProperty]
     private string _tokenCount = "~0 tokens";
-
     // Model selector
     [ObservableProperty]
     private string _selectedModel = "Auto";
-
     [ObservableProperty]
     private string _selectedPipeline = "full-sdlc";
-
     [ObservableProperty]
     private bool _isPipelineRunning;
-
     private TaskCompletionSource<bool>? _pendingApproval;
-
     /// <summary>
     /// Set by <see cref="ProcessEventsAsync"/> when it has finished draining the
     /// terminal event (<see cref="AgentFinishedEvent"/> or
@@ -142,7 +114,6 @@ public partial class ChatViewModel : ObservableObject
     /// in-flight UI-thread event dispatch.
     /// </summary>
     private TaskCompletionSource? _eventProcessingComplete;
-
     public ObservableCollection<ChatMessage> Messages { get; } = new();
     public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
     public ObservableCollection<MentionItem> MentionItems { get; } = new();
@@ -153,12 +124,10 @@ public partial class ChatViewModel : ObservableObject
     {
         "Auto", "Fast", "Smart"
     };
-
     public List<string> KnownSlashCommands { get; } = new()
     {
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/help"
     };
-
     public ChatViewModel(
         AgentService agentService,
         EditorPaneViewModel editorPane,
@@ -166,7 +135,9 @@ public partial class ChatViewModel : ObservableObject
         WorkspaceIndexQueryService? indexQueryService = null,
         SdlcPipelineRunner? pipelineRunner = null,
         SdlcPipelineLoader? pipelineLoader = null,
-        ConfigurationService? configurationService = null)
+        ConfigurationService? configurationService = null,
+        Retriever? retriever = null,
+        SemanticIndex? semanticIndex = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -176,7 +147,8 @@ public partial class ChatViewModel : ObservableObject
         _pipelineRunner = pipelineRunner;
         _pipelineLoader = pipelineLoader;
         _configurationService = configurationService;
-
+        _retriever = retriever;
+        _semanticIndex = semanticIndex;
         if (_pipelineLoader != null)
         {
             foreach (var pipeline in _pipelineLoader.GetAllPipelines())
@@ -184,7 +156,6 @@ public partial class ChatViewModel : ObservableObject
             if (AvailablePipelines.Count > 0 && !AvailablePipelines.Contains(SelectedPipeline))
                 SelectedPipeline = AvailablePipelines[0];
         }
-
         // Restore the last selected model from persisted UI settings so the
         // user's choice survives application restarts. Fall back to "Auto"
         // when unset or no longer in the available list.
@@ -195,16 +166,14 @@ public partial class ChatViewModel : ObservableObject
                 ? savedModel
                 : savedModel; // keep even if not in the static list (may be a provider model id)
         }
-
         // Initialize slash commands
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "🔍" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "💡" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "🧪" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "🔧" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "🔄" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "❓" });
-
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "вњЏпёЏ" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "рџ”Ќ" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "рџ’Ў" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "рџ§Є" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "рџ”§" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "рџ”„" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "вќ“" });
         // Add welcome message
         Messages.Add(new ChatMessage
         {
@@ -212,18 +181,17 @@ public partial class ChatViewModel : ObservableObject
             Content = "Hello! I'm your AI Code Assistant. I can help you read, write, and edit files, " +
                       "search code, run commands, work with git, and more.\n\n" +
                       "**Features:**\n" +
-                      "- 🎯 Streaming responses in real-time\n" +
-                      "- 🔒 Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
-                      "- 📝 Diff-based editing with checkpoints\n" +
-                      "- ⚡ Cancel anytime with Esc or the Cancel button\n" +
-                      "- 📁 File Explorer sidebar (click folder icon to toggle)\n" +
-                      "- 💻 Integrated Terminal (bottom pane)\n" +
+                      "- рџЋЇ Streaming responses in real-time\n" +
+                      "- рџ”’ Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
+                      "- рџ“ќ Diff-based editing with checkpoints\n" +
+                      "- вљЎ Cancel anytime with Esc or the Cancel button\n" +
+                      "- рџ“Ѓ File Explorer sidebar (click folder icon to toggle)\n" +
+                      "- рџ’» Integrated Terminal (bottom pane)\n" +
                       "- @-mention files to add context\n" +
                       "- /slash commands for quick actions",
             Timestamp = DateTime.Now
         });
     }
-
     /// <summary>
     /// Persists the user's model selection to the UI configuration so it is
     /// restored on the next application launch. Fire-and-forget: failures are
@@ -233,7 +201,6 @@ public partial class ChatViewModel : ObservableObject
     {
         if (_configurationService == null || string.IsNullOrEmpty(value))
             return;
-
         _configurationService.Config.Ui ??= new UiConfiguration();
         _configurationService.Config.Ui.SelectedModel = value;
         _ = _configurationService.SaveAsync().ContinueWith(t =>
@@ -245,18 +212,21 @@ public partial class ChatViewModel : ObservableObject
             }
         }, TaskScheduler.Default);
     }
-
     [RelayCommand]
     private async Task SendAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText) || IsProcessing)
             return;
-
         var userMessage = InputText.Trim();
         InputText = string.Empty;
         ShowMentionPopup = false;
         ShowSlashCommands = false;
-
+        // Intercept @codebase <question> for whole-codebase semantic Q&A.
+        if (TryParseCodebaseCommand(userMessage, out var codebaseQuestion))
+        {
+            await SendCodebaseQueryAsync(codebaseQuestion).ConfigureAwait(true);
+            return;
+        }
         // Add user message
         Messages.Add(new ChatMessage
         {
@@ -264,11 +234,9 @@ public partial class ChatViewModel : ObservableObject
             Content = userMessage,
             Timestamp = DateTime.Now
         });
-
         IsProcessing = true;
         IsCancellable = true;
         StatusText = "Processing...";
-
         // Create assistant message placeholder
         var assistantMessage = new ChatMessage
         {
@@ -277,23 +245,18 @@ public partial class ChatViewModel : ObservableObject
             Timestamp = DateTime.Now
         };
         Messages.Add(assistantMessage);
-
         // Clear previous tool call cards
         ToolCallCards.Clear();
-
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
-
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
         // Start the event-processing loop on the calling (UI) thread so it
         // captures the real SynchronizationContext. Previously this was wrapped
         // in Task.Run, which runs on a thread-pool thread where
-        // SynchronizationContext.Current is null — causing
+        // SynchronizationContext.Current is null вЂ” causing
         // TaskScheduler.FromCurrentSynchronizationContext() to throw, so no
         // events were ever applied and the assistant message stayed empty.
         var processingTask = ProcessEventsAsync(assistantMessage, token);
-
         try
         {
             // Start streaming
@@ -321,26 +284,22 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-
         // Wait for the event-processing loop to finish draining the event
         // bus (including the terminal AgentFinishedEvent/AgentErrorEvent)
         // before deciding whether content is empty. This guarantees every
         // TextDeltaEvent has been applied to the assistant message.
         await processingTask;
-
         IsProcessing = false;
         IsCancellable = false;
         StatusText = "Ready";
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
-
         // Ensure the assistant message has content
         if (string.IsNullOrEmpty(assistantMessage.Content))
         {
             assistantMessage.Content = "*(No response generated)*";
         }
     }
-
     /// <summary>
     /// Runs the selected SDLC pipeline (e.g. full-sdlc: analyze -> implement -> review -> test -> deploy)
     /// against the current input text as a multi-agent session. Reuses the same event bus as SendAsync,
@@ -350,27 +309,25 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task RunPipelineAsync()
     {
-        // Guard conditions — provide user-visible feedback instead of a silent no-op.
+        // Guard conditions вЂ” provide user-visible feedback instead of a silent no-op.
         if (IsProcessing)
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because a turn is already in progress.");
             StatusText = "A turn is already running. Cancel it first.";
             return;
         }
-
         if (_pipelineRunner == null || _pipelineLoader == null)
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the SDLC pipeline services are not registered.");
             Messages.Add(new ChatMessage
             {
                 Role = "Assistant",
-                Content = "⚠️ SDLC pipeline services are not available. Please check the application configuration.",
+                Content = "вљ пёЏ SDLC pipeline services are not available. Please check the application configuration.",
                 Timestamp = DateTime.Now
             });
             StatusText = "Pipeline unavailable";
             return;
         }
-
         if (string.IsNullOrWhiteSpace(InputText))
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the input text is empty.");
@@ -383,7 +340,6 @@ public partial class ChatViewModel : ObservableObject
             });
             return;
         }
-
         var pipeline = _pipelineLoader.GetPipeline(SelectedPipeline);
         if (pipeline == null)
         {
@@ -395,24 +351,20 @@ public partial class ChatViewModel : ObservableObject
             });
             return;
         }
-
         var task = InputText.Trim();
         InputText = string.Empty;
         ShowMentionPopup = false;
         ShowSlashCommands = false;
-
         Messages.Add(new ChatMessage
         {
             Role = "User",
             Content = $"**Run pipeline: {pipeline.Name}**\n{task}",
             Timestamp = DateTime.Now
         });
-
         IsProcessing = true;
         IsPipelineRunning = true;
         IsCancellable = true;
         StatusText = $"Running pipeline '{pipeline.Name}'...";
-
         var assistantMessage = new ChatMessage
         {
             Role = "Assistant",
@@ -420,20 +372,15 @@ public partial class ChatViewModel : ObservableObject
             Timestamp = DateTime.Now
         };
         Messages.Add(assistantMessage);
-
         ToolCallCards.Clear();
         AgentSessions.Clear();
-
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         var pipelineSessionId = Guid.NewGuid().ToString();
-
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
         // Start the event-processing loop on the calling (UI) thread so it
         // captures the real SynchronizationContext (see SendAsync for rationale).
         var processingTask = ProcessEventsAsync(assistantMessage, token);
-
         try
         {
             // Drive the pipeline to completion; events are consumed via the event bus subscription above.
@@ -455,28 +402,23 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-
         // Wait for the event-processing loop to finish draining the event
         // bus before deciding whether content is empty (see SendAsync).
         await processingTask;
-
         IsProcessing = false;
         IsPipelineRunning = false;
         IsCancellable = false;
         StatusText = "Ready";
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
-
         if (string.IsNullOrEmpty(assistantMessage.Content))
         {
             assistantMessage.Content = "*(No response generated)*";
         }
     }
-
     private async Task ProcessEventsAsync(ChatMessage assistantMessage, CancellationToken token)
     {
         var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
-        
         try
         {
             await foreach (var evt in _eventBus.GetEventsAsync(token))
@@ -490,7 +432,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case ToolCallStartEvent start:
                         await Task.Factory.StartNew(
                             () =>
@@ -507,7 +448,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case ToolCallEndEvent end:
                         await Task.Factory.StartNew(
                             () =>
@@ -524,7 +464,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case ApprovalRequestEvent approval:
                         await Task.Factory.StartNew(
                             () =>
@@ -534,15 +473,14 @@ public partial class ChatViewModel : ObservableObject
                                 ApprovalToolName = approval.Call.Name;
                                 ApprovalArgs = FormatArguments(approval.Call.Arguments);
                                 _pendingApproval = approval.Approval;
-
                                 // Show an explicit, user-visible approval request in the
                                 // chat transcript so the user knows a decision is needed
-                                // and where to approve/decline — previously the agent
+                                // and where to approve/decline вЂ” previously the agent
                                 // could appear to hang with no visible prompt.
                                 Messages.Add(new ChatMessage
                                 {
                                     Role = "System",
-                                    Content = $"🔔 **Approval required** — `{approval.Call.Name}` (risk: {approval.Risk})\n" +
+                                    Content = $"рџ”” **Approval required** вЂ” `{approval.Call.Name}` (risk: {approval.Risk})\n" +
                                               $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
                                               "Use the approval dialog below to **Approve** or **Decline**.",
                                     Timestamp = DateTime.Now
@@ -552,7 +490,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case DiffProducedEvent diffProduced:
                         // Parse diff hunks and add to the shared changeset
                         var hunks = DiffParser.ParseSimpleDiff(
@@ -567,7 +504,6 @@ public partial class ChatViewModel : ObservableObject
                                 TaskScheduler.FromCurrentSynchronizationContext());
                         }
                         break;
-
                     case AgentTaggedEvent tagged:
                         // Handle agent-tagged events from multi-agent sessions
                         await Task.Factory.StartNew(
@@ -576,7 +512,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case StatusUpdateEvent status:
                         await Task.Factory.StartNew(
                             () => StatusText = status.Status,
@@ -584,7 +519,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case TokenUsageEvent usage:
                         await Task.Factory.StartNew(
                             () => TokenUsage = $"Tokens: {usage.Usage.TotalTokens}",
@@ -592,7 +526,6 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
-
                     case AgentFinishedEvent finished:
                         await Task.Factory.StartNew(
                             () =>
@@ -608,7 +541,6 @@ public partial class ChatViewModel : ObservableObject
                             uiScheduler);
                         _eventProcessingComplete?.TrySetResult();
                         return;
-
                     case AgentErrorEvent error:
                         await Task.Factory.StartNew(
                             () =>
@@ -629,7 +561,6 @@ public partial class ChatViewModel : ObservableObject
             // Expected when cancelled
         }
     }
-
     [RelayCommand]
     private void Cancel()
     {
@@ -638,14 +569,12 @@ public partial class ChatViewModel : ObservableObject
         IsCancellable = false;
         StatusText = "Cancelling...";
     }
-
     [RelayCommand]
     private void ApproveTool()
     {
         _pendingApproval?.TrySetResult(true);
         _pendingApproval = null;
         ShowApprovalDialog = false;
-
         if (!string.IsNullOrEmpty(ApprovalToolName))
         {
             ToolCallCards.Add(new ToolCallCardViewModel
@@ -656,7 +585,6 @@ public partial class ChatViewModel : ObservableObject
             });
         }
     }
-
     [RelayCommand]
     private void DenyTool()
     {
@@ -664,19 +592,16 @@ public partial class ChatViewModel : ObservableObject
         _pendingApproval = null;
         ShowApprovalDialog = false;
     }
-
     [RelayCommand]
     private void SetPermissionMode(string mode)
     {
         PermissionMode = mode;
     }
-
     [RelayCommand]
     private void ToggleAgentSidebar()
     {
         IsAgentSidebarOpen = !IsAgentSidebarOpen;
     }
-
     private void HandleAgentTaggedEvent(AgentTaggedEvent tagged, ChatMessage assistantMessage)
     {
         // Track active agents in the sidebar
@@ -696,14 +621,12 @@ public partial class ChatViewModel : ObservableObject
             existing.Role = tagged.Role ?? existing.Role;
             existing.Status = "Active";
         }
-
         // Handle inner event
         switch (tagged.Inner)
         {
             case TextDeltaEvent delta:
                 assistantMessage.Content += delta.Delta;
                 break;
-
             case ToolCallStartEvent start:
                 var card = new ToolCallCardViewModel
                 {
@@ -715,7 +638,6 @@ public partial class ChatViewModel : ObservableObject
                 };
                 ToolCallCards.Add(card);
                 break;
-
             case ToolCallEndEvent end:
                 var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name && c.AgentId == tagged.AgentId);
                 if (existingCard != null)
@@ -725,7 +647,6 @@ public partial class ChatViewModel : ObservableObject
                     existingCard.IsError = end.Result.IsError;
                 }
                 break;
-
             case ApprovalRequestEvent approval:
                 ApprovalRisk = approval.Risk.ToString();
                 ShowApprovalDialog = true;
@@ -734,28 +655,24 @@ public partial class ChatViewModel : ObservableObject
                 ApprovalAgent = tagged.AgentId;
                 ApprovalRole = tagged.Role ?? "";
                 _pendingApproval = approval.Approval;
-
                 // Show an explicit, user-visible approval request in the
                 // chat transcript for multi-agent sessions too.
                 Messages.Add(new ChatMessage
                 {
                     Role = "System",
-                    Content = $"🔔 **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) — " +
+                    Content = $"рџ”” **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) вЂ” " +
                               $"`{approval.Call.Name}` (risk: {approval.Risk})\n" +
                               $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
                               "Use the approval dialog below to **Approve** or **Decline**.",
                     Timestamp = DateTime.Now
                 });
                 break;
-
             case StatusUpdateEvent status:
                 StatusText = $"[{tagged.AgentId}] {status.Status}";
                 break;
-
             case TokenUsageEvent usage:
                 TokenUsage = $"Tokens: {usage.Usage.TotalTokens}";
                 break;
-
             case AgentFinishedEvent finished:
                 if (finished.Response.WasCancelled)
                 {
@@ -768,7 +685,6 @@ public partial class ChatViewModel : ObservableObject
                 StatusText = "Done";
                 _eventProcessingComplete?.TrySetResult();
                 break;
-
             case AgentErrorEvent error:
                 assistantMessage.Content += $"\n\n**Error ({tagged.AgentId}):** {error.Error.Message}";
                 if (existing != null)
@@ -780,18 +696,15 @@ public partial class ChatViewModel : ObservableObject
                 break;
         }
     }
-
     // @-mention logic
     public void OnTextChanged(string text, int cursorPosition)
     {
         UpdateTokenCount(text);
-
         // Check for @-mention trigger
         if (cursorPosition > 0 && text.Length > 0)
         {
             var textBeforeCursor = text[..Math.Min(cursorPosition, text.Length)];
             var atIndex = textBeforeCursor.LastIndexOf('@');
-
             if (atIndex >= 0 && (atIndex == 0 || textBeforeCursor[atIndex - 1] == ' '))
             {
                 var filter = textBeforeCursor[(atIndex + 1)..];
@@ -817,7 +730,6 @@ public partial class ChatViewModel : ObservableObject
             {
                 ShowMentionPopup = false;
             }
-
             // Check for slash command trigger
             if (textBeforeCursor.Length == 1 && textBeforeCursor == "/")
             {
@@ -851,7 +763,6 @@ public partial class ChatViewModel : ObservableObject
             ShowMentionPopup = false;
         }
     }
-
     private void UpdateTokenCount(string text)
     {
         if (string.IsNullOrEmpty(text))
@@ -859,7 +770,6 @@ public partial class ChatViewModel : ObservableObject
             TokenCount = "~0 tokens";
             return;
         }
-
         var estimatedTokens = text.Length / 4;
         TokenCount = estimatedTokens switch
         {
@@ -868,32 +778,25 @@ public partial class ChatViewModel : ObservableObject
             _ => $"~{estimatedTokens / 1000000.0:F1}M tokens"
         };
     }
-
     public void InsertMention(MentionItem item)
     {
         if (string.IsNullOrEmpty(InputText)) return;
-
         var textBeforeCursor = InputText[..Math.Min(MentionCursorPosition, InputText.Length)];
         var atIndex = textBeforeCursor.LastIndexOf('@');
-
         if (atIndex >= 0)
         {
             var afterMention = MentionCursorPosition < InputText.Length
                 ? InputText[MentionCursorPosition..]
                 : string.Empty;
-
             InputText = InputText[..atIndex] + $"@{item.FilePath} " + afterMention;
         }
-
         ShowMentionPopup = false;
     }
-
     public void InsertSlashCommand(SlashCommandItem item)
     {
         InputText = item.Name + " ";
         ShowSlashCommands = false;
     }
-
     private void FilterMentions(string filter)
     {
         if (_indexQueryService != null)
@@ -901,10 +804,8 @@ public partial class ChatViewModel : ObservableObject
             _ = PopulateMentionsFromIndexAsync(filter);
             return;
         }
-
         var files = GetProjectFiles();
         MentionItems.Clear();
-
         foreach (var file in files.Where(f =>
             Path.GetFileName(f).Contains(filter, StringComparison.OrdinalIgnoreCase) ||
             f.Contains(filter, StringComparison.OrdinalIgnoreCase)))
@@ -917,7 +818,6 @@ public partial class ChatViewModel : ObservableObject
             });
         }
     }
-
     private void ShowAllMentions()
     {
         if (_indexQueryService != null)
@@ -925,10 +825,8 @@ public partial class ChatViewModel : ObservableObject
             _ = PopulateMentionsFromIndexAsync(string.Empty);
             return;
         }
-
         var files = GetProjectFiles();
         MentionItems.Clear();
-
         foreach (var file in files.Take(20))
         {
             MentionItems.Add(new MentionItem
@@ -939,7 +837,6 @@ public partial class ChatViewModel : ObservableObject
             });
         }
     }
-
     private async Task PopulateMentionsFromIndexAsync(string filter)
     {
         try
@@ -947,7 +844,6 @@ public partial class ChatViewModel : ObservableObject
             var matches = await _indexQueryService!.SearchFilesAsync(
                 filter: filter,
                 limit: 25).ConfigureAwait(true);
-
             MentionItems.Clear();
             foreach (var match in matches)
             {
@@ -964,11 +860,9 @@ public partial class ChatViewModel : ObservableObject
             System.Diagnostics.Debug.WriteLine($"Index mention query failed: {ex.Message}");
         }
     }
-
     private void FilterSlashCommands(string filter)
     {
         SlashCommandItems.Clear();
-
         foreach (var cmd in KnownSlashCommands.Where(c =>
             string.IsNullOrEmpty(filter) || c.Contains(filter, StringComparison.OrdinalIgnoreCase)))
         {
@@ -985,20 +879,18 @@ public partial class ChatViewModel : ObservableObject
             };
             var icon = cmd switch
             {
-                "/edit" => "✏️",
-                "/search" => "🔍",
-                "/explain" => "💡",
-                "/test" => "🧪",
-                "/fix" => "🔧",
-                "/refactor" => "🔄",
-                "/help" => "❓",
-                _ => "📋"
+                "/edit" => "вњЏпёЏ",
+                "/search" => "рџ”Ќ",
+                "/explain" => "рџ’Ў",
+                "/test" => "рџ§Є",
+                "/fix" => "рџ”§",
+                "/refactor" => "рџ”„",
+                "/help" => "вќ“",
+                _ => "рџ“‹"
             };
-
             SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
         }
     }
-
     private void ShowAllSlashCommands()
     {
         SlashCommandItems.Clear();
@@ -1017,25 +909,22 @@ public partial class ChatViewModel : ObservableObject
             };
             var icon = cmd switch
             {
-                "/edit" => "✏️",
-                "/search" => "🔍",
-                "/explain" => "💡",
-                "/test" => "🧪",
-                "/fix" => "🔧",
-                "/refactor" => "🔄",
-                "/help" => "❓",
-                _ => "📋"
+                "/edit" => "вњЏпёЏ",
+                "/search" => "рџ”Ќ",
+                "/explain" => "рџ’Ў",
+                "/test" => "рџ§Є",
+                "/fix" => "рџ”§",
+                "/refactor" => "рџ”„",
+                "/help" => "вќ“",
+                _ => "рџ“‹"
             };
-
             SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
         }
     }
-
     private List<string> GetProjectFiles()
     {
         var files = new List<string>();
         var rootDir = WorkingDirectory;
-
         try
         {
             var searchDirs = new[] { "src", "tests" };
@@ -1049,34 +938,30 @@ public partial class ChatViewModel : ObservableObject
                         .Take(100));
                 }
             }
-
             files.AddRange(Directory.GetFiles(rootDir)
                 .Where(f => !Path.GetFileName(f).StartsWith('.'))
                 .Take(20));
         }
         catch (UnauthorizedAccessException) { }
         catch (DirectoryNotFoundException) { }
-
         return files;
     }
-
     private static string GetFileIcon(string filePath)
     {
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         return ext switch
         {
-            ".cs" => "🔷",
-            ".xaml" or ".axaml" => "🟦",
-            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "📋",
-            ".md" or ".txt" => "📝",
-            ".csproj" or ".sln" or ".slnx" => "📦",
-            ".js" or ".ts" or ".jsx" or ".tsx" => "🟨",
-            ".py" => "🐍",
-            ".html" or ".css" or ".scss" => "🌐",
-            _ => "📄"
+            ".cs" => "рџ”·",
+            ".xaml" or ".axaml" => "рџџ¦",
+            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "рџ“‹",
+            ".md" or ".txt" => "рџ“ќ",
+            ".csproj" or ".sln" or ".slnx" => "рџ“¦",
+            ".js" or ".ts" or ".jsx" or ".tsx" => "рџџЁ",
+            ".py" => "рџђЌ",
+            ".html" or ".css" or ".scss" => "рџЊђ",
+            _ => "рџ“„"
         };
     }
-
     [RelayCommand]
     private void ClearChat()
     {
@@ -1089,25 +974,21 @@ public partial class ChatViewModel : ObservableObject
             Timestamp = DateTime.Now
         });
     }
-
     public void ToggleToolCardExpand(ToolCallCardViewModel card)
     {
         card.IsExpanded = !card.IsExpanded;
     }
-
     private static string FormatArguments(Dictionary<string, object?> args)
     {
         if (args == null || args.Count == 0) return "{}";
         return string.Join(", ", args.Select(kv => $"{kv.Key}={kv.Value}"));
     }
-
     private static string TruncateOutput(string output, int maxLength)
     {
         if (string.IsNullOrEmpty(output) || output.Length <= maxLength)
             return output;
         return output[..maxLength] + "\n...[truncated]";
     }
-
     private static Core.Models.PermissionMode ParsePermissionMode(string mode) => mode switch
     {
         "AutoEdit" => Core.Models.PermissionMode.AutoEdit,
@@ -1115,6 +996,147 @@ public partial class ChatViewModel : ObservableObject
         "Plan" => Core.Models.PermissionMode.Plan,
         _ => Core.Models.PermissionMode.Ask
     };
+    private static bool TryParseCodebaseCommand(string input, out string question)
+    {
+        const string token = "@codebase";
+        question = string.Empty;
+        if (input == null || input.Length < token.Length)
+            return false;
+        if (!input.StartsWith(token, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var rest = input[token.Length..].Trim();
+        if (string.IsNullOrEmpty(rest))
+            return false;
+        if (rest.EndsWith('/'))
+            rest = rest[..^1].TrimEnd();
+        if (string.IsNullOrEmpty(rest))
+            return false;
+        question = rest;
+        return true;
+    }
+    private async Task SendCodebaseQueryAsync(string question)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"@codebase " + question,
+            Timestamp = DateTime.Now
+        });
+        if (_semanticIndex == null || _retriever == null)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = "Warning: Semantic codebase Q&A is not available. " +
+                          "Configure an embedding provider (e.g. set the OPENAI_API_KEY) " +
+                          "and restart the application to enable @codebase.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+        IsProcessing = true;
+        IsCancellable = true;
+        StatusText = "Indexing codebase...";
+        try
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            var token = _cancellationTokenSource.Token;
+            await _semanticIndex.IndexWorkspaceAsync(WorkingDirectory, cancellationToken: token).ConfigureAwait(true);
+            StatusText = "Searching codebase...";
+            var retrieval = await _retriever.RetrieveAsync(question, topK: 12, cancellationToken: token)
+                .ConfigureAwait(true);
+            if (retrieval.Chunks.Count == 0)
+            {
+                Messages.Add(new ChatMessage
+                {
+                    Role = "Assistant",
+                    Content = "No indexed code chunks were found. Try re-indexing the workspace.",
+                    Timestamp = DateTime.Now
+                });
+                return;
+            }
+            var contextBlock = retrieval.ContextBlock;
+            var groundedPrompt = AiCodeAgent.Indexing.Semantic.Retriever.BuildPrompt(question, contextBlock);
+            var assistantMessage = new ChatMessage
+            {
+                Role = "Assistant",
+                Content = string.Empty,
+                Timestamp = DateTime.Now
+            };
+            Messages.Add(assistantMessage);
+            ToolCallCards.Clear();
+            StatusText = "Answering...";
+            _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var processingTask = ProcessEventsAsync(assistantMessage, token);
+            try
+            {
+                await _agentService.StreamMessageAsync(
+                    groundedPrompt,
+                    "default",
+                    new AgentOptions
+                    {
+                        PermissionMode = ParsePermissionMode(PermissionMode),
+                        WorkingDirectory = WorkingDirectory,
+                        Rights = new GranularRights
+                        {
+                            AllowRead = AllowRead,
+                            AllowEdit = AllowEdit,
+                            AllowExecute = AllowExecute
+                        }
+                    },
+                    token).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                assistantMessage.Content += "\n\n*Cancelled*";
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Content += "\n\n**Error:** " + ex.Message;
+            }
+            await processingTask.ConfigureAwait(true);
+            if (string.IsNullOrEmpty(assistantMessage.Content))
+            {
+                assistantMessage.Content = "*(No response generated)*";
+            }
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "Retrieved context (top " + retrieval.Chunks.Count + " chunks):\n" +
+                          string.Join("\n", retrieval.Chunks.Select(h =>
+                              "- " + Path.GetFileName(h.Chunk.FilePath) +
+                              (string.IsNullOrEmpty(h.Chunk.Symbol) ? "" : " - " + h.Chunk.Symbol) +
+                              " (score " + h.Score.ToString("F3") + ")")),
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = "*Cancelled.*",
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "Assistant",
+                Content = "Codebase query failed: " + ex.Message,
+                Timestamp = DateTime.Now
+            });
+        }
+        finally
+        {
+            IsProcessing = false;
+            IsCancellable = false;
+            StatusText = "Ready";
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+        }
+    }
 }
 
 public class ChatMessage : INotifyPropertyChanged
@@ -1204,12 +1226,12 @@ public class MentionItem
 {
     public string FilePath { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
-    public string Icon { get; set; } = "📄";
+    public string Icon { get; set; } = "рџ“„";
 }
 
 public class SlashCommandItem
 {
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public string Icon { get; set; } = "📋";
+    public string Icon { get; set; } = "рџ“‹";
 }
