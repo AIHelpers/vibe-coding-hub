@@ -53,15 +53,20 @@ public partial class MainViewModel : ObservableObject
     public FileExplorerViewModel FileExplorer { get; }
     public TerminalViewModel Terminal { get; }
     public EditorPaneViewModel EditorPane { get; }
+    public PreviewPaneViewModel PreviewPane { get; }
     public CheckpointBrowserViewModel CheckpointBrowser { get; }
     public SessionManagerViewModel SessionManager { get; }
     public CommandPaletteViewModel CommandPalette { get; }
+
+    [ObservableProperty]
+    private bool _isPreviewPaneOpen;
 
     public MainViewModel(
         IServiceProvider serviceProvider,
         FileExplorerViewModel fileExplorer,
         TerminalViewModel terminal,
         EditorPaneViewModel editorPane,
+        PreviewPaneViewModel previewPane,
         CheckpointBrowserViewModel checkpointBrowser,
         SessionManagerViewModel sessionManager,
         CommandPaletteViewModel commandPalette,
@@ -71,6 +76,7 @@ public partial class MainViewModel : ObservableObject
         FileExplorer = fileExplorer;
         Terminal = terminal;
         EditorPane = editorPane;
+        PreviewPane = previewPane;
         CheckpointBrowser = checkpointBrowser;
         SessionManager = sessionManager;
         CommandPalette = commandPalette;
@@ -214,6 +220,12 @@ public partial class MainViewModel : ObservableObject
     private void ToggleTerminal()
     {
         Terminal.ToggleVisibilityCommand.Execute(null);
+    }
+
+    [RelayCommand]
+    private void TogglePreviewPane()
+    {
+        IsPreviewPaneOpen = !IsPreviewPaneOpen;
     }
 
     [RelayCommand]

@@ -300,6 +300,10 @@ public partial class App : Application
         services.AddSingleton<NextEditPredictor>(sp =>
             new NextEditPredictor(sp.GetRequiredService<IAiProvider>()));
 
+        // Click-to-edit visual layer services (Feature 3)
+        services.AddSingleton<SourceIdResolver>();
+        services.AddSingleton<PreviewPaneViewModel>();
+
         // New ViewModels - Workspace components
         services.AddSingleton<FileExplorerViewModel>();
         services.AddSingleton<TerminalViewModel>();

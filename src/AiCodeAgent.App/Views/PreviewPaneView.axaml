@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="600"
+        x:Class="AiCodeAgent.App.Views.PreviewPaneView"
+        x:DataType="vm:PreviewPaneViewModel">
+
+    <Design.DataContext>
+        <vm:PreviewPaneViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="#2A2A3A" Margin="8,4">
+            <TextBlock Grid.Column="0" Text="👁️ Preview" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Opacity="0.6" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Preview elements list (mock rendered preview) -->
+        <ScrollViewer Grid.Row="1" Padding="4">
+            <ItemsControl ItemsSource="{Binding Elements}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:PreviewElement">
+                        <Border Padding="8,5" Margin="0,2" CornerRadius="4"
+                                Background="#1E1E2E"
+                                BorderBrush="#333"
+                                BorderThickness="1"
+                                Cursor="Hand"
+                                PointerPressed="OnElementClicked"
+                                Tag="{Binding}">
+                            <Border.Styles>
+                                <Style Selector="Border:pointerover">
+                                    <Setter Property="Background" Value="#26263A"/>
+                                </Style>
+                            </Border.Styles>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Label}" FontSize="12" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding DataSourceId}" FontSize="9" Opacity="0.45" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Property panel -->
+        <Border Grid.Row="2" Background="#1A1A2A" Padding="8" MinHeight="140">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="0,2">
+                <TextBlock Grid.Row="0" Text="Properties" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,4"
+                           IsVisible="{Binding SelectedElement, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Grid.Row="0" Text="No element selected" FontSize="11" Opacity="0.5"
+                           IsVisible="{Binding SelectedElement, Converter={x:Static ObjectConverters.IsNull}}"/>
+
+                <TextBox Grid.Row="1" Text="{Binding PropertyText}" Watermark="Text" Margin="0,2" FontSize="11"/>
+                <TextBox Grid.Row="2" Text="{Binding PropertyColor}" Watermark="color" Margin="0,2" FontSize="11"/>
+                <TextBox Grid.Row="3" Text="{Binding PropertyFontSize}" Watermark="font-size" Margin="0,2" FontSize="11"/>
+                <TextBox Grid.Row="4" Text="{Binding PropertyPadding}" Watermark="padding" Margin="0,2" FontSize="11"/>
+
+                <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" Margin="0,6,0,0">
+                    <Button Content="Apply" Command="{Binding ApplyEditCommand}" Padding="12,6" FontSize="11" Background="#22AA22" Foreground="White"/>
+                    <Button Content="Clear" Command="{Binding ClearSelectionCommand}" Padding="12,6" FontSize="11"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

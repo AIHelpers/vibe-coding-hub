@@ -68,6 +68,9 @@
                     <Button Content="📦" Command="{Binding ToggleSessionHistoryCommand}" 
                             ToolTip.Tip="Toggle Session History (export/import)" 
                             Width="32" Height="28" Padding="0"/>
+                    <Button Content="👁️" Command="{Binding TogglePreviewPaneCommand}" 
+                            ToolTip.Tip="Toggle Preview Pane (click-to-edit)" 
+                            Width="32" Height="28" Padding="0"/>
                     <Button Content="🔄" Command="{Binding RefreshFileExplorerCommand}" 
                             ToolTip.Tip="Refresh File Explorer" 
                             Width="32" Height="28" Padding="0"/>
@@ -322,7 +325,7 @@
 
                 <!-- Main Content (Editor + Chat + Terminal) -->
                 <SplitView.Content>
-                    <Grid ColumnDefinitions="*,Auto,Auto">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                         <!-- Left Column: Chat + Terminal stacked -->
                         <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto">
                             <!-- Chat Messages -->
@@ -570,8 +573,18 @@
                             <views:EditorView DataContext="{Binding EditorPane}"/>
                         </Border>
 
+                        <!-- Preview Pane (click-to-edit visual layer) -->
+                        <Border Grid.Column="2"
+                                IsVisible="{Binding IsPreviewPaneOpen}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Margin="0,0,0,8"
+                                MinWidth="300"
+                                MaxWidth="400">
+                            <views:PreviewPaneView DataContext="{Binding PreviewPane}"/>
+                        </Border>
+
                         <!-- Agent Session Sidebar (Right) -->
-                        <Border Grid.Column="2" 
+                        <Border Grid.Column="3" 
                                 IsVisible="{Binding ChatViewModel.IsAgentSidebarOpen}"
                                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" 
                                 Padding="8" 
