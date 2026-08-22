@@ -3,6 +3,7 @@
         xmlns:vm="using:AiCodeAgent.App.ViewModels"
         xmlns:views="using:AiCodeAgent.App.Views"
         xmlns:cmd="using:AiCodeAgent.App.CommandPalette"
+        xmlns:core="using:AiCodeAgent.Core.Agent"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
@@ -365,7 +366,7 @@
                 <SplitView.Content>
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                         <!-- Left Column: Chat + Terminal stacked -->
-                        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto">
+                        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto,Auto">
                             <!-- Chat Messages -->
                             <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
                                 <StackPanel Spacing="8" Margin="16,0">
@@ -498,8 +499,72 @@
                                 </Grid>
                             </Border>
 
+                            <!-- Feature 8: Requirements Clarification Panel -->
+                            <Border Grid.Row="2"
+                                    IsVisible="{Binding ChatViewModel.IsAwaitingClarification}"
+                                    Background="#1E2A3A"
+                                    BorderBrush="#3A5A8A"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10"
+                                    Margin="16,4,16,4">
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="📝" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ChatViewModel.CurrentClarificationDimension, StringFormat='Requirements clarification — {}'}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Grid.Column="2"
+                                                Content="🚀 Just Build It"
+                                                Command="{Binding ChatViewModel.SkipClarificationCommand}"
+                                                FontSize="11"
+                                                Padding="8,4"
+                                                Background="#2A4A6A"
+                                                Foreground="White"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.ClarificationQuestions}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="core:RequirementGap">
+                                                <Border Background="#2A2A3A" CornerRadius="4" Padding="8" Margin="0,2">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Text="{Binding Dimension, StringFormat='Dimension: {}'}"
+                                                                   FontSize="10"
+                                                                   Opacity="0.6"/>
+                                                        <TextBlock Text="{Binding Question}"
+                                                                   FontSize="12"
+                                                                   TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="Type your answer in the input box below and press Enter, or click Just Build It to skip."
+                                               FontSize="10"
+                                               Opacity="0.5"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Feature 8: Requirements Summary Card (shown when CurrentRequirements is set and not awaiting) -->
+                            <Border Grid.Row="2"
+                                    IsVisible="{Binding ChatViewModel.CurrentRequirements, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Background="#1A2A1A"
+                                    BorderBrush="#2A6A2A"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="8"
+                                    Margin="16,4,16,4"
+                                    IsEnabled="False">
+                                <TextBlock Text="{Binding ChatViewModel.CurrentRequirements}"
+                                           FontSize="11"
+                                           FontFamily="Consolas"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+
                             <!-- Input Area -->
-                            <Grid Grid.Row="2" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
+                            <Grid Grid.Row="3" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
                                 <Grid Grid.Column="0" RowDefinitions="*,Auto">
                                     <Popup Grid.Row="0" 
                                            IsOpen="{Binding ChatViewModel.ShowMentionPopup}"

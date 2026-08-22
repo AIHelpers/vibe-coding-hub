@@ -165,6 +165,10 @@ public partial class App : Application
         // Autonomous multi-file agent (Feature 4): planner + step-by-step runner.
         services.AddSingleton<IPlanGenerator, PlanGenerator>();
         services.AddSingleton<IAutonomousAgentRunner, AutonomousAgentRunner>();
+
+        // Conversational requirements clarification (Feature 8)
+        services.AddSingleton<IRequirementsAnalyzer, RequirementsAnalyzer>();
+        services.AddSingleton<IRequirementsClarifier, RequirementsClarifier>();
         
         // Role Preset Loader
         services.AddSingleton<RolePresetLoader>();

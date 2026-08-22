@@ -121,6 +121,12 @@ public record AgentOptions
     /// agent instructions. Without this, a Role label was cosmetic only.
     /// </summary>
     public string? RoleSystemPrompt { get; init; }
+    /// <summary>
+    /// Confirmed application requirements captured through the conversational
+    /// clarification loop (Feature 8). When set, these are injected into the
+    /// system prompt so generated code matches the user's intent.
+    /// </summary>
+    public AppRequirements? Requirements { get; init; }
 }
 
 public record AgentResponse

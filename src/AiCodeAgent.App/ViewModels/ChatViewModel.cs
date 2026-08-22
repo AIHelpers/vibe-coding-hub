@@ -113,6 +113,18 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPipelineRunning;
     private TaskCompletionSource<bool>? _pendingApproval;
+    // Feature 8: Conversational Requirements Clarification
+    private readonly IRequirementsClarifier? _requirementsClarifier;
+    private TaskCompletionSource<string?>? _pendingClarificationAnswer;
+    [ObservableProperty]
+    private bool _isAwaitingClarification;
+    [ObservableProperty]
+    private AppRequirements? _currentRequirements;
+    [ObservableProperty]
+    private string _currentClarificationQuestion = "";
+    [ObservableProperty]
+    private string _currentClarificationDimension = "";
+    public ObservableCollection<RequirementGap> ClarificationQuestions { get; } = new();
     /// <summary>
     /// Set by <see cref="ProcessEventsAsync"/> when it has finished draining the
     /// terminal event (<see cref="AgentFinishedEvent"/> or
@@ -150,7 +162,8 @@ public partial class ChatViewModel : ObservableObject
         SemanticIndex? semanticIndex = null,
         IPlanGenerator? planGenerator = null,
         IAutonomousAgentRunner? autonomousRunner = null,
-        GitService? gitService = null)
+        GitService? gitService = null,
+        IRequirementsClarifier? requirementsClarifier = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -165,6 +178,7 @@ public partial class ChatViewModel : ObservableObject
         _planGenerator = planGenerator;
         _autonomousRunner = autonomousRunner;
         _gitService = gitService;
+        _requirementsClarifier = requirementsClarifier;
         if (_pipelineLoader != null)
         {
             foreach (var pipeline in _pipelineLoader.GetAllPipelines())
@@ -252,6 +266,26 @@ public partial class ChatViewModel : ObservableObject
         // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
         if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
             return;
+        // Feature 8: If awaiting a clarification answer, route the input to the
+        // pending TaskCompletionSource instead of starting a new agent turn.
+        if (IsAwaitingClarification && _pendingClarificationAnswer != null)
+        {
+            var answer = userMessage;
+            _pendingClarificationAnswer.TrySetResult(answer);
+            _pendingClarificationAnswer = null;
+            IsAwaitingClarification = false;
+            CurrentClarificationQuestion = "";
+            CurrentClarificationDimension = "";
+            return;
+        }
+        // Feature 8: Conversational Requirements Clarification — run the loop
+        // before kicking off the orchestrator when the prompt looks vague and
+        // a requirements clarifier is available.
+        AppRequirements? requirements = null;
+        if (_requirementsClarifier != null && IsVaguePrompt(userMessage))
+        {
+            requirements = await RunClarificationFlowAsync(userMessage).ConfigureAwait(true);
+        }
         // Add user message
         Messages.Add(new ChatMessage
         {
@@ -297,7 +331,8 @@ public partial class ChatViewModel : ObservableObject
                         AllowRead = AllowRead,
                         AllowEdit = AllowEdit,
                         AllowExecute = AllowExecute
-                    }
+                    },
+                    Requirements = requirements
                 },
                 token);
         }
@@ -656,6 +691,102 @@ public partial class ChatViewModel : ObservableObject
             // Expected when cancelled
         }
     }
+    /// <summary>
+    /// Heuristic for deciding whether a prompt is vague enough to warrant the
+    /// clarification loop. Avoids running it for slash commands, very short
+    /// inputs, or prompts that already mention multiple requirement dimensions.
+    /// </summary>
+    private static bool IsVaguePrompt(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length < 12)
+            return false;
+        if (prompt.StartsWith('/'))
+            return false;
+        var lower = prompt.ToLowerInvariant();
+        var dimensionsHit = 0;
+        if (lower.Contains("web") || lower.Contains("mobile") || lower.Contains("desktop") || lower.Contains("cli") || lower.Contains("api"))
+            dimensionsHit++;
+        if (lower.Contains("auth") || lower.Contains("login") || lower.Contains("jwt") || lower.Contains("oauth"))
+            dimensionsHit++;
+        if (lower.Contains("database") || lower.Contains("postgres") || lower.Contains("mongo") || lower.Contains("entity"))
+            dimensionsHit++;
+        if (lower.Contains("tailwind") || lower.Contains("material") || lower.Contains("css") || lower.Contains("styled"))
+            dimensionsHit++;
+        if (lower.Contains("stripe") || lower.Contains("sendgrid") || lower.Contains("aws") || lower.Contains("integration"))
+            dimensionsHit++;
+        if (lower.Contains("docker") || lower.Contains("vercel") || lower.Contains("deploy") || lower.Contains("serverless"))
+            dimensionsHit++;
+        // If the prompt already specifies 3+ dimensions, treat it as detailed.
+        return dimensionsHit < 3;
+    }
+
+    /// <summary>
+    /// Runs the requirements clarification loop, surfacing questions as
+    /// assistant chat messages and collecting answers via InputText submission.
+    /// Shows a summary card when done. Returns the confirmed AppRequirements
+    /// (null if the user dismissed it or no clarifier is available).
+    /// </summary>
+    private async Task<AppRequirements?> RunClarificationFlowAsync(string userPrompt)
+    {
+        try
+        {
+            var requirements = await _requirementsClarifier!.RunAsync(
+                userPrompt,
+                AskUserAsync,
+                CancellationToken.None).ConfigureAwait(true);
+
+            // Show the summary card as a System message
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = requirements.ToSummaryCard(),
+                Timestamp = DateTime.Now
+            });
+
+            CurrentRequirements = requirements;
+            return requirements;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Requirements clarification failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// askFunc callback for <see cref="IRequirementsClarifier.RunAsync"/>: posts
+    /// the question to the chat as an Assistant message and awaits the user's
+    /// next InputText submission via a TaskCompletionSource.
+    /// </summary>
+    private async Task<string?> AskUserAsync(string dimension, string question)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "Assistant",
+            Content = $"рџ“ќ **Requirements clarification** ({dimension})\n{question}\n\n_Type your answer, or \"just build it\" to skip._",
+            Timestamp = DateTime.Now
+        });
+
+        CurrentClarificationDimension = dimension;
+        CurrentClarificationQuestion = question;
+        ClarificationQuestions.Clear();
+        ClarificationQuestions.Add(new RequirementGap { Dimension = dimension, Question = question });
+        IsAwaitingClarification = true;
+
+        _pendingClarificationAnswer = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        return await _pendingClarificationAnswer.Task.ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private void SkipClarification()
+    {
+        _pendingClarificationAnswer?.TrySetResult("just build it");
+        _pendingClarificationAnswer = null;
+        IsAwaitingClarification = false;
+        CurrentClarificationQuestion = "";
+        CurrentClarificationDimension = "";
+    }
+
     [RelayCommand]
     private void Cancel()
     {
