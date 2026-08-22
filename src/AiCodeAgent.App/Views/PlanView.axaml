@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="380" d:DesignHeight="600"
+        x:Class="AiCodeAgent.App.Views.PlanView"
+        x:DataType="vm:PlanViewModel">
+
+    <Design.DataContext>
+        <vm:PlanViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="#2A2A3A" Margin="8,4">
+            <TextBlock Grid.Column="0" Text="{Binding Summary}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="🛰️ Plan" FontSize="10" Opacity="0.6" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Steps list -->
+        <ScrollViewer Grid.Row="1" Padding="4">
+            <ItemsControl ItemsSource="{Binding Steps}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:PlanStepViewModel">
+                        <Border Padding="8,5" Margin="0,2" CornerRadius="4"
+                                Background="#1E1E2E"
+                                BorderBrush="#333"
+                                BorderThickness="1">
+                            <Grid ColumnDefinitions="Auto,*">
+                                <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" FontWeight="Bold" VerticalAlignment="Top" Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="{Binding Description}" FontSize="12" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Files}" FontSize="9" Opacity="0.45" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding FailureReason}" FontSize="9" Foreground="#FF6B6B" TextWrapping="Wrap"
+                                               IsVisible="{Binding FailureReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -30,6 +30,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly ConfigurationService? _configurationService;
     private readonly Retriever? _retriever;
     private readonly SemanticIndex? _semanticIndex;
+    private readonly IPlanGenerator? _planGenerator;
+    private readonly IAutonomousAgentRunner? _autonomousRunner;
     private CancellationTokenSource? _cancellationTokenSource;
     /// <summary>
     /// The working directory the agent operates in. Falls back to the
@@ -82,6 +84,8 @@ public partial class ChatViewModel : ObservableObject
     // Agent session sidebar
     [ObservableProperty]
     private bool _isAgentSidebarOpen = true;
+    // Autonomous plan panel (Feature 4)
+    public PlanViewModel PlanVM { get; } = new();
     // @-mention system
     [ObservableProperty]
     private bool _showMentionPopup;
@@ -126,7 +130,7 @@ public partial class ChatViewModel : ObservableObject
     };
     public List<string> KnownSlashCommands { get; } = new()
     {
-        "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/help"
+        "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help"
     };
     public ChatViewModel(
         AgentService agentService,
@@ -137,7 +141,9 @@ public partial class ChatViewModel : ObservableObject
         SdlcPipelineLoader? pipelineLoader = null,
         ConfigurationService? configurationService = null,
         Retriever? retriever = null,
-        SemanticIndex? semanticIndex = null)
+        SemanticIndex? semanticIndex = null,
+        IPlanGenerator? planGenerator = null,
+        IAutonomousAgentRunner? autonomousRunner = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -149,6 +155,8 @@ public partial class ChatViewModel : ObservableObject
         _configurationService = configurationService;
         _retriever = retriever;
         _semanticIndex = semanticIndex;
+        _planGenerator = planGenerator;
+        _autonomousRunner = autonomousRunner;
         if (_pipelineLoader != null)
         {
             foreach (var pipeline in _pipelineLoader.GetAllPipelines())
@@ -225,6 +233,12 @@ public partial class ChatViewModel : ObservableObject
         if (TryParseCodebaseCommand(userMessage, out var codebaseQuestion))
         {
             await SendCodebaseQueryAsync(codebaseQuestion).ConfigureAwait(true);
+            return;
+        }
+        // Intercept /plan <task> for the autonomous multi-file agent (Feature 4).
+        if (userMessage.StartsWith("/plan ", StringComparison.OrdinalIgnoreCase))
+        {
+            await RunPlanAsync(userMessage.Substring(6).Trim()).ConfigureAwait(true);
             return;
         }
         // Add user message
@@ -526,6 +540,76 @@ public partial class ChatViewModel : ObservableObject
                             TaskCreationOptions.None,
                             uiScheduler);
                         break;
+                    case PlanGeneratedEvent plan:
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                var stepList = plan.Steps.ToList();
+                                PlanVM.LoadPlan(stepList);
+                                assistantMessage.Content += $"**Plan generated** ({stepList.Count} steps):\n" +
+                                    string.Join("\n", stepList.Select(s =>
+                                        $"{s.Index}. {s.Description}" +
+                                        (s.FilesLikelyTouched.Count == 0 ? "" :
+                                            $" — `{string.Join("`, `", s.FilesLikelyTouched)}`")));
+                                StatusText = "Executing plan...";
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
+                        break;
+                    case PlanStepStartedEvent stepStarted:
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                PlanVM.UpdateStep(stepStarted.StepIndex, stepStarted.Step);
+                                StatusText = $"Step {stepStarted.StepIndex + 1}: {stepStarted.Step.Description}";
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
+                        break;
+                    case PlanStepFinishedEvent stepFinished:
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                PlanVM.UpdateStep(stepFinished.StepIndex, stepFinished.Step);
+                                if (stepFinished.Step.Status == PlanStepStatus.Failed &&
+                                    !string.IsNullOrEmpty(stepFinished.Step.FailureReason))
+                                {
+                                    assistantMessage.Content += $"\n\n**Step {stepFinished.StepIndex + 1} failed:** {stepFinished.Step.FailureReason}";
+                                }
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
+                        break;
+                    case PlanStepStatusChangedEvent statusChanged:
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                if (statusChanged.StepIndex >= 0 && statusChanged.StepIndex < PlanVM.Steps.Count)
+                                {
+                                    PlanVM.Steps[statusChanged.StepIndex].Status = statusChanged.Status;
+                                }
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
+                        break;
+                    case PlanRunFinishedEvent runFinished:
+                        await Task.Factory.StartNew(
+                            () =>
+                            {
+                                PlanVM.Complete(runFinished.Log.FailureSummary);
+                                StatusText = string.IsNullOrEmpty(runFinished.Log.FailureSummary)
+                                    ? "Plan complete"
+                                    : "Plan failed";
+                            },
+                            token,
+                            TaskCreationOptions.None,
+                            uiScheduler);
+                        _eventProcessingComplete?.TrySetResult();
+                        return;
                     case AgentFinishedEvent finished:
                         await Task.Factory.StartNew(
                             () =>
@@ -1136,6 +1220,90 @@ public partial class ChatViewModel : ObservableObject
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
         }
+    }
+    /// <summary>
+    /// Runs the autonomous multi-file agent (Feature 4): generates a plan via
+    /// <see cref="IPlanGenerator"/> then executes it step-by-step via
+    /// <see cref="IAutonomousAgentRunner"/>, streaming plan events into the
+    /// chat transcript and the <see cref="PlanVM"/> panel.
+    /// </summary>
+    private async Task RunPlanAsync(string task)
+    {
+        if (string.IsNullOrWhiteSpace(task))
+            return;
+        if (_planGenerator == null || _autonomousRunner == null)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "вљ пёЏ Autonomous agent is not configured (IPlanGenerator/IAutonomousAgentRunner not registered).",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"/plan {task}",
+            Timestamp = DateTime.Now
+        });
+        IsProcessing = true;
+        IsCancellable = true;
+        StatusText = "Planning...";
+        var assistantMessage = new ChatMessage
+        {
+            Role = "Assistant",
+            Content = string.Empty,
+            Timestamp = DateTime.Now
+        };
+        Messages.Add(assistantMessage);
+        ToolCallCards.Clear();
+        _cancellationTokenSource = new CancellationTokenSource();
+        var token = _cancellationTokenSource.Token;
+        _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        try
+        {
+            var sessionId = Guid.NewGuid().ToString("N");
+            var steps = await _planGenerator.GenerateAsync(task, WorkingDirectory, token)
+                .ConfigureAwait(true);
+            var options = new AgentOptions
+            {
+                PermissionMode = ParsePermissionMode(PermissionMode),
+                WorkingDirectory = WorkingDirectory,
+                Rights = new GranularRights
+                {
+                    AllowRead = AllowRead,
+                    AllowEdit = AllowEdit,
+                    AllowExecute = AllowExecute
+                },
+                SessionId = sessionId,
+                AgentId = "autonomous"
+            };
+            var log = await _autonomousRunner.RunAsync(steps, task, sessionId, options, token)
+                .ConfigureAwait(true);
+            if (!string.IsNullOrEmpty(log.FailureSummary))
+                assistantMessage.Content += $"\n\n**Plan result:** {log.FailureSummary}";
+            else
+                assistantMessage.Content += "\n\n**Plan completed successfully.**";
+        }
+        catch (OperationCanceledException)
+        {
+            assistantMessage.Content += "\n\n*Cancelled*";
+        }
+        catch (Exception ex)
+        {
+            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+        }
+        _eventProcessingComplete?.TrySetResult();
+        await processingTask;
+        IsProcessing = false;
+        IsCancellable = false;
+        StatusText = "Ready";
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+        if (string.IsNullOrEmpty(assistantMessage.Content))
+            assistantMessage.Content = "*(No response generated)*";
     }
 }
 

@@ -152,6 +152,26 @@ public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;
 public record TokenUsageEvent(TokenUsage Usage) : AgentEvent;
 
+// ===== Autonomous Multi-File Agent Events (Feature 4) =====
+
+/// <summary>Emitted when the planner has produced a plan, before execution begins.</summary>
+public record PlanGeneratedEvent(Agent.PlanStep[] Steps, string RunId) : AgentEvent;
+
+/// <summary>Emitted when a plan step starts running.</summary>
+public record PlanStepStartedEvent(int StepIndex, Agent.PlanStep Step) : AgentEvent;
+
+/// <summary>Emitted when a plan step awaits user approval at a step boundary.</summary>
+public record PlanStepApprovalEvent(int StepIndex, Agent.PlanStep Step, TaskCompletionSource<bool> Approval) : AgentEvent;
+
+/// <summary>Emitted when a plan step completes (status reflects success/failure/skip).</summary>
+public record PlanStepFinishedEvent(int StepIndex, Agent.PlanStep Step) : AgentEvent;
+
+/// <summary>Emitted when the autonomous runner updates its execution log (step status change).</summary>
+public record PlanStepStatusChangedEvent(int StepIndex, Agent.PlanStepStatus Status) : AgentEvent;
+
+/// <summary>Emitted when the autonomous run finishes (all steps done, failed, or cancelled).</summary>
+public record PlanRunFinishedEvent(Agent.ExecutionLog Log) : AgentEvent;
+
 /// <summary>
 /// LSP diagnostic update for a file. Published on the AgentEventBus so agents
 /// can query live diagnostics instead of shelling out to run_diagnostics.

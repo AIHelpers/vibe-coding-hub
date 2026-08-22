@@ -198,6 +198,19 @@
             <views:CheckpointBrowserView DataContext="{Binding CheckpointBrowser}"/>
         </Border>
 
+        <!-- Autonomous Plan Overlay -->
+        <Border IsVisible="{Binding ChatViewModel.PlanVM.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <views:PlanView DataContext="{Binding ChatViewModel.PlanVM}"/>
+        </Border>
+
         <!-- Session History Overlay (Priority 5 — export/import session bundles) -->
         <Border IsVisible="{Binding IsSessionHistoryOpen}"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"

@@ -159,6 +159,10 @@ public partial class App : Application
         
         // Agent Orchestrator
         services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
+
+        // Autonomous multi-file agent (Feature 4): planner + step-by-step runner.
+        services.AddSingleton<IPlanGenerator, PlanGenerator>();
+        services.AddSingleton<IAutonomousAgentRunner, AutonomousAgentRunner>();
         
         // Role Preset Loader
         services.AddSingleton<RolePresetLoader>();
