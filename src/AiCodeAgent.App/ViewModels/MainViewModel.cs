@@ -43,6 +43,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSessionHistoryOpen;
 
+    [ObservableProperty]
+    private bool _isSessionDashboardOpen;
+
     private ChatViewModel? _chatViewModel;
     private readonly IServiceProvider _serviceProvider;
     private readonly WorkspaceIndexQueryService? _indexQueryService;
@@ -56,6 +59,7 @@ public partial class MainViewModel : ObservableObject
     public PreviewPaneViewModel PreviewPane { get; }
     public CheckpointBrowserViewModel CheckpointBrowser { get; }
     public SessionManagerViewModel SessionManager { get; }
+    public SessionDashboardViewModel SessionDashboard { get; }
     public CommandPaletteViewModel CommandPalette { get; }
 
     [ObservableProperty]
@@ -69,6 +73,7 @@ public partial class MainViewModel : ObservableObject
         PreviewPaneViewModel previewPane,
         CheckpointBrowserViewModel checkpointBrowser,
         SessionManagerViewModel sessionManager,
+        SessionDashboardViewModel sessionDashboard,
         CommandPaletteViewModel commandPalette,
         WorkspaceIndexQueryService? indexQueryService = null)
     {
@@ -79,6 +84,7 @@ public partial class MainViewModel : ObservableObject
         PreviewPane = previewPane;
         CheckpointBrowser = checkpointBrowser;
         SessionManager = sessionManager;
+        SessionDashboard = sessionDashboard;
         CommandPalette = commandPalette;
         _indexQueryService = indexQueryService;
         _configurationService = serviceProvider.GetService<ConfigurationService>();
@@ -256,6 +262,19 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void ToggleSessionDashboard()
+    {
+        IsSessionDashboardOpen = !IsSessionDashboardOpen;
+        if (IsSessionDashboardOpen)
+        {
+            IsSettingsMode = false;
+            IsCheckpointBrowserOpen = false;
+            IsSessionHistoryOpen = false;
+            SessionDashboard.RefreshCommand.Execute(null);
+        }
+    }
+
+    [RelayCommand]
     private async Task ChangeWorkingDirectoryAsync()
     {
         if (_hostWindow == null)
@@ -417,6 +436,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "session", "history", "export", "import", "bundle" },
                 KeybindingHint = "",
                 Action = ToggleSessionHistory
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.sessionDashboard",
+                Title = "Toggle Session Dashboard",
+                Category = "Navigation",
+                Keywords = new[] { "session", "dashboard", "multi", "agent", "parallel", "isolated" },
+                KeybindingHint = "",
+                Action = ToggleSessionDashboard
             },
             new CommandPaletteEntry
             {

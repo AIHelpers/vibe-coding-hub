@@ -316,6 +316,9 @@ public partial class App : Application
         services.AddSingleton<SessionManagerViewModel>();
 
         // ViewModels
+        // Multi-agent session dashboard (Feature 5)
+        services.AddSingleton<SessionDashboardViewModel>();
+
         services.AddSingleton<MainViewModel>();
         services.AddTransient<ChatViewModel>();
         services.AddTransient<SettingsViewModel>(sp =>

@@ -68,6 +68,9 @@
                     <Button Content="📦" Command="{Binding ToggleSessionHistoryCommand}" 
                             ToolTip.Tip="Toggle Session History (export/import)" 
                             Width="32" Height="28" Padding="0"/>
+                    <Button Content="🧭" Command="{Binding ToggleSessionDashboardCommand}" 
+                            ToolTip.Tip="Toggle Session Dashboard (multi-agent)" 
+                            Width="32" Height="28" Padding="0"/>
                     <Button Content="👁️" Command="{Binding TogglePreviewPaneCommand}" 
                             ToolTip.Tip="Toggle Preview Pane (click-to-edit)" 
                             Width="32" Height="28" Padding="0"/>
@@ -184,6 +187,28 @@
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>
+
+        <!-- Session Dashboard Overlay (Feature 5 — multi-agent session dashboard) -->
+        <Border IsVisible="{Binding IsSessionDashboardOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="420"
+                ZIndex="50">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBlock Grid.Column="0" Text="🧭 Session Dashboard" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            Content="✕" 
+                            Command="{Binding ToggleSessionDashboardCommand}"
+                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                </Grid>
+                <views:SessionDashboardView Grid.Row="1" DataContext="{Binding SessionDashboard}"/>
+            </Grid>
+        </Border>
 
         <!-- Checkpoint Browser Overlay -->
         <Border IsVisible="{Binding IsCheckpointBrowserOpen}"

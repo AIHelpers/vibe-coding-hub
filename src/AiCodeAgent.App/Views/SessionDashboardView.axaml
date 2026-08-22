@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:agent="using:AiCodeAgent.Core.Agent"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="360" d:DesignHeight="600"
+        x:Class="AiCodeAgent.App.Views.SessionDashboardView"
+        x:DataType="vm:SessionDashboardViewModel">
+
+    <Design.DataContext>
+        <vm:SessionDashboardViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,Auto,*" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+
+        <!-- New session form -->
+        <StackPanel Grid.Row="0" Spacing="4" Margin="8">
+            <TextBlock Text="New Session" FontSize="13" FontWeight="SemiBold"/>
+            <TextBox Text="{Binding NewTask}" Watermark="Task / prompt..." AcceptsReturn="False"/>
+            <TextBox Text="{Binding NewScope}" Watermark="File-scope (optional; ';'-separated paths)" AcceptsReturn="False"/>
+            <Button Content="Create session" Command="{Binding CreateSessionCommand}" HorizontalAlignment="Stretch"/>
+        </StackPanel>
+
+        <!-- Global controls -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="8,0">
+            <Button Content="Cancel all" Command="{Binding CancelAllCommand}"/>
+        </StackPanel>
+
+        <!-- Sessions list -->
+        <ScrollViewer Grid.Row="2" Padding="4">
+            <ItemsControl ItemsSource="{Binding Sessions}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="agent:AgentSession">
+                        <Border Padding="8,5" Margin="0,2" CornerRadius="4"
+                                Background="#1E1E2E"
+                                BorderBrush="#333"
+                                BorderThickness="1"
+                                PointerReleased="Session_Clicked">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Opacity="0.7" Margin="6,0,0,0"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="{Binding Task}" FontSize="10" Opacity="0.55" TextWrapping="Wrap" MaxLines="2"/>
+
+                                <ItemsControl Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" ItemsSource="{Binding ChatHistory}" Margin="0,4,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="agent:SessionMessage">
+                                            <TextBlock Text="{Binding Content}" FontSize="9" Opacity="0.45" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
+                                    <Button Content="Select" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).SelectSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Pause" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).PauseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Resume" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).ResumeSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Cancel" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).CancelSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Close" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).CloseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
