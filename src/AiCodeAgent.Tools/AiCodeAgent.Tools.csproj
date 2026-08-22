@@ -11,5 +11,6 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <ProjectReference Include="..\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
     <ProjectReference Include="..\AiCodeAgent.LanguageServices\AiCodeAgent.LanguageServices.csproj" />
+    <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,8 @@ using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
+using AiCodeAgent.Providers.Backend;
+using AiCodeAgent.Tools.Backend;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
 using AiCodeAgent.Tools.Git;
@@ -319,6 +321,10 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // Task history service
     services.AddSingleton<TaskHistoryStore>();
 
+    // Backend primitives
+    services.AddSingleton<BackendPrimitiveCatalog>();
+    services.AddSingleton<BackendScaffolder>();
+
     // Register tools
     services.AddSingleton<ITool, ReadFileTool>();
     services.AddSingleton<ITool, WriteFileTool>();
@@ -332,6 +338,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, FindReferencesTool>();
     services.AddSingleton<ITool, GoToDefinitionTool>();
     services.AddSingleton<ITool, GetDiagnosticsTool>();
+    services.AddSingleton<ITool, ScaffoldBackendTool>();
 
     // LSP services
     services.AddSingleton<ILanguageProvider, CSharpLanguageProvider>();

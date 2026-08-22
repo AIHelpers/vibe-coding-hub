@@ -23,7 +23,9 @@ using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
+using AiCodeAgent.Providers.Backend;
 using AiCodeAgent.Tools;
+using AiCodeAgent.Tools.Backend;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
 using AiCodeAgent.Tools.Git;
@@ -206,6 +208,10 @@ public partial class App : Application
             return ProviderFactory.CreateOrFallback(providerName, cfg, loggerFactory);
         });
 
+        // Backend primitives
+        services.AddSingleton<BackendPrimitiveCatalog>();
+        services.AddSingleton<BackendScaffolder>();
+
         // Register tools
         services.AddSingleton<ITool, ReadFileTool>();
         services.AddSingleton<ITool, WriteFileTool>();
@@ -219,6 +225,7 @@ public partial class App : Application
         services.AddSingleton<ITool, FindReferencesTool>();
         services.AddSingleton<ITool, GoToDefinitionTool>();
         services.AddSingleton<ITool, GetDiagnosticsTool>();
+        services.AddSingleton<ITool, ScaffoldBackendTool>();
 
         // Shared changeset (canonical store for diff hunks)
         services.AddSingleton<SharedChangeset>();
