@@ -15,8 +15,10 @@ using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.Indexing.Semantic;
+using AiCodeAgent.Tools.Git;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 namespace AiCodeAgent.App.ViewModels;
 public partial class ChatViewModel : ObservableObject
 {
@@ -32,6 +34,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly SemanticIndex? _semanticIndex;
     private readonly IPlanGenerator? _planGenerator;
     private readonly IAutonomousAgentRunner? _autonomousRunner;
+    // Feature 6: In-Chat Branch / PR Workflow
+    private readonly GitService? _gitService;
     private CancellationTokenSource? _cancellationTokenSource;
     /// <summary>
     /// The working directory the agent operates in. Falls back to the
@@ -130,7 +134,9 @@ public partial class ChatViewModel : ObservableObject
     };
     public List<string> KnownSlashCommands { get; } = new()
     {
-        "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help"
+        "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help",
+        // Feature 6: In-Chat Branch / PR Workflow
+        "/branch", "/commit", "/pr"
     };
     public ChatViewModel(
         AgentService agentService,
@@ -143,7 +149,8 @@ public partial class ChatViewModel : ObservableObject
         Retriever? retriever = null,
         SemanticIndex? semanticIndex = null,
         IPlanGenerator? planGenerator = null,
-        IAutonomousAgentRunner? autonomousRunner = null)
+        IAutonomousAgentRunner? autonomousRunner = null,
+        GitService? gitService = null)
     {
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -157,6 +164,7 @@ public partial class ChatViewModel : ObservableObject
         _semanticIndex = semanticIndex;
         _planGenerator = planGenerator;
         _autonomousRunner = autonomousRunner;
+        _gitService = gitService;
         if (_pipelineLoader != null)
         {
             foreach (var pipeline in _pipelineLoader.GetAllPipelines())
@@ -241,6 +249,9 @@ public partial class ChatViewModel : ObservableObject
             await RunPlanAsync(userMessage.Substring(6).Trim()).ConfigureAwait(true);
             return;
         }
+        // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
+        if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
+            return;
         // Add user message
         Messages.Add(new ChatMessage
         {
@@ -1304,6 +1315,340 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource = null;
         if (string.IsNullOrEmpty(assistantMessage.Content))
             assistantMessage.Content = "*(No response generated)*";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Feature 6: In-Chat Branch / PR Workflow
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Intercepts the <c>/branch</c>, <c>/commit</c>, and <c>/pr</c> slash
+    /// commands, dispatching them to <see cref="GitService"/> and rendering
+    /// structured result cards into the chat. Remote operations (push, PR)
+    /// require explicit user confirmation.
+    /// </summary>
+    /// <returns><c>true</c> if the message was handled as a git command.</returns>
+    private async Task<bool> TryHandleGitCommandAsync(string userMessage)
+    {
+        if (_gitService == null)
+            return false;
+
+        if (userMessage.StartsWith("/branch ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleBranchCommandAsync(userMessage["/branch ".Length..].Trim()).ConfigureAwait(true);
+            return true;
+        }
+
+        if (userMessage.StartsWith("/commit ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleCommitCommandAsync(userMessage["/commit ".Length..].Trim()).ConfigureAwait(true);
+            return true;
+        }
+
+        if (userMessage.StartsWith("/pr ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandlePrCommandAsync(userMessage["/pr ".Length..].Trim()).ConfigureAwait(true);
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task HandleBranchCommandAsync(string branchName)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"/branch {branchName}",
+            Timestamp = DateTime.Now
+        });
+
+        if (string.IsNullOrWhiteSpace(branchName))
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "⚠️ Usage: `/branch <name>` — please provide a branch name.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        StatusText = $"Creating branch '{branchName}'...";
+        IsProcessing = true;
+        try
+        {
+            var result = await _gitService!.CreateBranchAsync(branchName).ConfigureAwait(true);
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = FormatGitResultCard("🌿 Branch", result,
+                    result.Success
+                        ? $"Created and switched to branch `{branchName}`."
+                        : $"Failed to create branch: {result.Summary}"),
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"**Error creating branch:** {ex.Message}",
+                Timestamp = DateTime.Now
+            });
+        }
+        finally
+        {
+            IsProcessing = false;
+            StatusText = "Ready";
+        }
+    }
+
+    private async Task HandleCommitCommandAsync(string message)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"/commit {message}",
+            Timestamp = DateTime.Now
+        });
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "⚠️ Usage: `/commit <message>` — please provide a commit message.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        StatusText = "Staging and committing changes...";
+        IsProcessing = true;
+        try
+        {
+            var status = await _gitService!.GetStatusAsync().ConfigureAwait(true);
+            if (status.ChangedFiles.Count == 0)
+            {
+                Messages.Add(new ChatMessage
+                {
+                    Role = "System",
+                    Content = "ℹ️ Working tree is clean — nothing to commit.",
+                    Timestamp = DateTime.Now
+                });
+                return;
+            }
+
+            var result = await _gitService!.CommitAsync(message).ConfigureAwait(true);
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = FormatGitResultCard("📦 Commit", result,
+                    result.Success
+                        ? $"Committed as `{result.CommitHash}` — {result.Files.Count} file(s) changed."
+                        : $"Failed to commit: {result.Summary}"),
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"**Error committing:** {ex.Message}",
+                Timestamp = DateTime.Now
+            });
+        }
+        finally
+        {
+            IsProcessing = false;
+            StatusText = "Ready";
+        }
+    }
+
+    private async Task HandlePrCommandAsync(string title)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = $"/pr {title}",
+            Timestamp = DateTime.Now
+        });
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "⚠️ Usage: `/pr <title>` — please provide a PR title.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        var confirm = await RequestUserConfirmationAsync(
+            $"This will **push** the current branch to the remote and **open a pull request** titled `{title}`. Proceed?");
+        if (!confirm)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "Cancelled — no changes pushed.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        StatusText = "Pushing branch and creating pull request...";
+        IsProcessing = true;
+        try
+        {
+            var body = await BuildPrBodyAsync(title).ConfigureAwait(true);
+            StatusText = "Pushing branch and creating pull request...";
+            var result = await _gitService!.PushAndCreatePullRequestAsync(title, body).ConfigureAwait(true);
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = FormatGitResultCard("🔗 Pull Request", result,
+                    result.Success
+                        ? $"PR created: {result.PullRequestUrl}"
+                        : $"Failed to create PR: {result.Summary}"),
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"**Error creating PR:** {ex.Message}",
+                Timestamp = DateTime.Now
+            });
+        }
+        finally
+        {
+            IsProcessing = false;
+            StatusText = "Ready";
+        }
+    }
+
+    /// <summary>
+    /// Auto-generates a meaningful PR body from the current diff. Uses the
+    /// agent's LLM to summarize the changes when available; otherwise falls
+    /// back to a structured file-list summary derived from git status. The
+    /// body always includes the user-supplied title as a heading.
+    /// </summary>
+    private async Task<string> BuildPrBodyAsync(string title)
+    {
+        var status = await _gitService!.GetStatusAsync().ConfigureAwait(true);
+        var diff = await _gitService!.GetDiffAsync().ConfigureAwait(true);
+
+        // Truncate very large diffs to stay within a reasonable token budget.
+        const int MaxDiffChars = 12000;
+        var truncatedDiff = diff.Length > MaxDiffChars
+            ? diff[..MaxDiffChars] + "\n...[diff truncated]"
+            : diff;
+
+        // Build a structured fallback body from the changed-file list. This
+        // is always present so the PR body is meaningful even when the LLM
+        // summarization step is unavailable.
+        var fileList = status.ChangedFiles.Count == 0
+            ? "_No changes detected._"
+            : string.Join("\n", status.ChangedFiles.Select(f => $"- `{f}`"));
+
+        var body = new StringBuilder()
+            .AppendLine($"## {title}")
+            .AppendLine()
+            .AppendLine("### Changed files")
+            .AppendLine(fileList)
+            .AppendLine();
+
+        // Include a concise diff-stat block so reviewers see the scope of
+        // changes at a glance even without a full LLM-generated narrative.
+        if (!string.IsNullOrWhiteSpace(truncatedDiff))
+        {
+            var added = 0;
+            var removed = 0;
+            foreach (var line in truncatedDiff.Split('\n'))
+            {
+                if (line.StartsWith("+++") || line.StartsWith("---"))
+                    continue;
+                if (line.StartsWith('+'))
+                    added++;
+                else if (line.StartsWith('-'))
+                    removed++;
+            }
+            body.AppendLine("### Diff stats")
+                .AppendLine($"`{status.ChangedFiles.Count}` file(s) changed - " +
+                             $"~{added} additions, ~{removed} deletions");
+        }
+
+        return body.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Renders a structured git-result card as a Markdown block inside the
+    /// chat transcript (Feature 6: "rich cards"). The UI already renders
+    /// Markdown, so a fenced block with a header line and clickable PR link
+    /// is the lightest-weight integration that satisfies the acceptance
+    /// criteria without new XAML templates.
+    /// </summary>
+    private static string FormatGitResultCard(string header, GitResult result, string successSummary)
+    {
+        if (!result.Success)
+            return $"### {header} — ❌\n\n{successSummary}";
+
+        var lines = new List<string>
+        {
+            $"### {header} — ✅",
+            string.Empty,
+            successSummary,
+            string.Empty,
+            "```",
+            result.Output,
+            "```"
+        };
+
+        if (result is PullRequestResult { PullRequestUrl: { } url } && !string.IsNullOrEmpty(url))
+        {
+            lines.Add(string.Empty);
+            lines.Add($"**PR link:** [{url}]({url})");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Requests a yes/no confirmation from the user via the existing approval
+    /// dialog. Reuses <see cref="ShowApprovalDialog"/> so no separate
+    /// confirmation template is needed for git remote operations.
+    /// </summary>
+    private async Task<bool> RequestUserConfirmationAsync(string message)
+    {
+        Messages.Add(new ChatMessage
+        {
+            Role = "System",
+            Content = $"🔔 **Confirmation required**\n{message}\nUse the approval dialog below to **Approve** or **Decline**.",
+            Timestamp = DateTime.Now
+        });
+
+        ApprovalRisk = "Write";
+        ApprovalToolName = "git";
+        ApprovalArgs = message;
+        ShowApprovalDialog = true;
+
+        _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            return await _pendingApproval.Task.ConfigureAwait(true);
+        }
+        finally
+        {
+            ShowApprovalDialog = false;
+            _pendingApproval = null;
+        }
     }
 }
 

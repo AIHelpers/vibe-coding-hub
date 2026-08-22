@@ -320,6 +320,13 @@ public partial class App : Application
         services.AddSingleton<SessionDashboardViewModel>();
 
         services.AddSingleton<MainViewModel>();
+        // Feature 6: In-Chat Branch / PR Workflow - GitService for slash commands
+        services.AddTransient<GitService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<GitService>>();
+            // GitService operates on the current working directory of the app.
+            return new GitService(Directory.GetCurrentDirectory(), logger);
+        });
         services.AddTransient<ChatViewModel>();
         services.AddTransient<SettingsViewModel>(sp =>
             new SettingsViewModel(
