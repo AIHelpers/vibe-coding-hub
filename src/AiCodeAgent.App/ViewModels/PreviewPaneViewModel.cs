@@ -11,6 +11,13 @@ using AiCodeAgent.Core.Models;
 namespace AiCodeAgent.App.ViewModels;
 
 /// <summary>
+/// Raised when the user commits a freehand annotation from the preview pane.
+/// Subscribers (e.g. the chat view-model) can forward the annotation to the
+/// agent.
+/// </summary>
+public delegate void AnnotationCommittedHandler(AnnotationMessage annotation);
+
+/// <summary>
 /// A minimal click-to-edit visual layer view-model. Hosts a mock preview of
 /// the active file's rendered elements (each tagged with a
 /// <c>data-source-id</c>), a selection model, a lightweight property panel, and
@@ -25,6 +32,19 @@ public partial class PreviewPaneViewModel : ObservableObject
 
     /// <summary>Elements rendered in the preview pane (mock representation).</summary>
     public ObservableCollection<PreviewElement> Elements { get; } = new();
+
+    /// <summary>
+    /// The freehand annotation overlay view-model. May be null if annotation
+    /// support is not wired up for this preview instance.
+    /// </summary>
+    public AnnotationViewModel? Annotation { get; private set; }
+
+    /// <summary>Raised when an annotation is committed for send-to-chat.</summary>
+    public event AnnotationCommittedHandler? AnnotationCommitted;
+
+    /// <summary>Whether the annotation overlay is currently active.</summary>
+    [ObservableProperty]
+    private bool _isAnnotationActive;
 
     [ObservableProperty]
     private PreviewElement? _selectedElement;
@@ -56,6 +76,33 @@ public partial class PreviewPaneViewModel : ObservableObject
         _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _changeset = changeset;
         _editorPane = editorPane;
+
+        Annotation = new AnnotationViewModel(new AnnotationMapper());
+        Annotation.AnnotationCommitted += OnAnnotationCommitted;
+    }
+
+    /// <summary>Activate/deactivate the freehand annotation overlay.</summary>
+    [RelayCommand]
+    private void ToggleAnnotation()
+    {
+        if (Annotation == null) return;
+        Annotation.IsActive = !Annotation.IsActive;
+        IsAnnotationActive = Annotation.IsActive;
+        StatusText = Annotation.IsActive ? "Annotation mode on" : "Annotation mode off";
+    }
+
+    /// <summary>Send a committed annotation to the preview's write-back path.</summary>
+    [RelayCommand]
+    private void AttachAnnotationToChat()
+    {
+        if (Annotation == null) return;
+        Annotation.CommitCommand.Execute(null);
+    }
+
+    private void OnAnnotationCommitted(object? sender, AnnotationMessage annotation)
+    {
+        StatusText = $"Annotation captured ({annotation.Strokes.Count} strokes)";
+        AnnotationCommitted?.Invoke(annotation);
     }
 
     /// <summary>

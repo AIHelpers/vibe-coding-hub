@@ -223,6 +223,93 @@ public partial class ChatViewModel : ObservableObject
         });
     }
     /// <summary>
+    /// Accepts a freehand visual annotation (Feature 9) and forwards it to the
+    /// agent as a chat instruction. The annotation's vector strokes are
+    /// serialized to SVG and a human-readable description, and the user's note
+    /// is prepended so the agent understands the requested change.
+    /// </summary>
+    public async Task SendAnnotationAsync(AnnotationMessage annotation)
+    {
+        if (annotation == null || IsProcessing)
+            return;
+
+        var note = string.IsNullOrWhiteSpace(annotation.Note) ? "" : annotation.Note.Trim();
+        var description = annotation.ToDescription();
+        var svg = annotation.ToSvg();
+        var bounds = annotation.Bounds;
+        var content = $"[Visual Annotation] {note}\n\n" +
+                      $"Annotated region: ({bounds.X:F0},{bounds.Y:F0}) " +
+                      $"{bounds.Width:F0}×{bounds.Height:F0}px\n" +
+                      $"Strokes: {description}\n\n" +
+                      $"SVG:\n{svg}\n\n" +
+                      "Please identify the target element in the annotated region and make the requested change.";
+
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = content,
+            Timestamp = DateTime.Now
+        });
+
+        IsProcessing = true;
+        IsCancellable = true;
+        StatusText = "Processing annotation...";
+
+        var assistantMessage = new ChatMessage
+        {
+            Role = "Assistant",
+            Content = string.Empty,
+            Timestamp = DateTime.Now
+        };
+        Messages.Add(assistantMessage);
+        ToolCallCards.Clear();
+
+        _cancellationTokenSource = new CancellationTokenSource();
+        var token = _cancellationTokenSource.Token;
+        _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        try
+        {
+            await _agentService.StreamMessageAsync(
+                content,
+                "default",
+                new AgentOptions
+                {
+                    PermissionMode = ParsePermissionMode(PermissionMode),
+                    WorkingDirectory = WorkingDirectory,
+                    Rights = new GranularRights
+                    {
+                        AllowRead = AllowRead,
+                        AllowEdit = AllowEdit,
+                        AllowExecute = AllowExecute
+                    }
+                },
+                token);
+        }
+        catch (OperationCanceledException)
+        {
+            assistantMessage.Content += "\n\n*Cancelled*";
+        }
+        catch (Exception ex)
+        {
+            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+        }
+
+        await processingTask;
+        IsProcessing = false;
+        IsCancellable = false;
+        StatusText = "Ready";
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        if (string.IsNullOrEmpty(assistantMessage.Content))
+        {
+            assistantMessage.Content = "*(No response generated)*";
+        }
+    }
+
+    /// <summary>
     /// Persists the user's model selection to the UI configuration so it is
     /// restored on the next application launch. Fire-and-forget: failures are
     /// logged to the debug output and never crash the UI.

@@ -118,6 +118,14 @@ public partial class MainViewModel : ObservableObject
         // Wire file explorer file-click to editor
         FileExplorer.PropertyChanged += OnFileExplorerPropertyChanged;
 
+        // Feature 9: Forward freehand visual annotations from the preview pane
+        // to the chat view-model so the agent receives them as instructions.
+        var chatForAnnotation = GetOrCreateChatViewModel();
+        PreviewPane.AnnotationCommitted += annotation =>
+        {
+            _ = chatForAnnotation.SendAnnotationAsync(annotation);
+        };
+
         // React to configuration saves (e.g. when the user changes the working
         // directory in Settings) so the file explorer and status update live.
         if (_configurationService != null)
