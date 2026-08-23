@@ -178,6 +178,9 @@ public partial class App : Application
         services.AddSingleton<SdlcPipelineLoader>();
         services.AddSingleton<SdlcPipelineRunner>();
 
+        // Multi-agent session registry (Feature 5) - shared by SessionDashboardViewModel
+        services.AddSingleton<SessionManager>();
+
         // Session export/import services (Priority 5)
         services.AddSingleton<SessionRecorder>();
         services.AddSingleton<SessionExportService>();

@@ -187,7 +187,12 @@ public sealed class SemanticIndex : IAsyncDisposable
         cmd.ExecuteNonQuery();
     }
 
-    private SqliteConnection OpenConnection() => new($"Data Source={_dbPath}");
+    private SqliteConnection OpenConnection()
+    {
+        var conn = new SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        return conn;
+    }
 
     private void LoadAllIntoMemory()
     {
