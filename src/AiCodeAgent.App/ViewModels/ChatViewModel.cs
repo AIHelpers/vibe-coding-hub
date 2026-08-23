@@ -295,8 +295,23 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
+        finally
+        {
+            _eventProcessingComplete?.TrySetResult();
+            try
+            {
+                await processingTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Processing loop cancelled; no-op.
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            }
+        }
 
-        await processingTask;
         IsProcessing = false;
         IsCancellable = false;
         StatusText = "Ready";
@@ -431,11 +446,22 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-        // Wait for the event-processing loop to finish draining the event
-        // bus (including the terminal AgentFinishedEvent/AgentErrorEvent)
-        // before deciding whether content is empty. This guarantees every
-        // TextDeltaEvent has been applied to the assistant message.
-        await processingTask;
+        finally
+        {
+            _eventProcessingComplete?.TrySetResult();
+            try
+            {
+                await processingTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Processing loop cancelled; no-op.
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            }
+        }
         IsProcessing = false;
         IsCancellable = false;
         StatusText = "Ready";
@@ -549,9 +575,22 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-        // Wait for the event-processing loop to finish draining the event
-        // bus before deciding whether content is empty (see SendAsync).
-        await processingTask;
+        finally
+        {
+            _eventProcessingComplete?.TrySetResult();
+            try
+            {
+                await processingTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Processing loop cancelled; no-op.
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            }
+        }
         IsProcessing = false;
         IsPipelineRunning = false;
         IsCancellable = false;
@@ -1407,7 +1446,22 @@ public partial class ChatViewModel : ObservableObject
             {
                 assistantMessage.Content += "\n\n**Error:** " + ex.Message;
             }
-            await processingTask.ConfigureAwait(true);
+            finally
+            {
+                _eventProcessingComplete?.TrySetResult();
+                try
+                {
+                    await processingTask.ConfigureAwait(true);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Processing loop cancelled; no-op.
+                }
+                catch (Exception ex)
+                {
+                    assistantMessage.Content += "\n\n**Error:** " + ex.Message;
+                }
+            }
             if (string.IsNullOrEmpty(assistantMessage.Content))
             {
                 assistantMessage.Content = "*(No response generated)*";
@@ -1524,13 +1578,27 @@ public partial class ChatViewModel : ObservableObject
         {
             assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
         }
-        _eventProcessingComplete?.TrySetResult();
-        await processingTask;
-        IsProcessing = false;
-        IsCancellable = false;
-        StatusText = "Ready";
-        _cancellationTokenSource?.Dispose();
-        _cancellationTokenSource = null;
+        finally
+        {
+            _eventProcessingComplete?.TrySetResult();
+            try
+            {
+                await processingTask.ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                // Processing loop cancelled; no-op.
+            }
+            catch (Exception ex)
+            {
+                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            }
+            IsProcessing = false;
+            IsCancellable = false;
+            StatusText = "Ready";
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+        }
         if (string.IsNullOrEmpty(assistantMessage.Content))
             assistantMessage.Content = "*(No response generated)*";
     }
