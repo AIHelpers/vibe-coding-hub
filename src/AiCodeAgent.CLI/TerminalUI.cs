@@ -16,6 +16,8 @@ public class TerminalUI
     private readonly SessionExportService _exportService;
     private readonly SessionImporter _importer;
     private readonly TaskHistoryStore _taskHistory;
+    private readonly SessionPersistenceManager? _persistence;
+    private readonly IAgentEventBus? _eventBus;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
 
@@ -38,7 +40,9 @@ public class TerminalUI
         SessionRecorder recorder,
         SessionExportService exportService,
         SessionImporter importer,
-        TaskHistoryStore taskHistory)
+        TaskHistoryStore taskHistory,
+        SessionPersistenceManager? persistence = null,
+        IAgentEventBus? eventBus = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -47,9 +51,18 @@ public class TerminalUI
         _exportService = exportService;
         _importer = importer;
         _taskHistory = taskHistory;
+        _persistence = persistence;
+        _eventBus = eventBus;
     }
 
-    public async Task RunAsync(AgentOptions options)
+    public Task RunAsync(AgentOptions options, string? sessionId = null)
+    {
+        if (sessionId != null)
+            _sessionId = sessionId;
+        return RunAsyncCore(options);
+    }
+
+    private async Task RunAsyncCore(AgentOptions options)
     {
         Console.OutputEncoding = Encoding.UTF8;
         Console.Clear();
@@ -58,6 +71,15 @@ public class TerminalUI
         PrintHelp();
 
         _recorder.Start(_sessionId);
+
+        // Wire session persistence: subscribe to the event bus and append
+        // user/assistant/tool entries to the JSONL session log.
+        CancellationTokenSource? persistenceCts = null;
+        if (_persistence != null && _eventBus != null)
+        {
+            persistenceCts = new CancellationTokenSource();
+            _ = Task.Run(() => PersistEventsAsync(_eventBus, persistenceCts.Token), persistenceCts.Token);
+        }
 
         var history = new List<string>();
         var historyIndex = 0;
@@ -84,6 +106,17 @@ public class TerminalUI
                 Content = input,
                 Timestamp = DateTime.UtcNow
             });
+
+            // Persist user message to JSONL session log
+            if (_persistence != null)
+            {
+                await _persistence.AppendAsync(new SessionEntry
+                {
+                    Type = SessionEntryTypes.User,
+                    Timestamp = DateTime.UtcNow,
+                    Payload = new() { ["content"] = input }
+                });
+            }
 
             Console.WriteLine();
             await StreamResponseAsync(input, options);
@@ -239,10 +272,14 @@ public class TerminalUI
 
             case "/reset":
                 _recorder.Stop();
-                _sessionId = Guid.NewGuid().ToString();
+                _sessionId = _persistence?.CreateNew() ?? Guid.NewGuid().ToString();
                 _taskTitle = "Untitled Task";
                 _recorder.Start(_sessionId);
                 WriteColored("Session reset\n", Colors.Success);
+                return true;
+
+            case var s when s.StartsWith("/branch"):
+                await BranchSessionAsync(s["/branch".Length..].Trim());
                 return true;
 
             case "/tasks":
@@ -290,6 +327,76 @@ public class TerminalUI
 
             default:
                 return false;
+        }
+    }
+
+    private async Task PersistEventsAsync(IAgentEventBus eventBus, CancellationToken ct)
+    {
+        await foreach (var evt in eventBus.GetEventsAsync(ct).ConfigureAwait(false))
+        {
+            if (_persistence == null) continue;
+
+            SessionEntry? entry = evt switch
+            {
+                TextDeltaEvent delta => new SessionEntry
+                {
+                    Type = SessionEntryTypes.Assistant,
+                    Timestamp = DateTime.UtcNow,
+                    Payload = new() { ["content"] = delta.Delta }
+                },
+                ToolCallEndEvent toolEnd => new SessionEntry
+                {
+                    Type = SessionEntryTypes.ToolResult,
+                    Timestamp = DateTime.UtcNow,
+                    Payload = new()
+                    {
+                        ["tool"] = toolEnd.Call.Name,
+                        ["result"] = toolEnd.Result.Content,
+                        ["isError"] = toolEnd.Result.IsError
+                    }
+                },
+                AgentFinishedEvent finished => new SessionEntry
+                {
+                    Type = SessionEntryTypes.Finished,
+                    Timestamp = DateTime.UtcNow,
+                    Payload = new()
+                    {
+                        ["toolCalls"] = finished.Response.ToolExecutions.Count,
+                        ["durationMs"] = finished.Response.Duration.TotalMilliseconds
+                    }
+                },
+                _ => null
+            };
+
+            if (entry != null)
+                await _persistence.AppendAsync(entry, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task BranchSessionAsync(string sessionId)
+    {
+        if (_persistence == null)
+        {
+            WriteColored("Session persistence is not available.\n", Colors.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            sessionId = _sessionId;
+        }
+
+        try
+        {
+            _recorder.Stop();
+            var newId = await _persistence.ForkAsync(sessionId);
+            _sessionId = newId;
+            _recorder.Start(_sessionId);
+            WriteColored($"Forked session '{sessionId}' -> '{newId}'\n", Colors.Success);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Fork failed: {ex.Message}\n", Colors.Error);
         }
     }
 
@@ -361,7 +468,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /tools /model <name> /cd <dir> /tasks /task <id> /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();

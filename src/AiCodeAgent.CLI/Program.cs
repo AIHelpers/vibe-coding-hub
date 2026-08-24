@@ -5,6 +5,7 @@ using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
+using AiCodeAgent.Context;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
@@ -31,25 +32,92 @@ var modelOption = new Option<string>("--model", "Model to use");
 var dirOption = new Option<string>("--dir", "Working directory");
 var autoOption = new Option<bool>("--auto", "Auto-approve tool executions");
 var verboseOption = new Option<bool>("--verbose", "Verbose output");
+var continueOption = new Option<bool>("--continue", "Resume the most recent session for this worktree");
+var resumeOption = new Option<bool>("--resume", "Open the interactive session picker");
+var forkSessionOption = new Option<string?>("--fork-session", "Fork an existing session id into a new one");
 
 chatCommand.AddOption(providerOption);
 chatCommand.AddOption(modelOption);
 chatCommand.AddOption(dirOption);
 chatCommand.AddOption(autoOption);
 chatCommand.AddOption(verboseOption);
+chatCommand.AddOption(continueOption);
+chatCommand.AddOption(resumeOption);
+chatCommand.AddOption(forkSessionOption);
 
-chatCommand.SetHandler(async (provider, model, dir, auto, verbose) =>
+chatCommand.SetHandler(async (provider, model, dir, auto, verbose, cont, resume, forkFrom) =>
 {
     var services = await BuildServiceProvider(provider, model, dir);
+    var sessionManager = services.GetRequiredService<SessionPersistenceManager>();
+    var store = services.GetRequiredService<ISessionStore>();
+    var worktree = dir ?? Directory.GetCurrentDirectory();
+
+    string sessionId;
+    if (!string.IsNullOrEmpty(forkFrom))
+    {
+        sessionId = await sessionManager.ForkAsync(forkFrom);
+        Console.WriteLine($"Forked session '{forkFrom}' -> '{sessionId}'");
+    }
+    else if (cont)
+    {
+        var sessions = await store.ListAsync(worktree);
+        var latest = sessions.FirstOrDefault();
+        if (latest == null)
+        {
+            sessionId = sessionManager.CreateNew();
+            Console.WriteLine("No previous session found; starting a new one.");
+        }
+        else
+        {
+            var (id, history) = await sessionManager.ResumeAsync(latest.SessionId);
+            sessionId = id;
+            Console.WriteLine($"Resumed session '{sessionId}' ({history.Count} entries).");
+        }
+    }
+    else if (resume)
+    {
+        var sessions = await store.ListAsync(worktree);
+        if (sessions.Count == 0)
+        {
+            sessionId = sessionManager.CreateNew();
+            Console.WriteLine("No sessions found; starting a new one.");
+        }
+        else
+        {
+            Console.WriteLine("Available sessions:");
+            for (int i = 0; i < sessions.Count; i++)
+            {
+                Console.WriteLine($"  [{i}] {sessions[i].SessionId}  {sessions[i].UpdatedAt:yyyy-MM-dd HH:mm}  ({sessions[i].EntryCount} entries)");
+            }
+            Console.Write("Select index (blank to start new): ");
+            var sel = Console.ReadLine();
+            if (int.TryParse(sel, out var idx) && idx >= 0 && idx < sessions.Count)
+            {
+                var (id, history) = await sessionManager.ResumeAsync(sessions[idx].SessionId);
+                sessionId = id;
+                Console.WriteLine($"Resumed session '{sessionId}' ({history.Count} entries).");
+            }
+            else
+            {
+                sessionId = sessionManager.CreateNew();
+                Console.WriteLine("Starting a new session.");
+            }
+        }
+    }
+    else
+    {
+        sessionId = sessionManager.CreateNew();
+    }
+
     var ui = services.GetRequiredService<TerminalUI>();
     await ui.RunAsync(new AgentOptions
     {
         Model = model,
-        WorkingDirectory = dir ?? Directory.GetCurrentDirectory(),
+        WorkingDirectory = worktree,
         AutoApprove = auto,
         Verbose = verbose
-    });
-}, providerOption, modelOption, dirOption, autoOption, verboseOption);
+    }, sessionId);
+}, providerOption, modelOption, dirOption, autoOption, verboseOption, continueOption, resumeOption, forkSessionOption);
 
 // run command - single prompt
 var runCommand = new Command("run", "Execute a single prompt");
@@ -301,6 +369,12 @@ static async Task<ServiceProvider> BuildServiceProvider(
 
     // Core services
     services.AddSingleton<IContextManager, InMemoryContextManager>();
+    services.AddSingleton<ISessionStore>(sp =>
+    {
+        var worktree = sp.GetRequiredService<AgentOptions>().WorkingDirectory;
+        return new JsonlSessionStore(worktree);
+    });
+    services.AddSingleton<SessionPersistenceManager>();
     services.AddSingleton<IToolRegistry, ToolRegistry>();
     services.AddSingleton<IAgentEventBus, AgentEventBus>();
     services.AddSingleton<IPermissionService, PermissionService>();
