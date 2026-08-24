@@ -2,10 +2,10 @@ using AiCodeAgent.CLI;
 using AiCodeAgent.Context;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
-using AiCodeAgent.Context;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.LanguageServices;
 using AiCodeAgent.LanguageServices.Models;
@@ -394,6 +394,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
 
     // Task history service
     services.AddSingleton<TaskHistoryStore>();
+
+    // Project memory (Feature 04)
+    services.AddSingleton<IProjectMemoryLoader, ProjectMemoryLoader>();
 
     // Backend primitives
     services.AddSingleton<BackendPrimitiveCatalog>();

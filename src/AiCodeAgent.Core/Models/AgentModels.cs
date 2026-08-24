@@ -127,6 +127,12 @@ public record AgentOptions
     /// system prompt so generated code matches the user's intent.
     /// </summary>
     public AppRequirements? Requirements { get; init; }
+    /// <summary>
+    /// Project memory loaded from AIAGENT.md at session start. When set, it is
+    /// injected as part of the system prompt so persistent instructions and
+    /// conventions are honored every session.
+    /// </summary>
+    public AiCodeAgent.Core.Interfaces.ProjectMemory? ProjectMemory { get; init; }
 }
 
 public record AgentResponse

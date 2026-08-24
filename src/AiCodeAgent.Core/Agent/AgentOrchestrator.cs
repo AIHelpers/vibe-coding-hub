@@ -539,6 +539,10 @@ public class AgentOrchestrator : IAgentOrchestrator
             ? string.Empty
             : $"\n{options.Requirements.ToPromptBlock()}\n";
 
+        var memoryBlock = options.ProjectMemory is null || !options.ProjectMemory.HasContent
+            ? string.Empty
+            : $"\n{options.ProjectMemory.ToPromptBlock()}\n";
+
         return $"""
             You are an expert AI coding assistant with deep knowledge of software development.
             You have access to tools to read/write files, execute commands, search code, and more.
@@ -551,6 +555,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             {agentLine}
             {roleInstructions}
             {requirementsBlock}
+            {memoryBlock}
             {(options.PermissionMode == PermissionMode.Plan ? """
             Plan mode is ACTIVE:
             - You may ONLY use read-only tools (read files, search, list directories)

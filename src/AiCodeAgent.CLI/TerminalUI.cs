@@ -20,8 +20,10 @@ public class TerminalUI
     private readonly SessionPersistenceManager? _persistence;
     private readonly IAgentEventBus? _eventBus;
     private readonly ICheckpointManager? _checkpointManager;
+    private readonly IProjectMemoryLoader? _memoryLoader;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
+    private AgentOptions _options = null!;
 
     /// <summary>Sentinel returned by the line reader when the user presses Esc twice.</summary>
     private const string EscTwiceSentinel = "\u241B\u241B";
@@ -48,7 +50,8 @@ public class TerminalUI
         TaskHistoryStore taskHistory,
         SessionPersistenceManager? persistence = null,
         IAgentEventBus? eventBus = null,
-        ICheckpointManager? checkpointManager = null)
+        ICheckpointManager? checkpointManager = null,
+        IProjectMemoryLoader? memoryLoader = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -60,22 +63,27 @@ public class TerminalUI
         _persistence = persistence;
         _eventBus = eventBus;
         _checkpointManager = checkpointManager;
+        _memoryLoader = memoryLoader;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
     {
         if (sessionId != null)
             _sessionId = sessionId;
-        return RunAsyncCore(options);
+        _options = options;
+        return RunAsyncCore();
     }
 
-    private async Task RunAsyncCore(AgentOptions options)
+    private async Task RunAsyncCore()
     {
         Console.OutputEncoding = Encoding.UTF8;
         Console.Clear();
 
         PrintBanner();
         PrintHelp();
+
+        // Load project memory (if any) so it is injected into every prompt.
+        await RefreshProjectMemoryAsync();
 
         _recorder.Start(_sessionId);
 
@@ -93,7 +101,7 @@ public class TerminalUI
 
         while (true)
         {
-            PrintPrompt(options.WorkingDirectory);
+            PrintPrompt(_options.WorkingDirectory);
 
             var input = ReadLineWithHistory(history, ref historyIndex);
 
@@ -110,7 +118,7 @@ public class TerminalUI
                 history.Add(input);
             historyIndex = history.Count;
 
-            if (await HandleCommandAsync(input, options)) continue;
+            if (await HandleCommandAsync(input)) continue;
 
             // Save user message to task history
             if (_taskTitle == "Untitled Task")
@@ -134,12 +142,12 @@ public class TerminalUI
             }
 
             Console.WriteLine();
-            await StreamResponseAsync(input, options);
+            await StreamResponseAsync(input);
             Console.WriteLine();
         }
     }
 
-    private async Task StreamResponseAsync(string userMessage, AgentOptions options)
+    private async Task StreamResponseAsync(string userMessage)
     {
         using var cts = new CancellationTokenSource();
 
@@ -157,7 +165,7 @@ public class TerminalUI
         try
         {
             await foreach (var evt in _orchestrator.StreamRunAsync(
-                userMessage, _sessionId, options, cts.Token))
+                userMessage, _sessionId, _options, cts.Token))
             {
                 switch (evt)
                 {
@@ -270,7 +278,7 @@ public class TerminalUI
         return string.Join(", ", parts) + (args.Count > 3 ? ", ..." : "");
     }
 
-    private async Task<bool> HandleCommandAsync(string input, AgentOptions options)
+    private async Task<bool> HandleCommandAsync(string input)
     {
         var trimmed = input.Trim();
 
@@ -321,6 +329,18 @@ public class TerminalUI
                 await ListCheckpointsAsync();
                 return true;
 
+            case "/init":
+                await InitMemoryAsync();
+                return true;
+
+            case "/doctor":
+                await DoctorAsync();
+                return true;
+
+            case "/memory":
+                await ShowMemoryAsync();
+                return true;
+
             case "/tools":
                 PrintTools();
                 return true;
@@ -340,6 +360,8 @@ public class TerminalUI
                 if (Directory.Exists(newDir))
                 {
                     Directory.SetCurrentDirectory(newDir);
+                    _options = _options with { WorkingDirectory = newDir };
+                    await RefreshProjectMemoryAsync();
                     WriteColored($"Changed to: {newDir}\n", Colors.Success);
                 }
                 else
@@ -549,6 +571,118 @@ public class TerminalUI
         }
     }
 
+    /// <summary>Loads (or reloads) the project memory for the current working directory.</summary>
+    private async Task RefreshProjectMemoryAsync()
+    {
+        if (_memoryLoader == null) return;
+
+        try
+        {
+            var memory = await _memoryLoader.LoadAsync(_options.WorkingDirectory);
+            _options = _options with { ProjectMemory = memory };
+            if (memory is { HasContent: true })
+                WriteColored($"Loaded project memory from {memory.FilePath}\n", Colors.Info);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Failed to load project memory: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task InitMemoryAsync()
+    {
+        if (_memoryLoader == null)
+        {
+            WriteColored("Project memory loader is not available.\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var path = await _memoryLoader.InitAsync(_options.WorkingDirectory);
+            WriteColored($"Created project memory file: {path}\n", Colors.Success);
+            WriteColored("Edit it to add project-specific instructions and conventions.\n", Colors.Info);
+            await RefreshProjectMemoryAsync();
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Init failed: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task DoctorAsync()
+    {
+        if (_memoryLoader == null)
+        {
+            WriteColored("Project memory loader is not available.\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var report = await _memoryLoader.DiagnoseAsync(_options.WorkingDirectory);
+            WriteColored($"\nProject Doctor Report ({(report.AllOk ? "ALL OK" : "ISSUES FOUND")}):\n",
+                report.AllOk ? Colors.Success : Colors.Error);
+            WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
+            foreach (var check in report.Checks)
+            {
+                var (icon, color) = check.Status switch
+                {
+                    DoctorStatus.Ok => ("OK", Colors.Success),
+                    DoctorStatus.Warning => ("WARN", ConsoleColor.Yellow),
+                    DoctorStatus.Error => ("FAIL", Colors.Error),
+                    _ => ("?", ConsoleColor.Gray)
+                };
+                WriteColored($"  {icon,-5} ", color);
+                WriteColored($"{check.Name,-25} ", ConsoleColor.Gray);
+                WriteColored($"{check.Detail}\n", ConsoleColor.DarkGray);
+                if (!string.IsNullOrEmpty(check.FixHint))
+                    WriteColored($"        Fix: {check.FixHint}\n", ConsoleColor.DarkGray);
+            }
+            WriteColored("\n", ConsoleColor.Gray);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Doctor failed: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task ShowMemoryAsync()
+    {
+        if (_memoryLoader == null)
+        {
+            WriteColored("Project memory loader is not available.\n", Colors.Error);
+            return;
+        }
+
+        await RefreshProjectMemoryAsync();
+
+        var memory = _options.ProjectMemory;
+        if (memory == null || !memory.HasContent)
+        {
+            WriteColored("No project memory found. Use /init to create one.\n", Colors.Info);
+            return;
+        }
+
+        WriteColored($"\nProject Memory ({memory.FilePath}):\n", Colors.Info);
+        WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
+        if (!string.IsNullOrWhiteSpace(memory.CompactInstructions))
+            WriteColored($"Compact Instructions:\n{memory.CompactInstructions}\n\n", ConsoleColor.Gray);
+        if (!string.IsNullOrWhiteSpace(memory.BuildCommands))
+            WriteColored($"Build Commands:\n{memory.BuildCommands}\n\n", ConsoleColor.Gray);
+        if (!string.IsNullOrWhiteSpace(memory.TestCommands))
+            WriteColored($"Test Commands:\n{memory.TestCommands}\n\n", ConsoleColor.Gray);
+        if (!string.IsNullOrWhiteSpace(memory.LintCommands))
+            WriteColored($"Lint Commands:\n{memory.LintCommands}\n\n", ConsoleColor.Gray);
+        if (!string.IsNullOrWhiteSpace(memory.Conventions))
+            WriteColored($"Conventions:\n{memory.Conventions}\n\n", ConsoleColor.Gray);
+        if (memory.CustomSections.Count > 0)
+        {
+            foreach (var kvp in memory.CustomSections)
+                WriteColored($"{kvp.Key}:\n{kvp.Value}\n\n", ConsoleColor.Gray);
+        }
+    }
+
     private void PrintTools()
     {
         WriteColored("\nAvailable tools:\n", Colors.Info);
@@ -572,7 +706,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
