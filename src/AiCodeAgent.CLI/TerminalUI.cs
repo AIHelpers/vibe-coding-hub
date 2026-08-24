@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Interfaces;
@@ -18,8 +19,12 @@ public class TerminalUI
     private readonly TaskHistoryStore _taskHistory;
     private readonly SessionPersistenceManager? _persistence;
     private readonly IAgentEventBus? _eventBus;
+    private readonly ICheckpointManager? _checkpointManager;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
+
+    /// <summary>Sentinel returned by the line reader when the user presses Esc twice.</summary>
+    private const string EscTwiceSentinel = "\u241B\u241B";
 
     private static class Colors
     {
@@ -42,7 +47,8 @@ public class TerminalUI
         SessionImporter importer,
         TaskHistoryStore taskHistory,
         SessionPersistenceManager? persistence = null,
-        IAgentEventBus? eventBus = null)
+        IAgentEventBus? eventBus = null,
+        ICheckpointManager? checkpointManager = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -53,6 +59,7 @@ public class TerminalUI
         _taskHistory = taskHistory;
         _persistence = persistence;
         _eventBus = eventBus;
+        _checkpointManager = checkpointManager;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -89,6 +96,14 @@ public class TerminalUI
             PrintPrompt(options.WorkingDirectory);
 
             var input = ReadLineWithHistory(history, ref historyIndex);
+
+            // Esc twice → rewind to the previous checkpoint.
+            if (input == EscTwiceSentinel)
+            {
+                await UndoAsync();
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(input)) continue;
 
             if (history.Count == 0 || history[^1] != input)
@@ -298,6 +313,14 @@ public class TerminalUI
                 await ImportSessionAsync(s[8..].Trim());
                 return true;
 
+            case "/undo":
+                await UndoAsync();
+                return true;
+
+            case "/checkpoints":
+                await ListCheckpointsAsync();
+                return true;
+
             case "/tools":
                 PrintTools();
                 return true;
@@ -445,6 +468,87 @@ public class TerminalUI
         }
     }
 
+    private async Task UndoAsync()
+    {
+        if (_checkpointManager == null)
+        {
+            WriteColored("Checkpoint manager is not available.\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var checkpoints = await _checkpointManager.ListAsync(_sessionId);
+            if (checkpoints.Count == 0)
+            {
+                WriteColored("No checkpoints available to undo.\n", Colors.Info);
+                return;
+            }
+
+            var latest = checkpoints[0];
+            var restored = await _checkpointManager.RestoreAsync(_sessionId, latest.CheckpointId, _eventBus);
+            if (restored)
+                WriteColored($"Restored checkpoint: {latest.CheckpointId} ({latest.FilePath})\n", Colors.Success);
+            else
+                WriteColored($"Failed to restore checkpoint {latest.CheckpointId} (may be a symlink/hard-link).\n", Colors.Error);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Undo failed: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task ListCheckpointsAsync()
+    {
+        if (_checkpointManager == null)
+        {
+            WriteColored("Checkpoint manager is not available.\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var checkpoints = await _checkpointManager.ListAsync(_sessionId);
+            if (checkpoints.Count == 0)
+            {
+                WriteColored("No checkpoints for this session.\n", Colors.Info);
+                return;
+            }
+
+            WriteColored($"\nCheckpoints ({checkpoints.Count}):\n", Colors.Info);
+            WriteColored($"  {"ID",-24} {"File",-40} {"Turn",-12} {"Time"}\n", ConsoleColor.DarkGray);
+            WriteColored(new string('-', 90) + "\n", ConsoleColor.DarkGray);
+
+            for (var i = 0; i < checkpoints.Count; i++)
+            {
+                var c = checkpoints[i];
+                var file = c.FilePath.Length > 38 ? c.FilePath[..35] + "..." : c.FilePath;
+                var turn = c.TurnId.Length > 10 ? c.TurnId[..10] : c.TurnId;
+                WriteColored($"  {i + 1}. ", Colors.Tool);
+                WriteColored($"{c.CheckpointId,-24} ", Colors.Assistant);
+                WriteColored($"{file,-40} ", ConsoleColor.Gray);
+                WriteColored($"{turn,-12} ", ConsoleColor.Gray);
+                WriteColored($"{c.Timestamp:HH:mm:ss}\n", ConsoleColor.DarkGray);
+            }
+
+            WriteColored("\nEnter number to restore (or Enter to cancel): ", Colors.Prompt);
+            var input = Console.ReadLine();
+            if (int.TryParse(input, out var sel) && sel >= 1 && sel <= checkpoints.Count)
+            {
+                var chosen = checkpoints[sel - 1];
+                var restored = await _checkpointManager.RestoreAsync(_sessionId, chosen.CheckpointId, _eventBus);
+                if (restored)
+                    WriteColored($"Restored checkpoint: {chosen.CheckpointId} ({chosen.FilePath})\n", Colors.Success);
+                else
+                    WriteColored($"Failed to restore checkpoint {chosen.CheckpointId} (may be a symlink/hard-link).\n", Colors.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Error listing checkpoints: {ex.Message}\n", Colors.Error);
+        }
+    }
+
     private void PrintTools()
     {
         WriteColored("\nAvailable tools:\n", Colors.Info);
@@ -490,6 +594,8 @@ public class TerminalUI
     {
         var buffer = new StringBuilder();
         var pos = 0;
+        var escPressed = false;
+        var escTimer = Stopwatch.StartNew();
 
         while (true)
         {
@@ -500,6 +606,21 @@ public class TerminalUI
                 case ConsoleKey.Enter:
                     Console.WriteLine();
                     return buffer.ToString();
+
+                case ConsoleKey.Escape:
+                    // Esc twice within 500ms → rewind sentinel. Esc once clears the buffer.
+                    if (escPressed && escTimer.ElapsedMilliseconds < 500 && buffer.Length == 0)
+                    {
+                        Console.WriteLine();
+                        return EscTwiceSentinel;
+                    }
+
+                    escPressed = true;
+                    escTimer.Restart();
+                    buffer.Clear();
+                    pos = 0;
+                    RedrawLine(buffer.ToString(), pos);
+                    break;
 
                 case ConsoleKey.Backspace when pos > 0:
                     buffer.Remove(--pos, 1);

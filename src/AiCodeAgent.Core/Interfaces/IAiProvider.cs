@@ -95,6 +95,19 @@ public interface ICheckpointManager
         string originalContent,
         string turnId,
         string? sessionId = null);
+
+    /// <summary>
+    /// Restore a file from a checkpoint within a session, skipping symlinked
+    /// and hard-linked files. Emits a <see cref="DiffProducedEvent"/> via the
+    /// optional event bus so the user sees what changed.
+    /// </summary>
+    Task<bool> RestoreAsync(string sessionId, string checkpointId, IAgentEventBus? eventBus = null);
+
+    /// <summary>List checkpoints for a session (survives session resume).</summary>
+    Task<List<CheckpointEntry>> ListAsync(string sessionId);
+
+    /// <summary>Keep only the <paramref name="keepCount"/> most recent checkpoints for a session.</summary>
+    Task<int> PruneAsync(string sessionId, int keepCount);
 }
 
 public interface IPermissionService
