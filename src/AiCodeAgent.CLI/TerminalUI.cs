@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
@@ -21,6 +22,8 @@ public class TerminalUI
     private readonly IAgentEventBus? _eventBus;
     private readonly ICheckpointManager? _checkpointManager;
     private readonly IProjectMemoryLoader? _memoryLoader;
+    private readonly IAutoMemory? _autoMemory;
+    private readonly LearningExtractor? _learningExtractor;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -51,7 +54,9 @@ public class TerminalUI
         SessionPersistenceManager? persistence = null,
         IAgentEventBus? eventBus = null,
         ICheckpointManager? checkpointManager = null,
-        IProjectMemoryLoader? memoryLoader = null)
+        IProjectMemoryLoader? memoryLoader = null,
+        IAutoMemory? autoMemory = null,
+        LearningExtractor? learningExtractor = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -64,6 +69,8 @@ public class TerminalUI
         _eventBus = eventBus;
         _checkpointManager = checkpointManager;
         _memoryLoader = memoryLoader;
+        _autoMemory = autoMemory;
+        _learningExtractor = learningExtractor;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -84,6 +91,9 @@ public class TerminalUI
 
         // Load project memory (if any) so it is injected into every prompt.
         await RefreshProjectMemoryAsync();
+
+        // Load auto-memory (learned preferences) and inject into options.
+        await RefreshAutoMemoryAsync();
 
         _recorder.Start(_sessionId);
 
@@ -142,12 +152,12 @@ public class TerminalUI
             }
 
             Console.WriteLine();
-            await StreamResponseAsync(input);
+            await StreamResponseAsync(input, captureLearnings: true);
             Console.WriteLine();
         }
     }
 
-    private async Task StreamResponseAsync(string userMessage)
+    private async Task StreamResponseAsync(string userMessage, bool captureLearnings = false)
     {
         using var cts = new CancellationTokenSource();
 
@@ -212,6 +222,27 @@ public class TerminalUI
                                 Content = assistantText.ToString(),
                                 Timestamp = DateTime.UtcNow
                             });
+                        }
+
+                        // Auto-capture learnings from the user's message (Feature 05).
+                        if (captureLearnings && _autoMemory != null && _learningExtractor != null)
+                        {
+                            try
+                            {
+                                var learnings = _learningExtractor.Extract(_sessionId, userMessage, assistantText.ToString());
+                                foreach (var learning in learnings)
+                                {
+                                    await _autoMemory.CaptureAsync(_sessionId, learning);
+                                }
+                                if (learnings.Count > 0)
+                                {
+                                    await RefreshAutoMemoryAsync();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogDebug(ex, "Auto-memory capture failed");
+                            }
                         }
                         break;
 
@@ -339,6 +370,14 @@ public class TerminalUI
 
             case "/memory":
                 await ShowMemoryAsync();
+                return true;
+
+            case "/automemory":
+                await ShowAutoMemoryAsync();
+                return true;
+
+            case var s when s.StartsWith("/automemory edit"):
+                await EditAutoMemoryAsync();
                 return true;
 
             case "/tools":
@@ -647,6 +686,77 @@ public class TerminalUI
         }
     }
 
+    /// <summary>Load (or reload) the bounded auto-memory into options.</summary>
+    private async Task RefreshAutoMemoryAsync()
+    {
+        if (_autoMemory == null) return;
+        try
+        {
+            var content = await _autoMemory.LoadAsync();
+            _options = _options with { AutoMemory = content };
+            if (!string.IsNullOrWhiteSpace(content))
+                WriteColored($"Loaded auto-memory from {_autoMemory.GetFilePath()}\n", Colors.Info);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Failed to load auto-memory: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    private async Task ShowAutoMemoryAsync()
+    {
+        if (_autoMemory == null)
+        {
+            WriteColored("Auto-memory is not available.\n", Colors.Error);
+            return;
+        }
+
+        await RefreshAutoMemoryAsync();
+        var content = _options.AutoMemory;
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            WriteColored("No auto-memory found. Learnings are captured automatically as you work.\n", Colors.Info);
+            return;
+        }
+
+        WriteColored($"\nAuto-Memory ({_autoMemory.GetFilePath()}):\n", Colors.Info);
+        WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
+        WriteColored(content + "\n", ConsoleColor.Gray);
+    }
+
+    private async Task EditAutoMemoryAsync()
+    {
+        if (_autoMemory == null)
+        {
+            WriteColored("Auto-memory is not available.\n", Colors.Error);
+            return;
+        }
+
+        var path = _autoMemory.GetFilePath();
+        try
+        {
+            if (!File.Exists(path))
+            {
+                await _autoMemory.SaveAsync();
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EDITOR"))
+                    ? "notepad"
+                    : Environment.GetEnvironmentVariable("EDITOR"),
+                Arguments = $"\"{path}\"",
+                UseShellExecute = true
+            });
+            WriteColored($"Opening {path} in editor...\n", Colors.Info);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Failed to open editor: {ex.Message}\n", Colors.Error);
+            WriteColored($"File path: {path}\n", Colors.Info);
+        }
+    }
+
     private async Task ShowMemoryAsync()
     {
         if (_memoryLoader == null)
@@ -706,7 +816,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();

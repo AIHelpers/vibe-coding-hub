@@ -398,6 +398,11 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // Project memory (Feature 04)
     services.AddSingleton<IProjectMemoryLoader, ProjectMemoryLoader>();
 
+    // Auto memory (Feature 05)
+    services.AddSingleton<IAutoMemory>(sp =>
+        new AutoMemoryStore(sp.GetService<ILogger<AutoMemoryStore>>()));
+    services.AddSingleton<LearningExtractor>();
+
     // Backend primitives
     services.AddSingleton<BackendPrimitiveCatalog>();
     services.AddSingleton<BackendScaffolder>();

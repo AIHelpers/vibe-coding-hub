@@ -133,6 +133,12 @@ public record AgentOptions
     /// conventions are honored every session.
     /// </summary>
     public AiCodeAgent.Core.Interfaces.ProjectMemory? ProjectMemory { get; init; }
+    /// <summary>
+    /// Bounded auto-memory content (learned preferences) loaded from
+    /// <c>~/.aiagent/MEMORY.md</c> at session start (Feature 05). When set,
+    /// injected as a system message alongside project memory.
+    /// </summary>
+    public string? AutoMemory { get; init; }
 }
 
 public record AgentResponse
