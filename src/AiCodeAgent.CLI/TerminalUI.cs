@@ -24,6 +24,7 @@ public class TerminalUI
     private readonly IProjectMemoryLoader? _memoryLoader;
     private readonly IAutoMemory? _autoMemory;
     private readonly LearningExtractor? _learningExtractor;
+    private readonly ISkillRegistry? _skillRegistry;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -56,7 +57,8 @@ public class TerminalUI
         ICheckpointManager? checkpointManager = null,
         IProjectMemoryLoader? memoryLoader = null,
         IAutoMemory? autoMemory = null,
-        LearningExtractor? learningExtractor = null)
+        LearningExtractor? learningExtractor = null,
+        ISkillRegistry? skillRegistry = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -71,6 +73,7 @@ public class TerminalUI
         _memoryLoader = memoryLoader;
         _autoMemory = autoMemory;
         _learningExtractor = learningExtractor;
+        _skillRegistry = skillRegistry;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -382,6 +385,14 @@ public class TerminalUI
 
             case "/tools":
                 PrintTools();
+                return true;
+
+            case "/skills":
+                PrintSkills();
+                return true;
+
+            case var s when s.StartsWith("/skill "):
+                await ActivateSkillAsync(s[7..].Trim());
                 return true;
 
             case "/exit" or "/quit" or "exit" or "quit":
@@ -804,6 +815,65 @@ public class TerminalUI
         Console.WriteLine();
     }
 
+    private void PrintSkills()
+    {
+        if (_skillRegistry == null)
+        {
+            WriteColored("Skill registry is not available.\n", Colors.Error);
+            return;
+        }
+
+        var skills = _skillRegistry.ListAsync().GetAwaiter().GetResult();
+        if (skills.Count == 0)
+        {
+            WriteColored("No skills available. Add SKILL.md files to .aiagent/skills/<name>/ to define skills.\n", Colors.Info);
+            return;
+        }
+
+        WriteColored($"\nAvailable skills ({skills.Count}):\n", Colors.Info);
+        WriteColored($"  {"Name",-20} {"Manual",-8} {"Description"}\n", ConsoleColor.DarkGray);
+        WriteColored(new string('-', 80) + "\n", ConsoleColor.DarkGray);
+        foreach (var skill in skills)
+        {
+            var desc = skill.Description.Length > 45
+                ? skill.Description[..42] + "..."
+                : skill.Description;
+            WriteColored($"  {skill.Name,-20} ", Colors.Tool);
+            WriteColored($"{(skill.DisableModelInvocation ? "yes" : "no"),-8} ", ConsoleColor.Gray);
+            WriteColored($"{desc}\n", ConsoleColor.Gray);
+        }
+        WriteColored("\nUse /skill <name> to load and invoke a skill.\n", Colors.Info);
+    }
+
+    private async Task ActivateSkillAsync(string skillName)
+    {
+        if (_skillRegistry == null)
+        {
+            WriteColored("Skill registry is not available.\n", Colors.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(skillName))
+        {
+            WriteColored("Usage: /skill <name>\n", Colors.Error);
+            return;
+        }
+
+        var invocation = await _skillRegistry.InvokeAsync(skillName);
+        if (invocation == null)
+        {
+            WriteColored($"Skill '{skillName}' not found. Use /skills to list available skills.\n", Colors.Error);
+            return;
+        }
+
+        WriteColored($"Skill '{invocation.Name}' loaded.\n", Colors.Success);
+        var path = _skillRegistry.GetSkillPath(skillName);
+        if (!string.IsNullOrEmpty(path))
+            WriteColored($"  File: {path}\n", ConsoleColor.DarkGray);
+        WriteColored($"  Content length: {invocation.Content.Length} chars\n", ConsoleColor.Gray);
+        WriteColored("The skill content is now available for injection into the agent context.\n", Colors.Info);
+    }
+
     private static void PrintBanner()
     {
         Console.ForegroundColor = ConsoleColor.Cyan;
@@ -816,7 +886,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();

@@ -56,6 +56,12 @@ public class AgentConfiguration
     /// user can change the project work dir without re-launching from a path.
     /// </summary>
     public string? WorkingDirectory { get; set; }
+    /// <summary>
+    /// Per-skill visibility overrides (Feature 06 — Skills). Keys are skill
+    /// names; values are "hidden" or "visible". When "hidden", the skill's
+    /// description is kept out of context until the user invokes it.
+    /// </summary>
+    public Dictionary<string, string> SkillOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class UiConfiguration

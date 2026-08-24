@@ -403,6 +403,17 @@ static async Task<ServiceProvider> BuildServiceProvider(
         new AutoMemoryStore(sp.GetService<ILogger<AutoMemoryStore>>()));
     services.AddSingleton<LearningExtractor>();
 
+    // Skills (Feature 06)
+    services.AddSingleton<ISkillRegistry>(sp =>
+    {
+        var agentCfg = sp.GetRequiredService<AgentConfiguration>();
+        var workdir = sp.GetRequiredService<AgentOptions>().WorkingDirectory;
+        return new SkillRegistry(
+            sp.GetService<ILogger<SkillRegistry>>(),
+            projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
+            overrides: agentCfg.SkillOverrides);
+    });
+
     // Backend primitives
     services.AddSingleton<BackendPrimitiveCatalog>();
     services.AddSingleton<BackendScaffolder>();

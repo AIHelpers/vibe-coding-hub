@@ -13,6 +13,7 @@ using AiCodeAgent.App.ViewModels;
 using AiCodeAgent.App.Views;
 using AiCodeAgent.Context;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
@@ -186,6 +187,17 @@ public partial class App : Application
         services.AddSingleton<SessionExportService>();
         services.AddSingleton<SessionImporter>();
         services.AddSingleton<PromptPackService>();
+
+        // Skills (Feature 06)
+        services.AddSingleton<ISkillRegistry>(sp =>
+        {
+            var agentCfg = sp.GetRequiredService<AgentConfiguration>();
+            var workdir = Directory.GetCurrentDirectory();
+            return new SkillRegistry(
+                sp.GetService<ILogger<SkillRegistry>>(),
+                projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
+                overrides: agentCfg.SkillOverrides);
+        });
 
         // Register AI provider
         services.AddSingleton<IAiProvider>(sp =>

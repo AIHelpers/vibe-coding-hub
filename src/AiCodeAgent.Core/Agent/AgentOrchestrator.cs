@@ -21,6 +21,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IAgentEventBus? _eventBus;
     private readonly IContextUsageTracker? _usageTracker;
     private readonly IContextCompactor? _compactor;
+    private readonly ISkillRegistry? _skillRegistry;
 
     public AgentOrchestrator(
         IAiProvider provider,
@@ -32,7 +33,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         ICheckpointManager checkpointManager,
         IAgentEventBus? eventBus = null,
         IContextUsageTracker? usageTracker = null,
-        IContextCompactor? compactor = null)
+        IContextCompactor? compactor = null,
+        ISkillRegistry? skillRegistry = null)
     {
         _provider = provider;
         _contextManager = contextManager;
@@ -44,6 +46,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _eventBus = eventBus;
         _usageTracker = usageTracker;
         _compactor = compactor;
+        _skillRegistry = skillRegistry;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -561,6 +564,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             {requirementsBlock}
             {memoryBlock}
             {autoMemoryBlock}
+            {BuildSkillsBlock()}
             {(options.PermissionMode == PermissionMode.Plan ? """
             Plan mode is ACTIVE:
             - You may ONLY use read-only tools (read files, search, list directories)
@@ -594,5 +598,32 @@ public class AgentOrchestrator : IAgentOrchestrator
             - Write clean, maintainable code
             - Consider edge cases
             """;
+    }
+
+    /// <summary>
+    /// Builds the skills description block for the system prompt. Lists
+    /// visible skills so the model can invoke them by name.
+    /// </summary>
+    private string BuildSkillsBlock()
+    {
+        if (_skillRegistry is null) return string.Empty;
+        try
+        {
+            var skills = _skillRegistry.ListAsync(default).GetAwaiter().GetResult();
+            if (skills.Count == 0) return string.Empty;
+            var sb = new StringBuilder("\n# Available Skills\n");
+            sb.AppendLine("Skills are reusable prompt expansions. Invoke a skill by name when relevant.");
+            foreach (var s in skills)
+            {
+                var desc = string.IsNullOrWhiteSpace(s.Description) ? string.Empty : $" — {s.Description}";
+                sb.AppendLine($"- {s.Name}{desc}");
+            }
+            sb.AppendLine();
+            return sb.ToString();
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 }
