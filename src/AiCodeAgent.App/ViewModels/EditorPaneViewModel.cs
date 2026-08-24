@@ -39,6 +39,19 @@ public partial class EditorPaneViewModel : ObservableObject
     private CancellationTokenSource? _predictionCts;
     private string? _pendingChangeFile;
 
+    /// <summary>
+    /// Set by the View to open a Save-As file picker. Returns the chosen path, or
+    /// <c>null</c> if the user cancels. When <c>null</c>, Save As falls back to plain Save.
+    /// </summary>
+    public Func<Task<string?>>? SaveAsPathPicker { get; set; }
+
+    /// <summary>
+    /// Set by the View to prompt the user about unsaved changes before closing a dirty
+    /// tab (Save / Discard / Cancel, like VS Code). Returns <c>true</c> to proceed with
+    /// closing, <c>false</c> to cancel. When <c>null</c>, dirty tabs are auto-saved.
+    /// </summary>
+    public Func<EditorTabViewModel, Task<bool>>? ConfirmSaveChangesAsync { get; set; }
+
     public ObservableCollection<EditorTabViewModel> Tabs { get; } = new();
 
     /// <summary>True when at least one editor tab is open (for pane visibility).</summary>
@@ -88,7 +101,7 @@ public partial class EditorPaneViewModel : ObservableObject
     }
 
     /// <summary>Open a file in the editor. If already open, switch to it.</summary>
-    public async Task OpenFileAsync(string path, bool readOnly = false)
+    public async Task OpenFileAsync(string path, bool readOnly = false, bool isPreview = false)
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             return;
@@ -98,14 +111,38 @@ public partial class EditorPaneViewModel : ObservableObject
             string.Equals(t.FilePath, path, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
+            existing.IsPreview = false; // Pin it since it's being explicitly opened
             ActiveTab = existing;
             return;
         }
 
-        var tab = new EditorTabViewModel();
-        await tab.LoadAsync(path, readOnly);
-        tab.Document.TextChanged += OnTabDocumentTextChanged;
-        Tabs.Add(tab);
+        EditorTabViewModel tab;
+
+        if (isPreview)
+        {
+            // VS Code behavior: reuse the existing preview tab if it's not the one we are opening
+            var previewTab = Tabs.FirstOrDefault(t => t.IsPreview);
+            if (previewTab != null)
+            {
+                tab = previewTab;
+                await tab.LoadAsync(path, readOnly);
+            }
+            else
+            {
+                tab = new EditorTabViewModel { IsPreview = true };
+                await tab.LoadAsync(path, readOnly);
+                tab.Document.TextChanged += OnTabDocumentTextChanged;
+                Tabs.Add(tab);
+            }
+        }
+        else
+        {
+            tab = new EditorTabViewModel { IsPreview = false };
+            await tab.LoadAsync(path, readOnly);
+            tab.Document.TextChanged += OnTabDocumentTextChanged;
+            Tabs.Add(tab);
+        }
+
         ActiveTab = tab;
         OnPropertyChanged(nameof(HasOpenTabs));
 
@@ -116,13 +153,26 @@ public partial class EditorPaneViewModel : ObservableObject
         }
     }
 
-    /// <summary>Close a tab, prompting for unsaved changes.</summary>
+    /// <summary>Make a tab permanent (not a preview).</summary>
+    public void PinTab(EditorTabViewModel tab)
+    {
+        if (tab == null) return;
+        tab.IsPreview = false;
+    }
+
+    /// <summary>Close a tab, prompting for unsaved changes (VS Code style).</summary>
     public async Task<bool> CloseTabAsync(EditorTabViewModel tab)
     {
-        if (tab.IsDirty)
+        if (tab.IsDirty && ConfirmSaveChangesAsync != null)
         {
-            // TODO: Show unsaved-changes prompt (Save / Discard / Cancel)
-            // For now, auto-save
+            // VS Code behavior: prompt Save / Discard / Cancel
+            var proceed = await ConfirmSaveChangesAsync(tab);
+            if (!proceed)
+                return false;
+        }
+        else if (tab.IsDirty)
+        {
+            // Fallback: auto-save
             await tab.SaveAsync();
         }
 
@@ -287,6 +337,50 @@ public partial class EditorPaneViewModel : ObservableObject
         return await ActiveTab.SaveAsync();
     }
 
+    /// <summary>Save the active tab to a new location (Save As).</summary>
+    public async Task<bool> SaveActiveAsAsync()
+    {
+        if (ActiveTab == null)
+            return false;
+
+        if (SaveAsPathPicker != null)
+        {
+            var path = await SaveAsPathPicker();
+            if (string.IsNullOrEmpty(path))
+                return false; // Cancelled
+            return await ActiveTab.SaveToAsync(path);
+        }
+
+        // No picker wired up; fall back to plain save
+        return await ActiveTab.SaveAsync();
+    }
+
+    /// <summary>Close the active tab (VS Code-style unsaved-changes prompt).</summary>
+    public async Task<bool> CloseActiveTabAsync()
+    {
+        if (ActiveTab == null)
+            return false;
+        return await CloseTabAsync(ActiveTab);
+    }
+
+    /// <summary>Switch to the next tab (cycling).</summary>
+    public void NextTab()
+    {
+        if (Tabs.Count == 0) return;
+
+        var idx = ActiveTab != null ? Tabs.IndexOf(ActiveTab) : -1;
+        ActiveTab = Tabs[(idx + 1) % Tabs.Count];
+    }
+
+    /// <summary>Switch to the previous tab (cycling).</summary>
+    public void PreviousTab()
+    {
+        if (Tabs.Count == 0) return;
+
+        var idx = ActiveTab != null ? Tabs.IndexOf(ActiveTab) : 0;
+        ActiveTab = Tabs[(idx - 1 + Tabs.Count) % Tabs.Count];
+    }
+
     /// <summary>Save all dirty tabs.</summary>
     public async Task SaveAllAsync()
     {
@@ -407,9 +501,33 @@ public partial class EditorPaneViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SaveActiveAs()
+    {
+        await SaveActiveAsAsync();
+    }
+
+    [RelayCommand]
     private async Task SaveAll()
     {
         await SaveAllAsync();
+    }
+
+    [RelayCommand]
+    private async Task CloseActiveTab()
+    {
+        await CloseActiveTabAsync();
+    }
+
+    [RelayCommand]
+    private void NextTabCommand()
+    {
+        NextTab();
+    }
+
+    [RelayCommand]
+    private void PreviousTabCommand()
+    {
+        PreviousTab();
     }
 
     [RelayCommand]

@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.ReactiveUI;
 using AiCodeAgent.App.CommandPalette;
@@ -18,7 +20,143 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
+        KeyDown += OnWindowKeyDown;
     }
+
+    /// <summary>
+    /// Wires up editor services that require access to the host window, such as
+    /// the Save-As file picker and the VS Code-style unsaved-changes prompt.
+    /// </summary>
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        if (DataContext is MainViewModel mainVm)
+        {
+            var editor = mainVm.EditorPane;
+
+            // Save As: open a file picker seeded with the tab's current path.
+            editor.SaveAsPathPicker = async () =>
+            {
+                var topLevel = GetTopLevel(this);
+                if (topLevel == null)
+                    return null;
+
+                var currentFile = editor.ActiveTab?.FilePath;
+                IStorageFolder? suggestedStart = null;
+                if (!string.IsNullOrEmpty(currentFile))
+                {
+                    try
+                    {
+                        suggestedStart = await topLevel.StorageProvider
+                            .TryGetFolderFromPathAsync(Path.GetDirectoryName(currentFile)!);
+                    }
+                    catch { /* ignore seeding errors */ }
+                }
+
+                var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "Save File As",
+                    SuggestedFileName = currentFile != null ? Path.GetFileName(currentFile) : "untitled.txt",
+                    SuggestedStartLocation = suggestedStart,
+                    DefaultExtension = currentFile != null ? Path.GetExtension(currentFile).TrimStart('.') : "txt",
+                    ShowOverwritePrompt = true
+                });
+
+                return file?.TryGetLocalPath();
+            };
+
+            // Close with unsaved changes: prompt Save / Discard / Cancel (VS Code style).
+            editor.ConfirmSaveChangesAsync = async tab =>
+            {
+                var topLevel = GetTopLevel(this);
+                if (topLevel == null)
+                    return true;
+
+                var dialog = new Window
+                {
+                    Width = 420,
+                    Height = 160,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    CanResize = false,
+                    ShowInTaskbar = false,
+                    SystemDecorations = SystemDecorations.BorderOnly,
+                    Title = "Unsaved Changes"
+                };
+
+                var panel = new StackPanel { Margin = new Thickness(16), Spacing = 12 };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = $"Do you want to save the changes you made to {System.IO.Path.GetFileName(tab.FilePath)}?",
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                var buttons = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Right
+                };
+
+                var saveButton = new Button { Content = "Save", IsDefault = true };
+                var discardButton = new Button { Content = "Don't Save" };
+                var cancelButton = new Button { Content = "Cancel", IsCancel = true };
+
+                buttons.Children.Add(saveButton);
+                buttons.Children.Add(discardButton);
+                buttons.Children.Add(cancelButton);
+                panel.Children.Add(buttons);
+                dialog.Content = panel;
+
+                var result = await dialog.ShowDialog<DialogResult>(this);
+                switch (result)
+                {
+                    case DialogResult.Save:
+                        return await tab.SaveAsync();
+                    case DialogResult.Discard:
+                        return true;
+                    default:
+                        return false;
+                }
+            };
+        }
+    }
+
+    /// <summary>
+    /// Global editor shortcuts: Save, Save As, Close Tab, Next/Previous Tab.
+    /// </summary>
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && DataContext is MainViewModel mainVm)
+        {
+            var editor = mainVm.EditorPane;
+            switch (e.Key)
+            {
+                case Key.S when e.KeyModifiers.HasFlag(KeyModifiers.Shift):
+                    _ = editor.SaveActiveAsAsync();
+                    e.Handled = true;
+                    break;
+                case Key.S:
+                    _ = editor.SaveActiveAsync();
+                    e.Handled = true;
+                    break;
+                case Key.W:
+                    _ = editor.CloseActiveTabAsync();
+                    e.Handled = true;
+                    break;
+                case Key.Tab when e.KeyModifiers.HasFlag(KeyModifiers.Shift):
+                    editor.PreviousTab();
+                    e.Handled = true;
+                    break;
+                case Key.Tab:
+                    editor.NextTab();
+                    e.Handled = true;
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Outcome of the unsaved-changes dialog.</summary>
+    private enum DialogResult { Save, Discard, Cancel }
 
     // Helper to access ChatViewModel from the data context
     private ChatViewModel? GetChatViewModel()
@@ -135,8 +273,8 @@ public partial class MainWindow : Window
             !item.IsDirectory &&
             DataContext is MainViewModel mainVm)
         {
-            // Open the file in the editor pane (editable by default).
-            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath);
+            // Open as preview on single-click selection
+            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath, isPreview: true);
         }
     }
 

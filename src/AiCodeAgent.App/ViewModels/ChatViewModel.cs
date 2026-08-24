@@ -365,6 +365,12 @@ public partial class ChatViewModel : ObservableObject
             await RunPlanAsync(userMessage.Substring(6).Trim()).ConfigureAwait(true);
             return;
         }
+        // Intercept /edit <file_path> to open a file in the editor pane (VS Code-style).
+        if (userMessage.StartsWith("/edit", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleEditCommandAsync(userMessage).ConfigureAwait(true);
+            return;
+        }
         // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
         if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
             return;
@@ -1601,6 +1607,100 @@ public partial class ChatViewModel : ObservableObject
         }
         if (string.IsNullOrEmpty(assistantMessage.Content))
             assistantMessage.Content = "*(No response generated)*";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // /edit — Open a file in the editor pane (VS Code-style)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles the <c>/edit <file_path></c> slash command by opening the
+    /// specified file in the editor pane, making it visible and ready for
+    /// editing — similar to VS Code's <c>code <file></c> behavior.
+    /// Supports both absolute and workspace-relative paths. When no path is
+    /// supplied, lists project files to guide the user.
+    /// </summary>
+    private async Task HandleEditCommandAsync(string userMessage)
+    {
+        // Strip the leading "/edit" token and any surrounding whitespace.
+        var rawArgs = userMessage.Length > "/edit".Length
+            ? userMessage["/edit".Length..].Trim()
+            : string.Empty;
+
+        // Handle the bare "/edit" (no arguments) case: show usage + a
+        // short list of project files so the user can pick one.
+        if (string.IsNullOrEmpty(rawArgs))
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "User",
+                Content = userMessage,
+                Timestamp = DateTime.Now
+            });
+            var sample = GetProjectFiles().Take(15).Select(f => $"- `{f}`");
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = "✏️ **Usage:** `/edit <file_path>`\n\n" +
+                          "Opens a file in the editor pane for direct editing.\n\n" +
+                          "**Project files:**\n" +
+                          (sample.Any() ? string.Join("\n", sample) : "_No files found._"),
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        // Resolve the path: treat as workspace-relative when not rooted.
+        var filePath = rawArgs;
+        if (!Path.IsPathRooted(filePath))
+            filePath = Path.Combine(WorkingDirectory, filePath);
+        filePath = Path.GetFullPath(filePath);
+
+        // Echo the user's command into the transcript.
+        Messages.Add(new ChatMessage
+        {
+            Role = "User",
+            Content = userMessage,
+            Timestamp = DateTime.Now
+        });
+
+        if (!File.Exists(filePath))
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"⚠️ File not found: `{filePath}`\n" +
+                          "Check the path and try again. Use `/edit` (no arguments) to list project files.",
+                Timestamp = DateTime.Now
+            });
+            return;
+        }
+
+        try
+        {
+            StatusText = $"Opening {Path.GetFileName(filePath)}...";
+            await _editorPane.OpenFileAsync(filePath).ConfigureAwait(true);
+            _editorPane.IsVisible = true;
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"✏️ Opened `{filePath}` in the editor. Make your changes and press **Ctrl+S** to save.",
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = "System",
+                Content = $"**Error opening file:** {ex.Message}",
+                Timestamp = DateTime.Now
+            });
+        }
+        finally
+        {
+            StatusText = "Ready";
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────

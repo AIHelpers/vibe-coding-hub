@@ -40,6 +40,16 @@
         <KeyBinding Gesture="Ctrl+Shift+O" Command="{Binding ChangeWorkingDirectoryCommand}"/>
         <!-- Ctrl+,: Open Settings -->
         <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding NavigateToSettingsCommand}"/>
+        <!-- Ctrl+S: Save Active File -->
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveActiveFileCommand}"/>
+        <!-- Ctrl+Shift+S: Save As -->
+        <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding SaveActiveFileAsCommand}"/>
+        <!-- Ctrl+W: Close Active Tab -->
+        <KeyBinding Gesture="Ctrl+W" Command="{Binding CloseActiveTabCommand}"/>
+        <!-- Ctrl+Tab: Next Tab -->
+        <KeyBinding Gesture="Ctrl+Tab" Command="{Binding NextTabCommand}"/>
+        <!-- Ctrl+Shift+Tab: Previous Tab -->
+        <KeyBinding Gesture="Ctrl+Shift+Tab" Command="{Binding PreviousTabCommand}"/>
     </Window.KeyBindings>
 
     <Grid RowDefinitions="Auto,*,Auto" Name="RootGrid">

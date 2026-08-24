@@ -174,7 +174,8 @@ public partial class MainViewModel : ObservableObject
             var selected = FileExplorer.SelectedItem;
             if (selected != null && !selected.IsDirectory)
             {
-                SafeFireAndForget(EditorPane.OpenFileAsync(selected.FullPath), "OpenFile");
+                // Open as preview by default on single-click selection
+                SafeFireAndForget(EditorPane.OpenFileAsync(selected.FullPath, isPreview: true), "OpenFile");
                 IsCheckpointBrowserOpen = false;
                 IsSessionHistoryOpen = false;
             }
@@ -516,12 +517,39 @@ public partial class MainViewModel : ObservableObject
             },
             new CommandPaletteEntry
             {
+                Id = "editor.saveAs",
+                Title = "Save File As...",
+                Category = "Editor",
+                Keywords = new[] { "save", "saveas", "write", "rename", "persist" },
+                KeybindingHint = "Ctrl+Shift+S",
+                Action = () => SafeFireAndForget(EditorPane.SaveActiveAsAsync(), "SaveActiveAs")
+            },
+            new CommandPaletteEntry
+            {
                 Id = "editor.saveAll",
                 Title = "Save All Files",
                 Category = "Editor",
                 Keywords = new[] { "save", "write", "all", "persist" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(EditorPane.SaveAllAsync(), "SaveAll")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "editor.nextTab",
+                Title = "Next Tab",
+                Category = "Editor",
+                Keywords = new[] { "tab", "next", "navigate", "switch" },
+                KeybindingHint = "Ctrl+Tab",
+                Action = () => EditorPane.NextTab()
+            },
+            new CommandPaletteEntry
+            {
+                Id = "editor.previousTab",
+                Title = "Previous Tab",
+                Category = "Editor",
+                Keywords = new[] { "tab", "previous", "navigate", "switch" },
+                KeybindingHint = "Ctrl+Shift+Tab",
+                Action = () => EditorPane.PreviousTab()
             },
             new CommandPaletteEntry
             {
@@ -547,15 +575,8 @@ public partial class MainViewModel : ObservableObject
                 Title = "Close Current File",
                 Category = "Editor",
                 Keywords = new[] { "close", "tab", "file" },
-                KeybindingHint = "",
-                Action = () =>
-                {
-                    var tab = EditorPane.ActiveTab;
-                    if (tab != null)
-                    {
-                        SafeFireAndForget(EditorPane.CloseTabAsync(tab), "CloseTab");
-                    }
-                }
+                KeybindingHint = "Ctrl+W",
+                Action = () => SafeFireAndForget(EditorPane.CloseActiveTabAsync(), "CloseActiveTab")
             }
         };
 

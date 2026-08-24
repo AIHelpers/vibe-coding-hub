@@ -31,34 +31,42 @@ public partial class EditorView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        AttachedToVisualTree += OnAttachedToVisualTree;
 
         _lspService = (AiCodeAgent.App.App.Services?.GetService(typeof(LspDocumentService))) as LspDocumentService;
+    }
 
-        // Locate the code editor control from the XAML template
-        _codeEditor = this.FindControl<TextEditor>("CodeEditor");
-
-        // Set up the diff overlay renderer
-        if (_codeEditor?.TextArea?.TextView != null)
+    private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        // Locate the code editor control from the XAML template once the view is in the visual tree
+        if (_codeEditor == null)
         {
-            _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diffOverlayRenderer);
-        }
+            _codeEditor = this.FindControl<TextEditor>("CodeEditor");
 
-        // Set up the diagnostics squiggly renderer
-        if (_codeEditor?.TextArea?.TextView != null)
-        {
-            _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diagnosticsRenderer);
-        }
+            // Set up the diff overlay renderer
+            if (_codeEditor?.TextArea?.TextView != null)
+            {
+                _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diffOverlayRenderer);
+            }
 
-        if (_lspService != null)
-        {
-            _lspService.DiagnosticsUpdated += OnDiagnosticsUpdated;
-        }
+            // Set up the diagnostics squiggly renderer
+            if (_codeEditor?.TextArea?.TextView != null)
+            {
+                _codeEditor.TextArea.TextView.BackgroundRenderers.Add(_diagnosticsRenderer);
+            }
 
-        if (_codeEditor != null)
-        {
-            _codeEditor.PointerHover += OnEditorPointerHover;
-            _codeEditor.PointerHoverStopped += OnEditorPointerHoverStopped;
-            _codeEditor.PointerPressed += OnEditorPointerPressed;
+            if (_codeEditor != null)
+            {
+                _codeEditor.PointerHover += OnEditorPointerHover;
+                _codeEditor.PointerHoverStopped += OnEditorPointerHoverStopped;
+                _codeEditor.PointerPressed += OnEditorPointerPressed;
+            }
+
+            // If a tab was already active before we attached, update the editor now
+            if (_codeEditor != null && _activeTab != null)
+            {
+                UpdateEditorDocument();
+            }
         }
     }
 
@@ -93,12 +101,30 @@ public partial class EditorView : UserControl
     {
         if (e.PropertyName == nameof(EditorPaneViewModel.ActiveTab))
         {
+            if (_activeTab != null)
+            {
+                _activeTab.PropertyChanged -= OnActiveTabPropertyChanged;
+            }
+
             _activeTab = _viewModel?.ActiveTab;
+
+            if (_activeTab != null)
+            {
+                _activeTab.PropertyChanged += OnActiveTabPropertyChanged;
+            }
             UpdateEditorDocument();
         }
         else if (e.PropertyName == nameof(EditorPaneViewModel.ActiveTabHunks))
         {
             UpdateDiffOverlay();
+        }
+    }
+
+    private void OnActiveTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(EditorTabViewModel.Document))
+        {
+            UpdateEditorDocument();
         }
     }
 
@@ -137,30 +163,34 @@ public partial class EditorView : UserControl
             }
             _diffOverlayRenderer.UpdateHunks(Array.Empty<DiffHunk>());
             _diagnosticsRenderer.UpdateDiagnostics(Array.Empty<LspDiagnosticItem>());
-            if (_codeEditor?.TextArea?.TextView != null)
-            {
-                _codeEditor.TextArea.TextView.InvalidateVisual();
-            }
+            _codeEditor?.TextArea?.TextView?.InvalidateVisual();
             return;
         }
 
-        if (_codeEditor != null)
+        if (_codeEditor != null && _activeTab != null)
         {
+            // Assign the document directly from the ViewModel on the UI thread
             _codeEditor.Document = _activeTab.Document;
             _codeEditor.IsReadOnly = _activeTab.IsReadOnly;
 
             // Apply syntax highlighting
             var highlighting = _highlightingResolver.Resolve(_activeTab.FilePath);
             _codeEditor.SyntaxHighlighting = highlighting;
+
+            // Force layout and visual refresh
+            _codeEditor.TextArea?.TextView?.InvalidateVisual();
+            _codeEditor.InvalidateMeasure();
+            _codeEditor.InvalidateArrange();
         }
 
         // Update diff overlay with hunks for this file
         UpdateDiffOverlay();
 
         // Update diagnostics squiggles from the LSP cache
-        if (_lspService != null && !string.IsNullOrEmpty(_activeTab.FilePath))
+        var activeTab = _activeTab;
+        if (_lspService != null && activeTab != null && !string.IsNullOrEmpty(activeTab.FilePath))
         {
-            var diagnostics = _lspService.GetCachedDiagnostics(_activeTab.FilePath);
+            var diagnostics = _lspService.GetCachedDiagnostics(activeTab.FilePath);
             _diagnosticsRenderer.UpdateDiagnostics(diagnostics);
             if (_codeEditor?.TextArea?.TextView != null)
             {

@@ -22,6 +22,9 @@ public partial class EditorTabViewModel : ObservableObject
     private bool _isReadOnly;
 
     [ObservableProperty]
+    private bool _isPreview;
+
+    [ObservableProperty]
     private string _title = string.Empty;
 
     [ObservableProperty]
@@ -59,6 +62,8 @@ public partial class EditorTabViewModel : ObservableObject
 
     public string FileName => Path.GetFileName(FilePath);
 
+    public string Text => Document?.Text ?? string.Empty;
+
     public EditorTabViewModel()
     {
         Title = "Untitled";
@@ -89,7 +94,9 @@ public partial class EditorTabViewModel : ObservableObject
         IsReadOnly = readOnly;
 
         var content = await File.ReadAllTextAsync(path);
+        
         Document = new TextDocument(content);
+        
         IsDirty = false;
     }
 
@@ -99,15 +106,25 @@ public partial class EditorTabViewModel : ObservableObject
         if (string.IsNullOrEmpty(FilePath) || IsReadOnly)
             return false;
 
+        return await SaveToAsync(FilePath);
+    }
+
+    /// <summary>Save the document to a specific path (used by Save As).</summary>
+    public async Task<bool> SaveToAsync(string path)
+    {
+        if (string.IsNullOrEmpty(path) || IsReadOnly)
+            return false;
+
         try
         {
-            await File.WriteAllTextAsync(FilePath, Document.Text);
+            await File.WriteAllTextAsync(path, Document.Text);
+            FilePath = path; // Updates Title / ToolTip via OnFilePathChanged
             IsDirty = false;
             return true;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to save {FilePath}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Failed to save {path}: {ex.Message}");
             return false;
         }
     }

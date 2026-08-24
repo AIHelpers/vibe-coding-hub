@@ -57,18 +57,20 @@
 
         <!-- Editor content -->
         <Grid Grid.Row="1">
-            <Border Background="#F5F5F5" CornerRadius="4" Margin="4">
+            <Border Background="#F5F5F5"
+                    CornerRadius="4"
+                    Margin="4"
+                    IsVisible="{Binding HasActiveTab}">
                 <textEditor:TextEditor x:Name="CodeEditor"
-                                       Document="{Binding ActiveTab.Document}"
-                                       IsReadOnly="{Binding ActiveTab.IsReadOnly}"
-                                       IsVisible="{Binding HasActiveTab}"
-                                       FontFamily="Consolas"
-                                       FontSize="14"
-                                       ShowLineNumbers="True"
-                                       HorizontalScrollBarVisibility="Auto"
-                                       VerticalScrollBarVisibility="Auto"
-                                       Background="#FFFFFF"
-                                       Foreground="#1E1E2E">
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch"
+                                        FontFamily="Consolas"
+                                        FontSize="14"
+                                        ShowLineNumbers="True"
+                                        HorizontalScrollBarVisibility="Auto"
+                                        VerticalScrollBarVisibility="Auto"
+                                        Background="#FFFFFF"
+                                        Foreground="#1E1E2E">
                     <textEditor:TextEditor.ContextFlyout>
                         <MenuFlyout>
                             <MenuItem Header="Accept Hunk" Command="{Binding AcceptHunkCommand}"/>
