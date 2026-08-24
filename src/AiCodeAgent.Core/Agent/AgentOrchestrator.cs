@@ -19,6 +19,8 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IPermissionService _permissionService;
     private readonly ICheckpointManager _checkpointManager;
     private readonly IAgentEventBus? _eventBus;
+    private readonly IContextUsageTracker? _usageTracker;
+    private readonly IContextCompactor? _compactor;
 
     public AgentOrchestrator(
         IAiProvider provider,
@@ -28,7 +30,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         ILogger<AgentOrchestrator> logger,
         IPermissionService permissionService,
         ICheckpointManager checkpointManager,
-        IAgentEventBus? eventBus = null)
+        IAgentEventBus? eventBus = null,
+        IContextUsageTracker? usageTracker = null,
+        IContextCompactor? compactor = null)
     {
         _provider = provider;
         _contextManager = contextManager;
@@ -38,6 +42,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         _permissionService = permissionService;
         _checkpointManager = checkpointManager;
         _eventBus = eventBus;
+        _usageTracker = usageTracker;
+        _compactor = compactor;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -112,6 +118,48 @@ public class AgentOrchestrator : IAgentOrchestrator
 
             var messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
             await _contextManager.TrimContextAsync(sessionId, options.MaxTokens).ConfigureAwait(false);
+
+            // Auto-compaction: when the usage tracker reports we've crossed
+            // the soft limit, compact older messages before sending the next
+            // request so we don't overflow the model's context window.
+            if (_usageTracker is not null && _compactor is not null)
+            {
+                await _usageTracker.RefreshAsync(sessionId).ConfigureAwait(false);
+                if (_usageTracker.ShouldCompact(sessionId))
+                {
+                    var autoCompactOptions = new CompactionOptions
+                    {
+                        TargetTokens = Math.Max(1, options.MaxTokens / 2),
+                        KeepRecentMessages = 6,
+                        Focus = userMessage
+                    };
+
+                    CompactionResult? autoResult = null;
+                    try
+                    {
+                        autoResult = await _compactor.CompactAsync(sessionId, autoCompactOptions, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Auto-compaction failed for session {SessionId}", sessionId);
+                    }
+
+                    if (autoResult is { Compacted: true })
+                    {
+                        var compactedEvent = new ContextCompactedEvent(
+                            autoResult.MessagesBefore,
+                            autoResult.MessagesAfter,
+                            autoResult.TokensSaved,
+                            autoResult.Focus);
+                        yield return compactedEvent;
+                        _eventBus?.Publish(compactedEvent);
+
+                        // Refresh messages after compaction
+                        messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
+                    }
+                }
+            }
 
             var request = new CompletionRequest
             {
@@ -451,7 +499,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             if (pendingToolCalls.Count > 0 && currentIterationExecutions.Count > 0 &&
                 currentIterationExecutions.All(te => te.Result.IsError))
             {
-                _logger.LogWarning("All {Count} tool calls in iteration {Iteration} returned errors — breaking to prevent infinite loop",
+                _logger.LogWarning("All {Count} tool calls in iteration {Iteration} returned errors вЂ” breaking to prevent infinite loop",
                     currentIterationExecutions.Count, iteration);
                 break;
             }
@@ -520,7 +568,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             - Prefer editing specific code over rewriting entire files
             - Use git to understand history when helpful
 
-            Important — "write" does not always mean "create a file":
+            Important вЂ” "write" does not always mean "create a file":
             - When the user asks you to "write a plan", "write an outline",
               "write a summary", "write a description", or similar, they want
               you to produce that content as your chat response (text), NOT to

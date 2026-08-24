@@ -158,6 +158,12 @@ public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;
 public record TokenUsageEvent(TokenUsage Usage) : AgentEvent;
 
+/// <summary>Emitted when context is auto-compacted (older messages summarized).</summary>
+public record ContextCompactedEvent(int MessagesBefore, int MessagesAfter, int TokensSaved, string? Focus) : AgentEvent;
+
+/// <summary>Emitted when the thrashing guard stops compaction due to repeated refills.</summary>
+public record ContextThrashingEvent(int Attempts, string Message) : AgentEvent;
+
 // ===== Autonomous Multi-File Agent Events (Feature 4) =====
 
 /// <summary>Emitted when the planner has produced a plan, before execution begins.</summary>
