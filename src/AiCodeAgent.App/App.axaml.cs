@@ -16,6 +16,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Mcp;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
@@ -28,6 +29,7 @@ using AiCodeAgent.Providers.Backend;
 using AiCodeAgent.Tools;
 using AiCodeAgent.Tools.Agent;
 using AiCodeAgent.Tools.Backend;
+using AiCodeAgent.Tools.Mcp;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
 using AiCodeAgent.Tools.Git;
@@ -69,6 +71,24 @@ public partial class App : Application
             var registry = Services.GetRequiredService<IToolRegistry>();
             foreach (var tool in Services.GetServices<ITool>())
                 registry.Register(tool);
+
+            // Initialize MCP connections and register their tools (Feature 08)
+            try
+            {
+                var mcpRegistry = Services.GetRequiredService<IMcpRegistry>();
+                Task.Run(() => mcpRegistry.InitializeAsync()).GetAwaiter().GetResult();
+                var mcpLogger = Services.GetRequiredService<ILogger<McpToolAdapter>>();
+                foreach (var client in mcpRegistry.Clients)
+                {
+                    var tools = Task.Run(() => client.ListToolsAsync()).GetAwaiter().GetResult();
+                    foreach (var toolInfo in tools)
+                        registry.Register(new McpToolAdapter(client, toolInfo, mcpLogger));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"MCP initialization failed: {ex.Message}");
+            }
 
             // Start background workspace indexing (fire-and-forget full scan)
             try
@@ -250,6 +270,23 @@ public partial class App : Application
 
         // Subagent runner (Feature 07)
         services.AddSingleton<ISubagentRunner, SubagentRunner>();
+
+        // MCP connections (Feature 08)
+        var mcpProjectRoot = Directory.GetCurrentDirectory();
+        var mcpConfigs = McpConfigLoader.Load(mcpProjectRoot);
+        services.AddSingleton(mcpConfigs);
+        services.AddSingleton<IMcpRegistry>(sp =>
+        {
+            var loggerFactory = sp.GetService<ILoggerFactory>();
+            var logger = loggerFactory?.CreateLogger<McpRegistry>();
+            var configs = sp.GetRequiredService<List<McpServerConfig>>();
+            return new McpRegistry(
+                configs,
+                cfg => cfg.IsRemote
+                    ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(), loggerFactory?.CreateLogger<HttpMcpClient>())
+                    : new StdioMcpClient(cfg, loggerFactory?.CreateLogger<StdioMcpClient>()),
+                logger);
+        });
 
         // Shared changeset (canonical store for diff hunks)
         services.AddSingleton<SharedChangeset>();

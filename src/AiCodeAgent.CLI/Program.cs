@@ -12,11 +12,13 @@ using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.Backend;
+using AiCodeAgent.Core.Mcp;
 using AiCodeAgent.Tools.Agent;
 using AiCodeAgent.Tools.Backend;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
 using AiCodeAgent.Tools.Git;
+using AiCodeAgent.Tools.Mcp;
 using AiCodeAgent.Tools.Search;
 using AiCodeAgent.Tools.Shell;
 using AiCodeAgent.Tools.Web;
@@ -438,6 +440,23 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // Subagent runner (Feature 07)
     services.AddSingleton<ISubagentRunner, SubagentRunner>();
 
+    // MCP connections (Feature 08)
+    var mcpProjectRoot = string.IsNullOrEmpty(dir) ? Directory.GetCurrentDirectory() : Path.GetFullPath(dir);
+    var mcpConfigs = McpConfigLoader.Load(mcpProjectRoot);
+    services.AddSingleton(mcpConfigs);
+    services.AddSingleton<IMcpRegistry>(sp =>
+    {
+        var loggerFactory = sp.GetService<ILoggerFactory>();
+        var logger = loggerFactory?.CreateLogger<McpRegistry>();
+        var configs = sp.GetRequiredService<List<McpServerConfig>>();
+        return new McpRegistry(
+            configs,
+            cfg => cfg.IsRemote
+                ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(), loggerFactory?.CreateLogger<HttpMcpClient>())
+                : new StdioMcpClient(cfg, loggerFactory?.CreateLogger<StdioMcpClient>()),
+            logger);
+    });
+
     // LSP services
     services.AddSingleton<ILanguageProvider, CSharpLanguageProvider>();
     services.AddSingleton<ILanguageProvider, TypeScriptLanguageProvider>();
@@ -471,6 +490,26 @@ static async Task<ServiceProvider> BuildServiceProvider(
     var registry = sp.GetRequiredService<IToolRegistry>();
     foreach (var tool in sp.GetServices<ITool>())
         registry.Register(tool);
+
+    // Initialize MCP connections and register their tools (Feature 08)
+    try
+    {
+        var mcpRegistry = sp.GetRequiredService<IMcpRegistry>();
+        await mcpRegistry.InitializeAsync();
+        var mcpLogger = sp.GetRequiredService<ILogger<McpToolAdapter>>();
+        foreach (var client in mcpRegistry.Clients)
+        {
+            var tools = await client.ListToolsAsync();
+            foreach (var toolInfo in tools)
+            {
+                registry.Register(new McpToolAdapter(client, toolInfo, mcpLogger));
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Warning: MCP initialization failed: {ex.Message}");
+    }
 
     // Wire the SharedContextStore's index query delegate so agents can
     // query the workspace index for relevant files by name/symbol match.

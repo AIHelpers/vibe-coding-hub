@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AiCodeAgent.Tools\AiCodeAgent.Tools.csproj" />
+    <ProjectReference Include="..\..\src\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

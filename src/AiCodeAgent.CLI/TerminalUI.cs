@@ -3,6 +3,7 @@ using System.Text;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Mcp;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ public class TerminalUI
     private readonly IAutoMemory? _autoMemory;
     private readonly LearningExtractor? _learningExtractor;
     private readonly ISkillRegistry? _skillRegistry;
+    private readonly IMcpRegistry? _mcpRegistry;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -58,7 +60,8 @@ public class TerminalUI
         IProjectMemoryLoader? memoryLoader = null,
         IAutoMemory? autoMemory = null,
         LearningExtractor? learningExtractor = null,
-        ISkillRegistry? skillRegistry = null)
+        ISkillRegistry? skillRegistry = null,
+        IMcpRegistry? mcpRegistry = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -74,6 +77,7 @@ public class TerminalUI
         _autoMemory = autoMemory;
         _learningExtractor = learningExtractor;
         _skillRegistry = skillRegistry;
+        _mcpRegistry = mcpRegistry;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -381,6 +385,10 @@ public class TerminalUI
 
             case var s when s.StartsWith("/automemory edit"):
                 await EditAutoMemoryAsync();
+                return true;
+
+            case "/mcp":
+                await ShowMcpStatusAsync();
                 return true;
 
             case "/tools":
@@ -815,6 +823,40 @@ public class TerminalUI
         Console.WriteLine();
     }
 
+    private async Task ShowMcpStatusAsync()
+    {
+        if (_mcpRegistry == null)
+        {
+            WriteColored("MCP registry is not available.\n", Colors.Error);
+            return;
+        }
+
+        var servers = _mcpRegistry.ListServers();
+        if (servers.Count == 0)
+        {
+            WriteColored("No MCP servers configured. Add servers to .aiagent/mcp.json.\n", Colors.Info);
+            return;
+        }
+
+        WriteColored($"\nMCP Servers ({servers.Count}):\n", Colors.Info);
+        WriteColored($"  {"Name",-20} {"Transport",-10} {"Status",-10} {"Tools"}\n", ConsoleColor.DarkGray);
+        WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
+
+        foreach (var server in servers)
+        {
+            var status = _mcpRegistry.GetStatus(server.Name);
+            var toolCount = _mcpRegistry.GetToolCount(server.Name);
+            var transport = server.IsRemote ? "HTTP/SSE" : "stdio";
+            WriteColored($"  {server.Name,-20} ", Colors.Tool);
+            WriteColored($"{transport,-10} ", ConsoleColor.Gray);
+            WriteColored($"{status,-10} ", status == "Connected" ? Colors.Success : ConsoleColor.DarkGray);
+            WriteColored($"{toolCount}\n", ConsoleColor.Gray);
+        }
+
+        WriteColored("\nMCP tools are automatically merged with built-in tools.\n", Colors.Info);
+        await Task.CompletedTask;
+    }
+
     private void PrintSkills()
     {
         if (_skillRegistry == null)
@@ -886,7 +928,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /mcp /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
