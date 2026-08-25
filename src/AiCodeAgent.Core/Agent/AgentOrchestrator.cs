@@ -22,6 +22,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IContextUsageTracker? _usageTracker;
     private readonly IContextCompactor? _compactor;
     private readonly ISkillRegistry? _skillRegistry;
+    private readonly IHookRunner? _hookRunner;
 
     public AgentOrchestrator(
         IAiProvider provider,
@@ -34,7 +35,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         IAgentEventBus? eventBus = null,
         IContextUsageTracker? usageTracker = null,
         IContextCompactor? compactor = null,
-        ISkillRegistry? skillRegistry = null)
+        ISkillRegistry? skillRegistry = null,
+        IHookRunner? hookRunner = null)
     {
         _provider = provider;
         _contextManager = contextManager;
@@ -47,6 +49,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _usageTracker = usageTracker;
         _compactor = compactor;
         _skillRegistry = skillRegistry;
+        _hookRunner = hookRunner;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -92,6 +95,23 @@ public class AgentOrchestrator : IAgentOrchestrator
         var statusEvent = new StatusUpdateEvent("Processing", "Starting agent loop");
         yield return statusEvent;
         _eventBus?.Publish(statusEvent);
+
+        // Run PreSessionStart hooks
+        if (_hookRunner is not null)
+        {
+            var preSessionResult = await _hookRunner.RunAsync(HookEvent.PreSessionStart, new HookContext
+            {
+                Event = HookEvent.PreSessionStart,
+                SessionId = sessionId,
+                WorkingDirectory = options.WorkingDirectory
+            }, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(preSessionResult.CombinedOutput))
+            {
+                var hookEvent = new StatusUpdateEvent("Hook", preSessionResult.CombinedOutput);
+                yield return hookEvent;
+                _eventBus?.Publish(hookEvent);
+            }
+        }
 
         // Add user message to context
         await _contextManager.AddMessageAsync(sessionId, new Message
@@ -431,40 +451,109 @@ public class AgentOrchestrator : IAgentOrchestrator
                     }
                 }
 
-                // Execute tool
-                var startEvent = new ToolCallStartEvent(toolCall);
-                yield return startEvent;
-                _eventBus?.Publish(startEvent);
+                // Run PreToolUse hooks (may block)
+                var preToolDenied = false;
+                if (_hookRunner is not null)
+                {
+                    var preToolResult = await _hookRunner.RunAsync(HookEvent.PreToolUse, new HookContext
+                    {
+                        Event = HookEvent.PreToolUse,
+                        SessionId = sessionId,
+                        ToolCall = toolCall,
+                        WorkingDirectory = options.WorkingDirectory
+                    }, cancellationToken).ConfigureAwait(false);
 
-                var statusEvent3 = new StatusUpdateEvent($"Executing {toolCall.Name}");
-                yield return statusEvent3;
-                _eventBus?.Publish(statusEvent3);
+                    if (preToolResult.Denied)
+                    {
+                        preToolDenied = true;
+                        var denyResult = new ToolResult
+                        {
+                            ToolCallId = toolCall.Id,
+                            ToolName = toolCall.Name,
+                            Content = $"Tool blocked by hook: {preToolResult.CombinedOutput}",
+                            IsError = true
+                        };
+                        toolExecutions.Add(new ToolExecution { Call = toolCall, Result = denyResult, Duration = TimeSpan.Zero });
+                        var denyEndEvent = new ToolCallEndEvent(toolCall, denyResult, TimeSpan.Zero);
+                        yield return denyEndEvent;
+                        _eventBus?.Publish(denyEndEvent);
+
+                        await _contextManager.AddMessageAsync(sessionId, new Message
+                        {
+                            Role = MessageRole.Tool,
+                            Content = denyResult.Content,
+                            ToolCallId = toolCall.Id,
+                            Name = toolCall.Name
+                        }).ConfigureAwait(false);
+                    }
+                }
 
                 ToolResult toolResult;
                 var toolStart = DateTime.UtcNow;
 
-                try
+                if (!preToolDenied)
                 {
-                    toolResult = await tool.ExecuteAsync(toolCall, execContext).ConfigureAwait(false);
-                    toolResult = toolResult with { ToolCallId = toolCall.Id };
+                    // Execute tool
+                    var startEvent = new ToolCallStartEvent(toolCall);
+                    yield return startEvent;
+                    _eventBus?.Publish(startEvent);
+
+                    var statusEvent3 = new StatusUpdateEvent($"Executing {toolCall.Name}");
+                    yield return statusEvent3;
+                    _eventBus?.Publish(statusEvent3);
+
+                    try
+                    {
+                        toolResult = await tool.ExecuteAsync(toolCall, execContext).ConfigureAwait(false);
+                        toolResult = toolResult with { ToolCallId = toolCall.Id };
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Tool execution failed: {Tool}", toolCall.Name);
+                        toolResult = new ToolResult
+                        {
+                            ToolCallId = toolCall.Id,
+                            ToolName = toolCall.Name,
+                            Content = $"Tool error: {ex.Message}",
+                            IsError = true
+                        };
+                    }
+
+                    var execDuration = DateTime.UtcNow - toolStart;
+                    toolExecutions.Add(new ToolExecution { Call = toolCall, Result = toolResult, Duration = execDuration });
+                    var toolEndEvent = new ToolCallEndEvent(toolCall, toolResult, execDuration);
+                    yield return toolEndEvent;
+                    _eventBus?.Publish(toolEndEvent);
+
+                    // Run PostToolUse hooks
+                    if (_hookRunner is not null)
+                    {
+                        var postToolResult = await _hookRunner.RunAsync(HookEvent.PostToolUse, new HookContext
+                        {
+                            Event = HookEvent.PostToolUse,
+                            SessionId = sessionId,
+                            ToolCall = toolCall,
+                            ToolResult = toolResult,
+                            WorkingDirectory = options.WorkingDirectory
+                        }, cancellationToken).ConfigureAwait(false);
+                        if (!string.IsNullOrWhiteSpace(postToolResult.CombinedOutput))
+                        {
+                            var hookStatus = new StatusUpdateEvent("Hook", postToolResult.CombinedOutput);
+                            yield return hookStatus;
+                            _eventBus?.Publish(hookStatus);
+                        }
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "Tool execution failed: {Tool}", toolCall.Name);
                     toolResult = new ToolResult
                     {
                         ToolCallId = toolCall.Id,
                         ToolName = toolCall.Name,
-                        Content = $"Tool error: {ex.Message}",
+                        Content = "Tool blocked by hook",
                         IsError = true
                     };
                 }
-
-                var execDuration = DateTime.UtcNow - toolStart;
-                toolExecutions.Add(new ToolExecution { Call = toolCall, Result = toolResult, Duration = execDuration });
-                var toolEndEvent = new ToolCallEndEvent(toolCall, toolResult, execDuration);
-                yield return toolEndEvent;
-                _eventBus?.Publish(toolEndEvent);
 
                 // Emit diff event for write operations (single-agent mode)
                 if (tool.Risk == RiskLevel.Write && !toolResult.IsError)
@@ -520,7 +609,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         var finished = new AgentFinishedEvent(response);
         yield return finished;
         _eventBus?.Publish(finished);
-        
+
+        // Run PostSessionEnd hooks
+        if (_hookRunner is not null)
+        {
+            await _hookRunner.RunAsync(HookEvent.PostSessionEnd, new HookContext
+            {
+                Event = HookEvent.PostSessionEnd,
+                SessionId = sessionId,
+                WorkingDirectory = options.WorkingDirectory
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
         var doneEvent = new StatusUpdateEvent("Done", "Agent completed");
         yield return doneEvent;
         _eventBus?.Publish(doneEvent);

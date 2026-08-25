@@ -271,6 +271,17 @@ public partial class App : Application
         // Subagent runner (Feature 07)
         services.AddSingleton<ISubagentRunner, SubagentRunner>();
 
+        // Hooks (Feature 09)
+        services.AddSingleton<IHookRegistry>(sp =>
+        {
+            var workdir = Directory.GetCurrentDirectory();
+            var registry = new HookRegistry(sp.GetService<ILogger<HookRegistry>>());
+            try { registry.LoadAsync(workdir).GetAwaiter().GetResult(); } catch { /* best-effort */ }
+            return registry;
+        });
+        services.AddSingleton<IHookRunner>(sp =>
+            new HookRunner(sp.GetRequiredService<IHookRegistry>(), sp.GetService<ILogger<HookRunner>>()));
+
         // MCP connections (Feature 08)
         var mcpProjectRoot = Directory.GetCurrentDirectory();
         var mcpConfigs = McpConfigLoader.Load(mcpProjectRoot);

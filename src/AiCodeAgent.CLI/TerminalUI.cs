@@ -27,6 +27,7 @@ public class TerminalUI
     private readonly LearningExtractor? _learningExtractor;
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IMcpRegistry? _mcpRegistry;
+    private readonly IHookRunner? _hookRunner;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -61,7 +62,8 @@ public class TerminalUI
         IAutoMemory? autoMemory = null,
         LearningExtractor? learningExtractor = null,
         ISkillRegistry? skillRegistry = null,
-        IMcpRegistry? mcpRegistry = null)
+        IMcpRegistry? mcpRegistry = null,
+        IHookRunner? hookRunner = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -78,6 +80,7 @@ public class TerminalUI
         _learningExtractor = learningExtractor;
         _skillRegistry = skillRegistry;
         _mcpRegistry = mcpRegistry;
+        _hookRunner = hookRunner;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -393,6 +396,10 @@ public class TerminalUI
 
             case "/tools":
                 PrintTools();
+                return true;
+
+            case "/hooks":
+                PrintHooks();
                 return true;
 
             case "/skills":
@@ -928,10 +935,39 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /mcp /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
+    }
+
+    private void PrintHooks()
+    {
+        if (_hookRunner == null)
+        {
+            WriteColored("Hook runner is not available.\n", Colors.Error);
+            return;
+        }
+
+        var hooks = _hookRunner.ListHooks();
+        if (hooks.Count == 0)
+        {
+            WriteColored("No hooks configured. Add hooks to .aiagent/settings.json under \"hooks\".\n", Colors.Info);
+            return;
+        }
+
+        WriteColored($"\nConfigured Hooks ({hooks.Count}):\n", Colors.Info);
+        WriteColored($"  {"Name",-20} {"Event",-15} {"Blocking",-10} {"Timeout",-8} Filter\n", ConsoleColor.DarkGray);
+        WriteColored(new string('-', 90) + "\n", ConsoleColor.DarkGray);
+        foreach (var hook in hooks)
+        {
+            WriteColored($"  {hook.Name,-20} ", Colors.Tool);
+            WriteColored($"{hook.Event,-15} ", ConsoleColor.Gray);
+            WriteColored($"{(hook.Blocking ? "yes" : "no"),-10} ", ConsoleColor.Gray);
+            WriteColored($"{hook.TimeoutSeconds}s".PadRight(9), ConsoleColor.Gray);
+            WriteColored($"{hook.ToolFilter ?? "-"}\n", ConsoleColor.DarkGray);
+        }
+        WriteColored("\nHooks are loaded from ~/.aiagent/settings.json and .aiagent/settings.json.\n", Colors.Info);
     }
 
     private static void PrintPrompt(string workDir)
