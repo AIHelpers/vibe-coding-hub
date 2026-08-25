@@ -491,6 +491,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
             workspaceRoot,
             sp.GetRequiredService<ILogger<SymbolIndexer>>()));
 
+    // Model registry (Feature 11)
+    services.AddSingleton<ModelRegistry>();
+
     // UI
     services.AddSingleton<TerminalUI>();
     services.AddSingleton<SingleRunMode>();

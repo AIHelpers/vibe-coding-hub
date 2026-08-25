@@ -4,6 +4,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Mcp;
+using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using Microsoft.Extensions.Logging;
@@ -29,6 +30,8 @@ public class TerminalUI
     private readonly IMcpRegistry? _mcpRegistry;
     private readonly IHookRunner? _hookRunner;
     private readonly IPermissionManager? _permissionManager;
+    private readonly ConfigurationService? _configurationService;
+    private readonly ModelRegistry? _modelRegistry;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -65,7 +68,9 @@ public class TerminalUI
         ISkillRegistry? skillRegistry = null,
         IMcpRegistry? mcpRegistry = null,
         IHookRunner? hookRunner = null,
-        IPermissionManager? permissionManager = null)
+        IPermissionManager? permissionManager = null,
+        ConfigurationService? configurationService = null,
+        ModelRegistry? modelRegistry = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -84,6 +89,8 @@ public class TerminalUI
         _mcpRegistry = mcpRegistry;
         _hookRunner = hookRunner;
         _permissionManager = permissionManager;
+        _configurationService = configurationService;
+        _modelRegistry = modelRegistry;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -418,9 +425,16 @@ public class TerminalUI
                 Environment.Exit(0);
                 return true;
 
+            case "/model":
+                await ShowCurrentModelAsync();
+                return true;
+
             case var s when s.StartsWith("/model "):
-                var model = s[7..].Trim();
-                WriteColored($"Model set to: {model}\n", Colors.Success);
+                await SetModelAsync(s[7..].Trim());
+                return true;
+
+            case "/models":
+                await ListModelsAsync();
                 return true;
 
             case var s when s.StartsWith("/cd "):
@@ -938,7 +952,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
@@ -971,6 +985,127 @@ public class TerminalUI
             WriteColored($"{hook.ToolFilter ?? "-"}\n", ConsoleColor.DarkGray);
         }
         WriteColored("\nHooks are loaded from ~/.aiagent/settings.json and .aiagent/settings.json.\n", Colors.Info);
+    }
+
+    /// <summary>Displays the currently selected model (or alias) for the active provider.</summary>
+    private async Task ShowCurrentModelAsync()
+    {
+        var current = _options.Model ?? _configurationService?.Config.Ui?.SelectedModel ?? "(default)";
+        WriteColored($"\nCurrent model: {current}\n", Colors.Info);
+
+        if (_modelRegistry != null && _configurationService != null)
+        {
+            var provider = _configurationService.Config.DefaultProvider;
+            var resolved = _modelRegistry.Resolve(current, provider);
+            if (resolved != null && !string.Equals(resolved.Id, current, StringComparison.OrdinalIgnoreCase))
+            {
+                WriteColored($"  Resolved alias '{current}' -> '{resolved.Id}' (provider: {resolved.Provider})\n", ConsoleColor.DarkGray);
+            }
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Sets the active model (alias or concrete id) and persists the selection.</summary>
+    private async Task SetModelAsync(string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            WriteColored("Usage: /model <name|alias>  (e.g. /model Auto, /model gpt-4o)\n", Colors.Error);
+            return;
+        }
+
+        string resolvedId = model;
+        if (_modelRegistry != null && _configurationService != null)
+        {
+            var provider = _configurationService.Config.DefaultProvider;
+            var resolved = _modelRegistry.Resolve(model, provider);
+            if (resolved != null)
+            {
+                resolvedId = resolved.Id;
+                WriteColored($"Resolved '{model}' -> '{resolvedId}' (provider: {resolved.Provider}, " +
+                             $"context: {resolved.ContextWindow:N0}, max output: {resolved.MaxOutputTokens:N0})\n",
+                             ConsoleColor.DarkGray);
+            }
+            else
+            {
+                WriteColored($"Note: '{model}' is not in the model registry; passing through to provider as-is.\n",
+                             ConsoleColor.DarkGray);
+            }
+        }
+
+        _options = _options with { Model = resolvedId };
+
+        if (_configurationService != null)
+        {
+            try
+            {
+                _configurationService.Config.Ui ??= new UiConfiguration();
+                _configurationService.Config.Ui.SelectedModel = model;
+                await _configurationService.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Failed to persist SelectedModel");
+            }
+        }
+
+        WriteColored($"Model set to: {resolvedId}\n", Colors.Success);
+    }
+
+    /// <summary>Lists all models known to the registry, grouped by alias and provider.</summary>
+    private async Task ListModelsAsync()
+    {
+        if (_modelRegistry == null)
+        {
+            WriteColored("Model registry is not available.\n", Colors.Error);
+            return;
+        }
+
+        var provider = _configurationService?.Config.DefaultProvider;
+        var current = _options.Model ?? _configurationService?.Config.Ui?.SelectedModel;
+
+        WriteColored($"\nAvailable models{(provider != null ? $" (provider: {provider})" : "")}:\n", Colors.Info);
+        WriteColored($"  {"Alias",-8} {"Id",-36} {"Provider",-12} {"Ctx",-10} {"Out",-8}\n", ConsoleColor.DarkGray);
+        WriteColored(new string('-', 78) + "\n", ConsoleColor.DarkGray);
+
+        var shown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var alias in _modelRegistry.ListAliases())
+        {
+            foreach (var m in _modelRegistry.ListForAlias(alias))
+            {
+                if (shown.Add(m.Id))
+                {
+                    var marker = string.Equals(m.Id, current, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
+                    WriteColored($"{marker} ", Colors.Success);
+                    WriteColored($"{m.Alias,-7} ", Colors.Tool);
+                    WriteColored($"{m.Id,-36} ", ConsoleColor.Gray);
+                    WriteColored($"{m.Provider,-12} ", ConsoleColor.Gray);
+                    WriteColored($"{m.ContextWindow,8:N0} ", ConsoleColor.DarkGray);
+                    WriteColored($"{m.MaxOutputTokens,6:N0}\n", ConsoleColor.DarkGray);
+                }
+            }
+        }
+
+        if (provider != null)
+        {
+            foreach (var m in _modelRegistry.ListForProvider(provider))
+            {
+                if (shown.Add(m.Id))
+                {
+                    var marker = string.Equals(m.Id, current, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
+                    WriteColored($"{marker} ", Colors.Success);
+                    WriteColored($"{(m.Alias ?? "-"),-7} ", Colors.Tool);
+                    WriteColored($"{m.Id,-36} ", ConsoleColor.Gray);
+                    WriteColored($"{m.Provider,-12} ", ConsoleColor.Gray);
+                    WriteColored($"{m.ContextWindow,8:N0} ", ConsoleColor.DarkGray);
+                    WriteColored($"{m.MaxOutputTokens,6:N0}\n", ConsoleColor.DarkGray);
+                }
+            }
+        }
+
+        WriteColored("\nUse /model <alias|id> to switch. Aliases: Auto, Fast, Smart.\n", Colors.Info);
+        await Task.CompletedTask;
     }
 
     private static void PrintPrompt(string workDir)

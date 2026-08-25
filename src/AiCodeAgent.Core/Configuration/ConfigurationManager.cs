@@ -96,6 +96,16 @@ public class ConfigurationService
         Saved?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Persists the user's selected model (alias or concrete id) into
+    /// <see cref="UiConfiguration.SelectedModel"/> and saves configuration.
+    /// </summary>
+    public async Task SetSelectedModelAsync(string model)
+    {
+        _config.Ui.SelectedModel = model;
+        await SaveAsync();
+    }
+
     public void SetApiKey(string provider, string apiKey)
     {
         // Case-insensitive lookup so "Ollama" matches the lowercase key "ollama"
