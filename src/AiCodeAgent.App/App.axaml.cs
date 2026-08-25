@@ -26,6 +26,7 @@ using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.Backend;
 using AiCodeAgent.Tools;
+using AiCodeAgent.Tools.Agent;
 using AiCodeAgent.Tools.Backend;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
@@ -245,6 +246,10 @@ public partial class App : Application
         services.AddSingleton<ITool, GoToDefinitionTool>();
         services.AddSingleton<ITool, GetDiagnosticsTool>();
         services.AddSingleton<ITool, ScaffoldBackendTool>();
+        services.AddSingleton<ITool, SpawnSubagentTool>();
+
+        // Subagent runner (Feature 07)
+        services.AddSingleton<ISubagentRunner, SubagentRunner>();
 
         // Shared changeset (canonical store for diff hunks)
         services.AddSingleton<SharedChangeset>();

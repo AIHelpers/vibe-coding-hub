@@ -12,6 +12,7 @@ using AiCodeAgent.LanguageServices.Models;
 using AiCodeAgent.LanguageServices.Providers;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.Backend;
+using AiCodeAgent.Tools.Agent;
 using AiCodeAgent.Tools.Backend;
 using AiCodeAgent.Tools.Code;
 using AiCodeAgent.Tools.FileSystem;
@@ -432,6 +433,10 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, GoToDefinitionTool>();
     services.AddSingleton<ITool, GetDiagnosticsTool>();
     services.AddSingleton<ITool, ScaffoldBackendTool>();
+    services.AddSingleton<ITool, SpawnSubagentTool>();
+
+    // Subagent runner (Feature 07)
+    services.AddSingleton<ISubagentRunner, SubagentRunner>();
 
     // LSP services
     services.AddSingleton<ILanguageProvider, CSharpLanguageProvider>();
