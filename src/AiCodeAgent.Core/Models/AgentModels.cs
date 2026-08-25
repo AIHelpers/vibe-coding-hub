@@ -46,6 +46,62 @@ public record PermissionSettings
     public string? ProjectAllowlistPath { get; init; }
 }
 
+/// <summary>
+/// Scope at which a permission setting applies. More specific scopes
+/// override broader ones (Personal > Project > Organization).
+/// </summary>
+public enum PermissionScope
+{
+    /// <summary>Organization-wide policy (lowest precedence).</summary>
+    Organization = 0,
+    /// <summary>Project-specific setting.</summary>
+    Project = 1,
+    /// <summary>Personal user preference (highest precedence).</summary>
+    Personal = 2
+}
+
+/// <summary>
+/// Outcome of a permission check for a single action.
+/// </summary>
+public enum PermissionDecision
+{
+    /// <summary>Action is explicitly allowed without asking.</summary>
+    Allow,
+    /// <summary>Action must prompt the user for approval.</summary>
+    Ask,
+    /// <summary>Action is blocked and must not run.</summary>
+    Deny
+}
+
+/// <summary>
+/// A rule that allows a specific command or tool signature without
+/// prompting, e.g. <c>npm test</c> or <c>git status</c>.
+/// </summary>
+public record PermissionRule
+{
+    /// <summary>Tool name the rule applies to (e.g. "execute_command").</summary>
+    public string ToolName { get; init; } = string.Empty;
+    /// <summary>
+    /// Command signature pattern. If empty, matches any command for the
+    /// tool. Supports simple prefix matching, e.g. "npm test".
+    /// </summary>
+    public string CommandPattern { get; init; } = string.Empty;
+    /// <summary>Scope at which the rule was declared.</summary>
+    public PermissionScope Scope { get; init; } = PermissionScope.Personal;
+}
+
+/// <summary>
+/// Permission configuration scoped to a particular level
+/// (organization, project, personal).
+/// </summary>
+public record ScopedPermissionSettings
+{
+    public PermissionScope Scope { get; init; } = PermissionScope.Personal;
+    public PermissionMode Mode { get; init; } = PermissionMode.Ask;
+    public List<PermissionRule> AllowedCommands { get; init; } = new();
+    public bool AlwaysAllowRead { get; init; } = true;
+}
+
 public record CheckpointEntry
 {
     public string CheckpointId { get; init; } = string.Empty;

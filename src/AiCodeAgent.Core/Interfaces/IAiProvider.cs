@@ -117,3 +117,31 @@ public interface IPermissionService
     PermissionMode GetMode(string? agentId = null);
     PermissionMode CurrentMode { get; }
 }
+
+/// <summary>
+/// Higher-level permission manager (Feature 10). Wraps <see cref="IPermissionService"/>
+/// with a classifier, allow-rules, and scoped settings (org → project → personal).
+/// The orchestrator and tools consult this before running file edits and shell
+/// commands. Returns a <see cref="PermissionDecision"/> so callers can
+/// distinguish "block" from "ask".
+/// </summary>
+public interface IPermissionManager
+{
+    /// <summary>Current effective mode (after applying scoped settings).</summary>
+    Task<PermissionMode> GetModeAsync(string? agentId = null, CancellationToken ct = default);
+    /// <summary>Set the mode at a particular scope.</summary>
+    Task SetModeAsync(PermissionMode mode, PermissionScope scope = PermissionScope.Personal, string? agentId = null, CancellationToken ct = default);
+    /// <summary>Cycle to the next mode (used by Shift+Tab in the CLI).</summary>
+    Task<PermissionMode> CycleModeAsync(string? agentId = null, CancellationToken ct = default);
+    /// <summary>
+    /// Check whether an action may run without asking. Returns
+    /// <see cref="PermissionDecision.Allow"/> to skip the prompt,
+    /// <see cref="PermissionDecision.Ask"/> to prompt the user, and
+    /// <see cref="PermissionDecision.Deny"/> to block outright.
+    /// </summary>
+    Task<PermissionDecision> CanExecuteAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null, CancellationToken ct = default);
+    /// <summary>Add a persistent allow-rule at a given scope.</summary>
+    Task AllowAsync(PermissionRule rule, CancellationToken ct = default);
+    /// <summary>Load scoped settings from a settings file (e.g. ~/.aiagent/settings.json).</summary>
+    Task LoadScopedSettingsAsync(string? settingsPath = null, CancellationToken ct = default);
+}

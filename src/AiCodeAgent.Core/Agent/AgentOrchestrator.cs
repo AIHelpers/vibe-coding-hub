@@ -23,6 +23,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IContextCompactor? _compactor;
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IHookRunner? _hookRunner;
+    private readonly IPermissionManager? _permissionManager;
 
     public AgentOrchestrator(
         IAiProvider provider,
@@ -36,7 +37,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         IContextUsageTracker? usageTracker = null,
         IContextCompactor? compactor = null,
         ISkillRegistry? skillRegistry = null,
-        IHookRunner? hookRunner = null)
+        IHookRunner? hookRunner = null,
+        IPermissionManager? permissionManager = null)
     {
         _provider = provider;
         _contextManager = contextManager;
@@ -50,6 +52,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _compactor = compactor;
         _skillRegistry = skillRegistry;
         _hookRunner = hookRunner;
+        _permissionManager = permissionManager;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -327,7 +330,45 @@ public class AgentOrchestrator : IAgentOrchestrator
                 // For write/execute operations, check permissions
                 if (tool.Risk != RiskLevel.Read)
                 {
-                    var isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options, options.AgentId);
+                    // Feature 10: consult the permission manager first. When it
+                    // returns Allow we skip the approval dialog entirely; when
+                    // Deny we short-circuit with a tool error; when Ask we fall
+                    // back to the existing approval flow.
+                    var managerDecision = _permissionManager?.CanExecuteAsync(toolCall, tool.Risk, options, options.AgentId, cancellationToken).GetAwaiter().GetResult();
+                    bool isApproved;
+                    if (managerDecision == PermissionDecision.Allow)
+                    {
+                        isApproved = true;
+                    }
+                    else if (managerDecision == PermissionDecision.Deny)
+                    {
+                        // Build a denied result and continue.
+                        var mgrDeniedResult = new ToolResult
+                        {
+                            ToolCallId = toolCall.Id,
+                            ToolName = toolCall.Name,
+                            Content = $"Permission denied by permission manager (mode-based decision). {toolCall.Name} not executed.",
+                            IsError = true
+                        };
+                        toolExecutions.Add(new ToolExecution { Call = toolCall, Result = mgrDeniedResult, Duration = TimeSpan.Zero });
+                        var mgrDeniedEndEvent = new ToolCallEndEvent(toolCall, mgrDeniedResult, TimeSpan.Zero);
+                        yield return mgrDeniedEndEvent;
+                        _eventBus?.Publish(mgrDeniedEndEvent);
+
+                        await _contextManager.AddMessageAsync(sessionId, new Message
+                        {
+                            Role = MessageRole.Tool,
+                            Content = mgrDeniedResult.Content,
+                            ToolCallId = toolCall.Id,
+                            Name = toolCall.Name
+                        }).ConfigureAwait(false);
+                        continue;
+                    }
+                    else
+                    {
+                        isApproved = await _permissionService.RequestApprovalAsync(toolCall, tool.Risk, options, options.AgentId);
+                    }
+
                     if (!isApproved)
                     {
                         // In Plan mode, non-Read tools are silently denied

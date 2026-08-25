@@ -28,6 +28,7 @@ public class TerminalUI
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IMcpRegistry? _mcpRegistry;
     private readonly IHookRunner? _hookRunner;
+    private readonly IPermissionManager? _permissionManager;
     private string _sessionId = Guid.NewGuid().ToString();
     private string _taskTitle = "Untitled Task";
     private AgentOptions _options = null!;
@@ -63,7 +64,8 @@ public class TerminalUI
         LearningExtractor? learningExtractor = null,
         ISkillRegistry? skillRegistry = null,
         IMcpRegistry? mcpRegistry = null,
-        IHookRunner? hookRunner = null)
+        IHookRunner? hookRunner = null,
+        IPermissionManager? permissionManager = null)
     {
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -81,6 +83,7 @@ public class TerminalUI
         _skillRegistry = skillRegistry;
         _mcpRegistry = mcpRegistry;
         _hookRunner = hookRunner;
+        _permissionManager = permissionManager;
     }
 
     public Task RunAsync(AgentOptions options, string? sessionId = null)
@@ -982,7 +985,7 @@ public class TerminalUI
         Console.ResetColor();
     }
 
-    private static string ReadLineWithHistory(List<string> history, ref int historyIndex)
+    private string ReadLineWithHistory(List<string> history, ref int historyIndex)
     {
         var buffer = new StringBuilder();
         var pos = 0;
@@ -1028,6 +1031,19 @@ public class TerminalUI
                 case ConsoleKey.RightArrow when pos < buffer.Length:
                     Console.SetCursorPosition(Console.CursorLeft + 1, Console.CursorTop);
                     pos++;
+                    break;
+
+                case ConsoleKey.Tab:
+                    // Shift+Tab cycles permission modes (Feature 10).
+                    if ((key.Modifiers & ConsoleModifiers.Shift) != 0 && _permissionManager != null)
+                    {
+                        var newMode = _permissionManager.CycleModeAsync().GetAwaiter().GetResult();
+                        _options = _options with { PermissionMode = newMode };
+                        Console.Write("\r\u001b[2K");
+                        WriteColored($"Mode: {newMode}\n", Colors.Success);
+                        PrintPrompt(_options.WorkingDirectory);
+                        RedrawLine(buffer.ToString(), pos);
+                    }
                     break;
 
                 case ConsoleKey.UpArrow when history.Count > 0:
