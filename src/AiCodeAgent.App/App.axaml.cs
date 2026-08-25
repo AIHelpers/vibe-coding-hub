@@ -254,8 +254,14 @@ public partial class App : Application
 
         // Register tools
         services.AddSingleton<ITool, ReadFileTool>();
-        services.AddSingleton<ITool, WriteFileTool>();
-        services.AddSingleton<ITool, EditFileTool>();
+        services.AddSingleton<ITool>(sp =>
+            new WriteFileTool(
+                sp.GetRequiredService<ILogger<WriteFileTool>>(),
+                sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
+        services.AddSingleton<ITool>(sp =>
+            new EditFileTool(
+                sp.GetRequiredService<ILogger<EditFileTool>>(),
+                sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
         services.AddSingleton<ITool, ListDirectoryTool>();
         services.AddSingleton<ITool, GrepTool>();
         services.AddSingleton<ITool, ExecuteCommandTool>();
@@ -307,6 +313,7 @@ public partial class App : Application
         services.AddSingleton<ILanguageProvider, TypeScriptLanguageProvider>();
         services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
         services.AddSingleton<LanguageProviderRegistry>();
+        services.AddSingleton<AfterEditDiagnosticsReporter>();
         services.AddSingleton<LspDocumentService>();
 
         // Workspace indexing (Priority 4)

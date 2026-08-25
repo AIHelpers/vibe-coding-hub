@@ -2,16 +2,27 @@ using System.Text;
 using System.Text.RegularExpressions;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
+using AiCodeAgent.Tools.Code;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Tools.FileSystem;
 
 /// <summary>
-/// Targeted file editing - replacing specific fragments
+/// Targeted file editing - replacing specific fragments.
+/// After a successful edit, surfaces live LSP diagnostics (type errors,
+/// warnings) to the agent so it can react immediately.
 /// </summary>
 public class EditFileTool : BaseTool
 {
+    private readonly AfterEditDiagnosticsReporter? _diagnosticsReporter;
+
     public EditFileTool(ILogger<EditFileTool> logger) : base(logger) { }
+
+    public EditFileTool(ILogger<EditFileTool> logger, AfterEditDiagnosticsReporter diagnosticsReporter)
+        : base(logger)
+    {
+        _diagnosticsReporter = diagnosticsReporter;
+    }
 
     public override string Name => "edit_file";
     public override string Description =>
@@ -93,7 +104,10 @@ public class EditFileTool : BaseTool
             try { File.Delete(backupPath); } catch { /* Best effort cleanup */ }
 
             var diff = GenerateDiff(content, newContent, path);
-            return Success($"Successfully edited {path}.\n\n{diff}");
+
+            // Surface live LSP diagnostics (type errors/warnings) after the edit.
+            var diagnostics = await ReportDiagnosticsAsync(resolvedPath, newContent, context);
+            return Success($"Successfully edited {path}.\n\n{diff}{diagnostics}");
         }
         catch (Exception ex)
         {
@@ -151,5 +165,21 @@ public class EditFileTool : BaseTool
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Surface live LSP diagnostics after the edit, if a reporter is configured.
+    /// </summary>
+    private async Task<string> ReportDiagnosticsAsync(
+        string resolvedPath, string newContent, AgentExecutionContext context)
+    {
+        if (_diagnosticsReporter == null)
+            return string.Empty;
+
+        var workspaceRoot = string.IsNullOrEmpty(context.WorkingDirectory)
+            ? Directory.GetCurrentDirectory()
+            : context.WorkingDirectory;
+
+        return await _diagnosticsReporter.ReportAsync(resolvedPath, newContent, workspaceRoot);
     }
 }

@@ -1,6 +1,7 @@
 using System.Text;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
+using AiCodeAgent.Tools.Code;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Tools.FileSystem;
@@ -10,7 +11,15 @@ public class WriteFileTool : BaseTool
     private const int MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB max file size
     private const int MaxContentLength = 1_000_000; // 1M characters max content
 
+    private readonly AfterEditDiagnosticsReporter? _diagnosticsReporter;
+
     public WriteFileTool(ILogger<WriteFileTool> logger) : base(logger) { }
+
+    public WriteFileTool(ILogger<WriteFileTool> logger, AfterEditDiagnosticsReporter diagnosticsReporter)
+        : base(logger)
+    {
+        _diagnosticsReporter = diagnosticsReporter;
+    }
 
     public override string Name => "write_file";
     public override string Description =>
@@ -74,7 +83,18 @@ public class WriteFileTool : BaseTool
             var lines = content.Split('\n').Length;
             var action = append ? "Appended" : (File.Exists(resolvedPath) ? "Updated" : "Created");
 
-            return Success($"{action} {path} ({lines} lines, {contentBytes:N0} bytes)");
+            // Surface live LSP diagnostics (type errors/warnings) after the write.
+            // Only for non-append writes, since append produces partial content.
+            var diagnostics = string.Empty;
+            if (!append && _diagnosticsReporter != null)
+            {
+                var workspaceRoot = string.IsNullOrEmpty(context.WorkingDirectory)
+                    ? Directory.GetCurrentDirectory()
+                    : context.WorkingDirectory;
+                diagnostics = await _diagnosticsReporter.ReportAsync(resolvedPath, content, workspaceRoot);
+            }
+
+            return Success($"{action} {path} ({lines} lines, {contentBytes:N0} bytes){diagnostics}");
         }
         catch (Exception ex)
         {

@@ -423,8 +423,14 @@ static async Task<ServiceProvider> BuildServiceProvider(
 
     // Register tools
     services.AddSingleton<ITool, ReadFileTool>();
-    services.AddSingleton<ITool, WriteFileTool>();
-    services.AddSingleton<ITool, EditFileTool>();
+    services.AddSingleton<ITool>(sp =>
+        new WriteFileTool(
+            sp.GetRequiredService<ILogger<WriteFileTool>>(),
+            sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
+    services.AddSingleton<ITool>(sp =>
+        new EditFileTool(
+            sp.GetRequiredService<ILogger<EditFileTool>>(),
+            sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
     services.AddSingleton<ITool, ListDirectoryTool>();
     services.AddSingleton<ITool, GrepTool>();
     services.AddSingleton<ITool, ExecuteCommandTool>();
@@ -473,6 +479,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ILanguageProvider, TypeScriptLanguageProvider>();
     services.AddSingleton<ILanguageProvider, PythonLanguageProvider>();
     services.AddSingleton<LanguageProviderRegistry>();
+    services.AddSingleton<AfterEditDiagnosticsReporter>();
 
     // Workspace indexing (Priority 4)
     var workspaceRoot = DetectWorkspaceRootForIndexing(dir);
