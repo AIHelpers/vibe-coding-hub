@@ -82,19 +82,29 @@ public partial class EditorView : UserControl
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
 
+        // Stop tracking Document replacements on the previously adopted tab
+        if (_activeTab != null)
+        {
+            _activeTab.PropertyChanged -= OnActiveTabPropertyChanged;
+        }
+
         _viewModel = DataContext as EditorPaneViewModel;
+        _activeTab = _viewModel?.ActiveTab;
 
         if (_viewModel != null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-            _activeTab = _viewModel.ActiveTab;
-            UpdateEditorDocument();
         }
-        else
+
+        // The adopted tab must also be tracked: LoadAsync/ReloadAsync replace the
+        // TextDocument instance, and setting ActiveTab to the same tab instance
+        // (preview reuse) raises no PropertyChanged the view could react to.
+        if (_activeTab != null)
         {
-            _activeTab = null;
-            UpdateEditorDocument();
+            _activeTab.PropertyChanged += OnActiveTabPropertyChanged;
         }
+
+        UpdateEditorDocument();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

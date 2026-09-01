@@ -104,7 +104,8 @@ public class TerminalUI
     private async Task RunAsyncCore()
     {
         Console.OutputEncoding = Encoding.UTF8;
-        Console.Clear();
+        try { Console.Clear(); }
+        catch (System.IO.IOException) { /* no console handle (redirected I/O) - skip clearing */ }
 
         PrintBanner();
         PrintHelp();
@@ -134,6 +135,11 @@ public class TerminalUI
             PrintPrompt(_options.WorkingDirectory);
 
             var input = ReadLineWithHistory(history, ref historyIndex);
+
+            // Stdin reached EOF (piped input exhausted) → exit gracefully
+            // instead of spinning forever on empty input.
+            if (input == null)
+                break;
 
             // Esc twice → rewind to the previous checkpoint.
             if (input == EscTwiceSentinel)
@@ -175,6 +181,11 @@ public class TerminalUI
             await StreamResponseAsync(input, captureLearnings: true);
             Console.WriteLine();
         }
+
+        // Graceful shutdown (EOF on stdin): stop persistence and recorder.
+        persistenceCts?.Cancel();
+        _recorder.Stop();
+        WriteColored("Goodbye!\n", Colors.Info);
     }
 
     private async Task StreamResponseAsync(string userMessage, bool captureLearnings = false)
@@ -288,6 +299,16 @@ public class TerminalUI
     private bool PromptApproval(ToolCall call)
     {
         WriteColored($"Approve {call.Name}? [y/N] ", Colors.Prompt);
+
+        // Non-interactive (piped stdin): ReadKey would throw without a console
+        // handle, so read an answer line instead; EOF or anything but "y" denies.
+        if (Console.IsInputRedirected)
+        {
+            var answer = Console.ReadLine();
+            WriteColored($"{answer}\n", Colors.User);
+            return string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
+        }
+
         var key = Console.ReadKey(intercept: false);
         Console.WriteLine();
         return key.Key == ConsoleKey.Y;
@@ -340,7 +361,8 @@ public class TerminalUI
                 return true;
 
             case "/clear" or "/c":
-                Console.Clear();
+                try { Console.Clear(); }
+                catch (System.IO.IOException) { /* no console handle (redirected I/O) */ }
                 PrintBanner();
                 return true;
 
@@ -435,6 +457,22 @@ public class TerminalUI
 
             case "/models":
                 await ListModelsAsync();
+                return true;
+
+            case "/view":
+                WriteColored("Usage: /view path  (e.g. /view src/Program.cs)\n", Colors.Error);
+                return true;
+
+            case var s when s.StartsWith("/view "):
+                ViewFile(s[6..].Trim());
+                return true;
+
+            case "/edit":
+                WriteColored("Usage: /edit path  (e.g. /edit src/Program.cs)\n", Colors.Error);
+                return true;
+
+            case var s when s.StartsWith("/edit "):
+                EditFile(s[6..].Trim());
                 return true;
 
             case var s when s.StartsWith("/cd "):
@@ -800,6 +838,81 @@ public class TerminalUI
         }
     }
 
+    /// <summary>Prints a file's contents with line numbers so project source files can be inspected inline.</summary>
+    private void ViewFile(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            WriteColored($"File not found: {path}\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            var content = File.ReadAllText(fullPath);
+            if (content.Contains('\0'))
+            {
+                WriteColored($"{fullPath} appears to be a binary file; use /edit to open it in an editor.\n", Colors.Error);
+                return;
+            }
+
+            var lines = content.Split('\n');
+            if (lines.Length > 0 && lines[^1].Length == 0)
+            {
+                lines = lines[..^1]; // drop the empty entry produced by a trailing newline
+            }
+
+            const int maxLines = 500;
+            var digitCount = Math.Max(lines.Length, 1).ToString().Length;
+            WriteColored($"\n{fullPath} ({lines.Length} lines)\n", Colors.Info);
+            WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
+
+            for (var i = 0; i < Math.Min(lines.Length, maxLines); i++)
+            {
+                WriteColored($"{(i + 1).ToString().PadLeft(digitCount)} | {lines[i].TrimEnd('\r')}\n", ConsoleColor.Gray);
+            }
+
+            if (lines.Length > maxLines)
+            {
+                WriteColored($"... {lines.Length - maxLines} more lines (use /edit to open the file in an editor)\n", Colors.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Failed to read file: {ex.Message}\n", Colors.Error);
+        }
+    }
+
+    /// <summary>Opens a file in the user's preferred editor (EDITOR env var, falling back to notepad) so project source files can be modified.</summary>
+    private void EditFile(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            WriteColored($"File not found: {path}\n", Colors.Error);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EDITOR"))
+                    ? "notepad"
+                    : Environment.GetEnvironmentVariable("EDITOR"),
+                Arguments = $"\"{fullPath}\"",
+                UseShellExecute = true
+            });
+            WriteColored($"Opening {fullPath} in editor...\n", Colors.Info);
+        }
+        catch (Exception ex)
+        {
+            WriteColored($"Failed to open editor: {ex.Message}\n", Colors.Error);
+            WriteColored($"File path: {fullPath}\n", Colors.Info);
+        }
+    }
+
     private async Task ShowMemoryAsync()
     {
         if (_memoryLoader == null)
@@ -953,6 +1066,7 @@ public class TerminalUI
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Files:   /view path (print file with line numbers)  /edit path (open in external editor)");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
         Console.WriteLine();
@@ -1120,8 +1234,14 @@ public class TerminalUI
         Console.ResetColor();
     }
 
-    private string ReadLineWithHistory(List<string> history, ref int historyIndex)
+    private string? ReadLineWithHistory(List<string> history, ref int historyIndex)
     {
+        // When stdin is redirected (piped/scripted, no real console), fall back
+        // to a plain ReadLine so the app doesn't crash on a missing console handle.
+        // ReadLine returns null at EOF; the caller treats that as "exit".
+        if (Console.IsInputRedirected)
+            return Console.ReadLine();
+
         var buffer = new StringBuilder();
         var pos = 0;
         var escPressed = false;

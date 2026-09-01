@@ -274,6 +274,9 @@ public partial class App : Application
         services.AddSingleton<ITool, ScaffoldBackendTool>();
         services.AddSingleton<ITool, SpawnSubagentTool>();
 
+        // Inter-agent communication: share the coordinator mailbox across agents.
+        services.AddSingleton<ITool>(sp => new SendMessageTool(sp.GetRequiredService<AgentSessionCoordinator>().Mailbox, sp.GetService<IAgentEventBus>(), sp.GetRequiredService<ILogger<SendMessageTool>>()));
+
         // Subagent runner (Feature 07)
         services.AddSingleton<ISubagentRunner, SubagentRunner>();
 

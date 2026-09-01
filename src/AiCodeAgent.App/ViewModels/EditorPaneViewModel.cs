@@ -126,6 +126,10 @@ public partial class EditorPaneViewModel : ObservableObject
             {
                 tab = previewTab;
                 await tab.LoadAsync(path, readOnly);
+                // LoadAsync replaces the TextDocument instance, so the pane's
+                // change tracking must be re-hooked onto the new document.
+                tab.Document.TextChanged -= OnTabDocumentTextChanged;
+                tab.Document.TextChanged += OnTabDocumentTextChanged;
             }
             else
             {

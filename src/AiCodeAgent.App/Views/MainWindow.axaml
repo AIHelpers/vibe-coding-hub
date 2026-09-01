@@ -38,6 +38,8 @@
         <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding ToggleCommandPaletteCommand}"/>
         <!-- Ctrl+Shift+O: Change Working Directory -->
         <KeyBinding Gesture="Ctrl+Shift+O" Command="{Binding ChangeWorkingDirectoryCommand}"/>
+        <!-- Ctrl+O: Open File in Editor -->
+        <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenFilePickerCommand}"/>
         <!-- Ctrl+,: Open Settings -->
         <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding NavigateToSettingsCommand}"/>
         <!-- Ctrl+S: Save Active File -->
@@ -84,6 +86,9 @@
                             Width="32" Height="28" Padding="0"/>
                     <Button Content="👁️" Command="{Binding TogglePreviewPaneCommand}" 
                             ToolTip.Tip="Toggle Preview Pane (click-to-edit)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="📂" Command="{Binding OpenFilePickerCommand}" 
+                            ToolTip.Tip="Open File in Editor (Ctrl+O)" 
                             Width="32" Height="28" Padding="0"/>
                     <Button Content="🔄" Command="{Binding RefreshFileExplorerCommand}" 
                             ToolTip.Tip="Refresh File Explorer" 

@@ -366,6 +366,13 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton(configSvc);
     services.AddSingleton(configSvc.Config);
 
+    // Agent options - resolved by ISessionStore/SkillRegistry/HookRegistry factories
+    services.AddSingleton(new AgentOptions
+    {
+        Model = model,
+        WorkingDirectory = dir ?? Directory.GetCurrentDirectory()
+    });
+
     // Register provider
     var providerName = provider ?? configSvc.Config.DefaultProvider;
     RegisterProvider(services, providerName, configSvc);
@@ -442,6 +449,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, GetDiagnosticsTool>();
     services.AddSingleton<ITool, ScaffoldBackendTool>();
     services.AddSingleton<ITool, SpawnSubagentTool>();
+
+    // Inter-agent communication: share the mailbox so agents can send messages.
+    services.AddSingleton<ITool>(sp => new SendMessageTool(sp.GetRequiredService<AgentSessionCoordinator>().Mailbox, sp.GetService<IAgentEventBus>(), sp.GetRequiredService<ILogger<SendMessageTool>>()));
 
     // Subagent runner (Feature 07)
     services.AddSingleton<ISubagentRunner, SubagentRunner>();

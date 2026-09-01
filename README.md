@@ -95,6 +95,14 @@ your own stage sequence (custom roles, prompts, or a subset of the SDLC). Agent 
 equally configurable via `~/.aiagent/presets/*.json` (see `RolePresetLoader`); built-in roles are
 `planner`, `implementer`, `reviewer`, `tester`, and `deployer`.
 
+## Multi-Agent Coordination
+
+Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:
+
+- Parallel groups: consecutive plan steps sharing the same ParallelGroup label run concurrently; their events are merged into one tagged stream. A failing agent emits AgentErrorEvent without cancelling peers.
+- Inter-agent mailbox: agents exchange messages via the send_message tool. Direct or broadcast (*) messages are injected into the recipient prompt at its next step, so agents communicate without sharing a context window.
+- Per-agent attribution: events are wrapped in AgentTaggedEvent (agent id + role) and diff hunks record the producing agent.
+
 ## Interactive Commands
 
 ```
@@ -118,9 +126,12 @@ equally configurable via `~/.aiagent/presets/*.json` (see `RolePresetLoader`); b
 - `git` - Git operations (status, diff, log, commit, etc.)
 - `web_fetch` - Fetch content from URLs
 - `run_diagnostics` - Build/test/lint projects (dotnet, npm, python)
+- `spawn_subagent` - Delegate a scoped sub-task to an isolated subagent
+- `send_message` - Send a message to another agent in the session (`*` = broadcast)
 
 ## Key Features
 
+- **Multi-agent sessions**: parallel agent groups, inter-agent mailbox (send_message), per-agent diff attribution
 - **Multi-provider support**: OpenAI, Anthropic, Ollama, and any OpenAI-compatible API
 - **Streaming responses**: Real-time streaming via `IAsyncEnumerable<StreamChunk>`
 - **Tool system**: Extensible tool registry with automatic tool calling

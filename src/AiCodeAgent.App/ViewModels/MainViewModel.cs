@@ -357,6 +357,76 @@ public partial class MainViewModel : ObservableObject
         UpdateFileExplorerStatus();
     }
 
+    // ---- Editor commands (wired to the Window.KeyBindings in MainWindow.axaml) ----
+
+    /// <summary>Save the file currently active in the editor pane (Ctrl+S).</summary>
+    [RelayCommand]
+    private async Task SaveActiveFile()
+    {
+        await EditorPane.SaveActiveAsync();
+    }
+
+    /// <summary>Save the active editor file under a new path (Ctrl+Shift+S).</summary>
+    [RelayCommand]
+    private async Task SaveActiveFileAs()
+    {
+        await EditorPane.SaveActiveAsAsync();
+    }
+
+    /// <summary>Close the active editor tab (Ctrl+W).</summary>
+    [RelayCommand]
+    private async Task CloseActiveTab()
+    {
+        await EditorPane.CloseActiveTabAsync();
+    }
+
+    /// <summary>Switch to the next editor tab (Ctrl+Tab).</summary>
+    [RelayCommand]
+    private void NextTab()
+    {
+        EditorPane.NextTab();
+    }
+
+    /// <summary>Switch to the previous editor tab (Ctrl+Shift+Tab).</summary>
+    [RelayCommand]
+    private void PreviousTab()
+    {
+        EditorPane.PreviousTab();
+    }
+
+    /// <summary>Open an OS file picker and load the chosen file into the editor (Ctrl+O).</summary>
+    [RelayCommand]
+    private async Task OpenFilePicker()
+    {
+        if (_hostWindow == null)
+            return;
+
+        var options = new FilePickerOpenOptions
+        {
+            Title = "Open File",
+            AllowMultiple = false
+        };
+
+        if (Directory.Exists(WorkingDirectory))
+        {
+            try
+            {
+                var folder = await _hostWindow.StorageProvider.TryGetFolderFromPathAsync(WorkingDirectory);
+                if (folder != null)
+                {
+                    options.SuggestedStartLocation = folder;
+                }
+            }
+            catch { /* ignore seeding errors */ }
+        }
+
+        var result = await _hostWindow.StorageProvider.OpenFilePickerAsync(options);
+        if (result.Count == 0)
+            return; // user cancelled
+
+        await EditorPane.OpenFileAsync(result[0].Path.LocalPath);
+    }
+
     private void UpdateFileExplorerStatus()
     {
         var fileCount = FileExplorer.RootItems.Count > 0
@@ -506,6 +576,15 @@ public partial class MainViewModel : ObservableObject
             },
 
             // ---- Editor ----
+            new CommandPaletteEntry
+            {
+                Id = "editor.openFile",
+                Title = "Open File in Editor...",
+                Category = "Editor",
+                Keywords = new[] { "open", "file", "editor", "picker", "browse" },
+                KeybindingHint = "Ctrl+O",
+                Action = () => SafeFireAndForget(OpenFilePickerCommand.ExecuteAsync(null), "OpenFilePicker")
+            },
             new CommandPaletteEntry
             {
                 Id = "editor.save",

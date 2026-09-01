@@ -274,6 +274,52 @@ public record LspDiagnosticItem(
 /// <summary>Event tagged with the source agent for multi-agent sessions.</summary>
 public record AgentTaggedEvent(AgentEvent Inner, string AgentId, string? Role = null) : AgentEvent;
 
+// ===== Inter-Agent Communication (Multi-Agent) =====
+
+/// <summary>
+/// A message routed between agents in a multi-agent session via the shared
+/// <see cref="Agent.AgentMailbox"/>. Agents send messages with the
+/// <c>send_message</c> tool; the coordinator drains pending messages into an
+/// agent's prompt before its step starts, so agents can communicate without
+/// sharing a context window.
+/// </summary>
+public record AgentMailboxMessage
+{
+    /// <summary>Unique message id.</summary>
+    public string MessageId { get; init; } = NewId();
+
+    /// <summary>Agent that sent the message (the sender's AgentId).</summary>
+    public string FromAgentId { get; init; } = string.Empty;
+
+    /// <summary>Destination agent id, or "*" to broadcast to every agent.</summary>
+    public string ToAgentId { get; init; } = string.Empty;
+
+    /// <summary>Message body.</summary>
+    public string Content { get; init; } = string.Empty;
+
+    /// <summary>When the message was posted.</summary>
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+
+    /// <summary>True when the message is addressed to all agents ("*").</summary>
+    public bool IsBroadcast => ToAgentId == Agent.AgentMailbox.BroadcastId;
+
+    private static string NewId()
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        return "msg_" + Convert.ToHexString(bytes).ToLower();
+    }
+}
+
+/// <summary>Emitted when an agent sends a message to another agent via the shared mailbox.</summary>
+public record AgentMessageEvent(AgentMailboxMessage Message) : AgentEvent;
+
+/// <summary>Emitted when a group of agents starts running in parallel.</summary>
+public record ParallelGroupStartedEvent(string GroupName, IReadOnlyList<string> AgentIds) : AgentEvent;
+
+/// <summary>Emitted when a parallel group finishes (all of its agents completed).</summary>
+public record ParallelGroupFinishedEvent(string GroupName, IReadOnlyList<string> AgentIds) : AgentEvent;
+
 public record MemoryEntry
 {
     public string Key { get; init; } = string.Empty;
@@ -312,6 +358,14 @@ public record SessionStep
     public string Role { get; init; } = string.Empty;
     public string Prompt { get; init; } = string.Empty;
     public AgentOptions Options { get; init; } = new();
+
+    /// <summary>
+    /// Optional parallel group label. Consecutive steps that share the same
+    /// non-empty group are executed concurrently by the coordinator, and their
+    /// streamed events are merged into a single tagged event stream. Steps
+    /// without a group (or in different groups) still run sequentially.
+    /// </summary>
+    public string? ParallelGroup { get; init; }
 }
 
 /// <summary>Plan for a multi-agent session (sequential turn-taking).</summary>
