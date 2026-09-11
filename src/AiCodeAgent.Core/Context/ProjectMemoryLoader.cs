@@ -8,7 +8,18 @@ namespace AiCodeAgent.Core.Context;
 /// <summary>Default file-based implementation of <see cref="IProjectMemoryLoader"/>.</summary>
 public class ProjectMemoryLoader : IProjectMemoryLoader
 {
-    public const string MemoryFileName = "AIAGENT.md";
+    /// <summary>
+    /// Recognized project-memory filenames, in priority order. "AGENTS.md"
+    /// is the emerging cross-tool convention (Codex, Cursor, aider, etc.);
+    /// "AGENT.md" is a common singular variant some tools/users expect.
+    /// "AIAGENT.md" is this app's original name, kept for backward
+    /// compatibility with existing projects. Whichever is found first (in
+    /// this order) wins; only one is loaded per directory.
+    /// </summary>
+    public static readonly string[] CandidateFileNames = { "AGENTS.md", "AGENT.md", "AIAGENT.md" };
+
+    /// <summary>The filename InitAsync creates when no memory file exists yet.</summary>
+    public const string MemoryFileName = "AGENTS.md";
     public const string GlobalMemoryDir = ".aiagent";
     private readonly ILogger<ProjectMemoryLoader>? _logger;
 
@@ -22,38 +33,26 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
         if (string.IsNullOrWhiteSpace(workingDirectory))
             return null;
 
-        // Search order: working dir, then global ~/.aiagent/AIAGENT.md
-        var candidates = new List<string>
-        {
-            Path.Combine(workingDirectory, MemoryFileName)
-        };
+        // Search order: each candidate name in the working directory first
+        // (a local file always wins), then each candidate name in the
+        // global ~/.aiagent/ directory.
+        var candidates = new List<string>();
+        foreach (var name in CandidateFileNames)
+            candidates.Add(Path.Combine(workingDirectory, name));
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!string.IsNullOrEmpty(home))
         {
-            candidates.Add(Path.Combine(home, GlobalMemoryDir, MemoryFileName));
+            foreach (var name in CandidateFileNames)
+                candidates.Add(Path.Combine(home, GlobalMemoryDir, name));
         }
 
-        string? foundPath = null;
-        foreach (var path in candidates)
-        {
-            try
-            {
-                if (File.Exists(path))
-                {
-                    foundPath = path;
-                    break;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogDebug(ex, "Error checking memory file at {Path}", path);
-            }
-        }
+        string? foundPath = FindExisting(candidates);
 
         if (foundPath is null)
         {
-            _logger?.LogDebug("No AIAGENT.md found in {Dir}", workingDirectory);
+            _logger?.LogDebug("No project memory file ({Candidates}) found in {Dir}",
+                string.Join(", ", CandidateFileNames), workingDirectory);
             return null;
         }
 
@@ -69,20 +68,43 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
         }
     }
 
+    /// <summary>Returns the first path in <paramref name="candidates"/> that exists on disk, or null.</summary>
+    private string? FindExisting(IEnumerable<string> candidates)
+    {
+        foreach (var path in candidates)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Error checking memory file at {Path}", path);
+            }
+        }
+        return null;
+    }
+
     public async Task<string> InitAsync(string workingDirectory, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(workingDirectory))
             throw new ArgumentException("workingDirectory is required", nameof(workingDirectory));
 
         Directory.CreateDirectory(workingDirectory);
+
+        // If any recognized memory file already exists locally, leave it
+        // alone — "init" means "make sure one exists", not "create the
+        // canonical name even when a differently-named one is already there".
+        var localCandidates = CandidateFileNames.Select(name => Path.Combine(workingDirectory, name));
+        var existing = FindExisting(localCandidates);
+        if (existing != null)
+            return existing;
+
         var path = Path.Combine(workingDirectory, MemoryFileName);
-
-        if (File.Exists(path))
-            return path;
-
         var template = BuildTemplate(workingDirectory);
         await File.WriteAllTextAsync(path, template, cancellationToken).ConfigureAwait(false);
-        _logger?.LogInformation("Created AIAGENT.md at {Path}", path);
+        _logger?.LogInformation("Created {FileName} at {Path}", MemoryFileName, path);
         return path;
     }
 
@@ -101,36 +123,39 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
             ? new DoctorCheck("WorkingDirectory", DoctorStatus.Ok, workingDirectory)
             : new DoctorCheck("WorkingDirectory", DoctorStatus.Error, $"Directory not found: {workingDirectory}", "Set a valid working directory with /cd <dir>."));
 
-        // 2. Memory file exists
-        var localPath = Path.Combine(workingDirectory, MemoryFileName);
-        if (File.Exists(localPath))
+        // 2. Memory file exists (any recognized name)
+        var localCandidates = CandidateFileNames.Select(name => Path.Combine(workingDirectory, name)).ToList();
+        var localPath = FindExisting(localCandidates);
+        if (localPath != null)
         {
-            checks.Add(new DoctorCheck("AIAGENT.md", DoctorStatus.Ok, $"Found at {localPath}"));
+            checks.Add(new DoctorCheck("Project Memory", DoctorStatus.Ok, $"Found {Path.GetFileName(localPath)} at {localPath}"));
             try
             {
                 var content = File.ReadAllTextAsync(localPath, cancellationToken).GetAwaiter().GetResult();
                 checks.Add(string.IsNullOrWhiteSpace(content)
-                    ? new DoctorCheck("AIAGENT.md content", DoctorStatus.Warning, "File is empty.", "Add instructions or run /init again.")
-                    : new DoctorCheck("AIAGENT.md content", DoctorStatus.Ok, $"{content.Length} chars"));
+                    ? new DoctorCheck("Project Memory content", DoctorStatus.Warning, "File is empty.", "Add instructions or run /init again.")
+                    : new DoctorCheck("Project Memory content", DoctorStatus.Ok, $"{content.Length} chars"));
             }
             catch (Exception ex)
             {
-                checks.Add(new DoctorCheck("AIAGENT.md content", DoctorStatus.Error, ex.Message));
+                checks.Add(new DoctorCheck("Project Memory content", DoctorStatus.Error, ex.Message));
             }
         }
         else
         {
-            checks.Add(new DoctorCheck("AIAGENT.md", DoctorStatus.Warning, "Not found in working directory.", "Run /init to create one."));
+            checks.Add(new DoctorCheck("Project Memory", DoctorStatus.Warning,
+                $"None of {string.Join(", ", CandidateFileNames)} found in working directory.", "Run /init to create one."));
         }
 
         // 3. Global memory file
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!string.IsNullOrEmpty(home))
         {
-            var globalPath = Path.Combine(home, GlobalMemoryDir, MemoryFileName);
-            checks.Add(File.Exists(globalPath)
-                ? new DoctorCheck("Global AIAGENT.md", DoctorStatus.Ok, $"Found at {globalPath}")
-                : new DoctorCheck("Global AIAGENT.md", DoctorStatus.Ok, "Not present (optional)."));
+            var globalCandidates = CandidateFileNames.Select(name => Path.Combine(home, GlobalMemoryDir, name)).ToList();
+            var globalPath = FindExisting(globalCandidates);
+            checks.Add(globalPath != null
+                ? new DoctorCheck("Global Project Memory", DoctorStatus.Ok, $"Found {Path.GetFileName(globalPath)} at {globalPath}")
+                : new DoctorCheck("Global Project Memory", DoctorStatus.Ok, "Not present (optional)."));
         }
 
         // 4. Git repository
@@ -202,7 +227,7 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
         if (string.IsNullOrEmpty(name)) name = "project";
 
         var sb = new StringBuilder();
-        sb.AppendLine($"# AIAGENT.md — Project Memory for {name}");
+        sb.AppendLine($"# AGENTS.md — Project Memory for {name}");
         sb.AppendLine();
         sb.AppendLine("> Persistent instructions the agent loads at the start of every session.");
         sb.AppendLine("> Keep it concise; large files consume context.");

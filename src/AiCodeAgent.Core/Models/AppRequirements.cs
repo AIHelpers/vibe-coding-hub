@@ -60,7 +60,7 @@ public sealed record AppRequirements
         if (!string.IsNullOrWhiteSpace(Deployment)) lines.Add($"- Deployment: {Deployment}");
         if (Notes.Count > 0) lines.Add($"- Notes: {string.Join("; ", Notes)}");
         return lines.Count > 0
-            ? "Confirmed application requirements:\n" + string.Join("\n", lines)
+            ? "<confirmed_requirements>\nConfirmed application requirements:\n" + string.Join("\n", lines) + "\n</confirmed_requirements>"
             : string.Empty;
     }
 

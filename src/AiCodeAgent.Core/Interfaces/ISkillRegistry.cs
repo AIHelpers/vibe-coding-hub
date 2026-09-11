@@ -26,6 +26,20 @@ public interface ISkillRegistry
 
     /// <summary>Return the path to the skill file (for editing).</summary>
     string? GetSkillPath(string skillName);
+
+    /// <summary>
+    /// Forces a rescan of the skills directories on the next call to
+    /// <see cref="ListAsync"/>/<see cref="LoadAsync"/>/etc. Call after
+    /// creating, editing, or deleting a skill file from the UI so the
+    /// change is picked up without restarting the app.
+    /// </summary>
+    void Refresh();
+
+    /// <summary>The global skills directory (e.g. <c>~/.aiagent/skills</c>) this instance scans.</summary>
+    string GlobalSkillsDirectory { get; }
+
+    /// <summary>The project skills directory (e.g. <c>.aiagent/skills</c>) this instance scans, or null if none was configured.</summary>
+    string? ProjectSkillsDirectory { get; }
 }
 
 /// <summary>Lightweight metadata about a skill (name + description).</summary>

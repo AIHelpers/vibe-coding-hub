@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:diffing="using:AiCodeAgent.Core.Diffing"
+             x:Class="AiCodeAgent.App.Views.DiffViewerView"
+             x:DataType="vm:DiffViewerViewModel">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+                <StackPanel Grid.Column="0" Spacing="1">
+                    <TextBlock Text="{Binding FilePath}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="{Binding BaselineLabel}" FontSize="10" Opacity="0.5"/>
+                        <TextBlock Text="→ current" FontSize="10" Opacity="0.5"/>
+                        <TextBlock Text="{Binding StatusText, StringFormat='· {0}'}" FontSize="10" Opacity="0.5"/>
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Grid.Column="1"
+                           Text="● unsaved"
+                           FontSize="10"
+                           Foreground="#E5A100"
+                           VerticalAlignment="Center"
+                           Margin="8,0"
+                           IsVisible="{Binding IsDirty}"/>
+                <Button Grid.Column="2" Content="↺ Reset" Command="{Binding ResetToDiskCommand}"
+                        FontSize="11" Padding="8,4" Margin="4,0" IsEnabled="{Binding IsDirty}"/>
+                <Button Grid.Column="3" Content="💾 Save" Command="{Binding SaveCommand}"
+                        FontSize="11" Padding="8,4" Margin="4,0" IsEnabled="{Binding IsDirty}"/>
+                <Button Grid.Column="4" Content="✕" Command="{Binding CloseCommand}"
+                        Width="24" Height="24" Padding="0" FontSize="11" Margin="8,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Body: baseline (read-only) | current (editable) | hunk list -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,*,220" Margin="0">
+            <!-- Baseline / "before" -->
+            <Grid Grid.Column="0" RowDefinitions="Auto,*">
+                <Border Grid.Row="0" Background="#241A1A" Padding="6,3">
+                    <TextBlock Text="{Binding BaselineLabel}" FontSize="10" Opacity="0.7"/>
+                </Border>
+                <TextBox Grid.Row="1"
+                         Text="{Binding BaselineContent, Mode=OneWay}"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas,Menlo,monospace"
+                         FontSize="12"
+                         Background="#1A1414"
+                         BorderThickness="0"
+                         VerticalContentAlignment="Top"/>
+            </Grid>
+
+            <!-- Current / "after" (editable) -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                <Border Grid.Row="0" Background="#1A241A" Padding="6,3">
+                    <TextBlock Text="Current (editable)" FontSize="10" Opacity="0.7"/>
+                </Border>
+                <TextBox Grid.Row="1"
+                         Text="{Binding CurrentContent, Mode=TwoWay}"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas,Menlo,monospace"
+                         FontSize="12"
+                         Background="#141A14"
+                         BorderThickness="0"
+                         VerticalContentAlignment="Top"/>
+            </Grid>
+
+            <!-- Hunk list -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,*" Margin="6,0,0,0">
+                <Border Grid.Row="0" Background="#2A2A3A" Padding="6,3">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding Hunks.Count, StringFormat='{}{0} hunk(s)'}"
+                                   FontSize="10" Opacity="0.7"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding AddedLineCount, StringFormat='+{0}'}"
+                                       FontSize="10" Foreground="#4CAF50"/>
+                            <TextBlock Text="{Binding RemovedLineCount, StringFormat='-{0}'}"
+                                       FontSize="10" Foreground="#E05555"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <ScrollViewer Grid.Row="1">
+                    <ItemsControl ItemsSource="{Binding Hunks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="diffing:DiffHunk">
+                                <Border Background="#22222E" CornerRadius="4" Padding="6" Margin="0,2">
+                                    <StackPanel Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <TextBlock Text="@@ -" FontSize="10" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding OriginalStartLine}" FontSize="10" Opacity="0.6"/>
+                                            <TextBlock Text=",+" FontSize="10" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding NewStartLine}" FontSize="10" Opacity="0.6"/>
+                                        </StackPanel>
+                                        <Button Content="↩️ Revert hunk"
+                                                Command="{Binding DataContext.RevertHunkCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                FontSize="9"
+                                                Padding="6,2"
+                                                HorizontalAlignment="Left"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#1A1A2A" CornerRadius="0,0,4,4" Padding="6">
+            <TextBlock Text="Edit the right pane directly, revert individual hunks, or save to write changes back to disk (a checkpoint is taken first)."
+                       FontSize="9" Opacity="0.4"/>
+        </Border>
+    </Grid>
+</UserControl>

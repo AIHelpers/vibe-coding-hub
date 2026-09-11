@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.BackgroundTaskManagerView"
+             x:DataType="vm:BackgroundTaskManagerViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Background Tasks" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding RunningCount, StringFormat='{}{0} running'}"
+                               FontSize="11" Opacity="0.6" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Clear finished" Command="{Binding ClearCompletedCommand}"
+                        FontSize="11" Padding="8,3" Margin="0,0,8,0"/>
+                <Button Grid.Column="2" Content="✕" Width="24" Height="24" Padding="0" FontSize="11"
+                        Command="{Binding ToggleCommand}"/>
+            </Grid>
+        </Border>
+
+        <!-- New task input -->
+        <Border Grid.Row="1" Background="#22222E" Padding="8">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding NewTaskPrompt}"
+                         Watermark="Describe a task to run in the background — e.g. 'add unit tests for the checkout module'"
+                         AcceptsReturn="False"
+                         FontSize="12"/>
+                <Button Grid.Column="1" Content="▶ Start" Command="{Binding StartNewTaskCommand}"
+                        FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Task list -->
+        <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding Tasks}" Margin="8">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:BackgroundTaskItemViewModel">
+                        <Border Background="#22222E" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                            <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Prompt}" FontSize="12"
+                                               FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Cancel"
+                                            Command="{Binding DataContext.CancelTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            IsVisible="{Binding IsRunning}"
+                                            FontSize="10" Padding="8,3"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{Binding StatusLabel}" FontSize="10" FontWeight="SemiBold"
+                                               Foreground="{Binding StatusColor}"/>
+                                    <TextBlock Text="{Binding StartedAt, StringFormat='started {0:t}'}" FontSize="10" Opacity="0.5"/>
+                                    <TextBlock Text="{Binding ToolCallCount, StringFormat='{}{0} tool call(s)'}" FontSize="10" Opacity="0.5"/>
+                                </StackPanel>
+                                <Border Background="#1A1A24" CornerRadius="4" Padding="8" MaxHeight="140"
+                                        IsVisible="{Binding HasOutput}">
+                                    <ScrollViewer>
+                                        <TextBlock Text="{Binding Output}" FontSize="11" FontFamily="Consolas,Menlo,monospace"
+                                                   TextWrapping="Wrap" Opacity="0.8"/>
+                                    </ScrollViewer>
+                                </Border>
+                                <TextBlock Text="{Binding ErrorMessage}" FontSize="11" Foreground="#E05555"
+                                           TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

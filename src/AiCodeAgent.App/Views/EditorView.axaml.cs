@@ -304,7 +304,13 @@ public partial class EditorView : UserControl
         await OpenLocationAsync(targetPath, loc.Range?.Start.Line ?? 0);
     }
 
-    private async Task OpenLocationAsync(string path, int line)
+    /// <summary>
+    /// Opens <paramref name="path"/> and scrolls/moves the caret to
+    /// <paramref name="line"/> (0-based). Public so other UI flows — Quick
+    /// Open's symbol results, in particular — can reuse the same navigation
+    /// path as Ctrl+Click/F12 go-to-definition.
+    /// </summary>
+    public async Task OpenLocationAsync(string path, int line)
     {
         // Open the file in the editor
         if (_viewModel != null)

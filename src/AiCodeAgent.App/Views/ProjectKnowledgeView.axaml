@@ -1,0 +1,132 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:core="using:AiCodeAgent.Core.Interfaces"
+             x:Class="AiCodeAgent.App.Views.ProjectKnowledgeView"
+             x:DataType="vm:ProjectKnowledgeViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="Project Knowledge" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <Button Content="AGENTS.md" Command="{Binding ShowMemoryTabCommand}" FontSize="11" Padding="10,4"/>
+                    <Button Content="Skills" Command="{Binding ShowSkillsTabCommand}" FontSize="11" Padding="10,4"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="✕" Width="24" Height="24" Padding="0" FontSize="11"
+                        Command="{Binding CloseCommand}"/>
+            </Grid>
+        </Border>
+
+        <!-- Sub-toolbar per tab -->
+        <Border Grid.Row="1" Background="#22222E" Padding="8,4">
+            <Grid>
+                <!-- Memory toolbar -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsMemoryTabActive}">
+                    <Button Content="Create" Command="{Binding CreateMemoryFileCommand}"
+                            IsVisible="{Binding !MemoryFileExists}" FontSize="11" Padding="8,3"/>
+                    <Button Content="💾 Save" Command="{Binding SaveMemoryCommand}"
+                            IsEnabled="{Binding MemoryIsDirty}" FontSize="11" Padding="8,3"/>
+                    <Button Content="🩺 Doctor" Command="{Binding RunDoctorCommand}" FontSize="11" Padding="8,3"/>
+                    <TextBlock Text="{Binding MemoryStatusText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+                <!-- Skills toolbar -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsSkillsTabActive}">
+                    <Button Content="🔄 Refresh" Command="{Binding RefreshSkillsCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="＋ New Skill" Command="{Binding BeginCreateSkillCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="💾 Save" Command="{Binding SaveSelectedSkillCommand}"
+                            IsEnabled="{Binding SelectedSkillIsDirty}" FontSize="11" Padding="8,3"/>
+                    <TextBlock Text="{Binding SkillsStatusText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Memory tab body -->
+        <Grid Grid.Row="2" RowDefinitions="*,Auto" IsVisible="{Binding IsMemoryTabActive}">
+            <TextBox Grid.Row="0"
+                     Text="{Binding MemoryContent}"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     FontFamily="Consolas,Menlo,monospace"
+                     FontSize="12"
+                     BorderThickness="0"
+                     VerticalContentAlignment="Top"/>
+            <Border Grid.Row="1" Background="#1A1A24" MaxHeight="160" Padding="8">
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding DoctorChecks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="core:DoctorCheck">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                                    <TextBlock Text="{Binding Status}" FontSize="10" Width="60"
+                                               Foreground="#9AA0A6"/>
+                                    <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Width="140"/>
+                                    <TextBlock Text="{Binding Detail}" FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Skills tab body -->
+        <Grid Grid.Row="2" ColumnDefinitions="220,*" IsVisible="{Binding IsSkillsTabActive}">
+            <!-- Skill list -->
+            <ScrollViewer Grid.Column="0">
+                <ItemsControl ItemsSource="{Binding Skills}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:SkillListItem">
+                            <Button HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Background="Transparent"
+                                    Padding="8,6"
+                                    Command="{Binding DataContext.SelectSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}">
+                                <StackPanel Spacing="1">
+                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Description}" FontSize="10" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding ScopeLabel}" FontSize="9" Opacity="0.4"/>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Selected skill editor / new-skill form -->
+            <Grid Grid.Column="1" Margin="8,0,0,0">
+                <TextBox Text="{Binding SelectedSkillContent}"
+                         IsVisible="{Binding !IsCreatingSkill}"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         FontFamily="Consolas,Menlo,monospace"
+                         FontSize="12"
+                         BorderThickness="0"
+                         VerticalContentAlignment="Top"/>
+
+                <Border IsVisible="{Binding IsCreatingSkill}"
+                        Background="#22222E"
+                        CornerRadius="6"
+                        Padding="16"
+                        MaxWidth="420"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="New Skill" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Text="Name (kebab-case)" FontSize="10" Opacity="0.6"/>
+                        <TextBox Text="{Binding NewSkillName}" Watermark="e.g. release-notes"/>
+                        <TextBlock Text="Description (one line — shown to the model)" FontSize="10" Opacity="0.6"/>
+                        <TextBox Text="{Binding NewSkillDescription}" Watermark="When should the agent use this skill?"/>
+                        <CheckBox Content="Project skill (.aiagent/skills — unchecked = global, ~/.aiagent/skills)"
+                                  IsChecked="{Binding NewSkillIsProject}" FontSize="11"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button Content="Cancel" Command="{Binding CancelCreateSkillCommand}" FontSize="11" Padding="10,4"/>
+                            <Button Content="Create" Command="{Binding CreateSkillCommand}" FontSize="11" Padding="10,4"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

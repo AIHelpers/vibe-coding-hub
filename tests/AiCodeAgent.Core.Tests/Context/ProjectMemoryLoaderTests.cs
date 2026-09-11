@@ -105,6 +105,50 @@ public class ProjectMemoryLoaderTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [InlineData("AGENTS.md")]
+    [InlineData("AGENT.md")]
+    [InlineData("AIAGENT.md")]
+    public async Task LoadAsync_RecognizesAllCandidateFileNames(string fileName)
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var path = Path.Combine(dir, fileName);
+            await File.WriteAllTextAsync(path, "## Instructions\nfrom " + fileName + "\n");
+
+            var loader = new ProjectMemoryLoader();
+            var mem = await loader.LoadAsync(dir);
+
+            Assert.NotNull(mem);
+            Assert.Equal(path, mem!.FilePath);
+            Assert.Contains(fileName, mem.Instructions);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public async Task LoadAsync_PrefersAgentsMd_OverAgentAndLegacyName()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            // All three present — AGENTS.md must win (highest priority).
+            await File.WriteAllTextAsync(Path.Combine(dir, "AIAGENT.md"), "## Instructions\nlegacy\n");
+            await File.WriteAllTextAsync(Path.Combine(dir, "AGENT.md"), "## Instructions\nsingular\n");
+            var preferredPath = Path.Combine(dir, "AGENTS.md");
+            await File.WriteAllTextAsync(preferredPath, "## Instructions\npreferred\n");
+
+            var loader = new ProjectMemoryLoader();
+            var mem = await loader.LoadAsync(dir);
+
+            Assert.NotNull(mem);
+            Assert.Equal(preferredPath, mem!.FilePath);
+            Assert.Contains("preferred", mem.Instructions);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public async Task InitAsync_CreatesTemplateFile()
     {
@@ -115,6 +159,7 @@ public class ProjectMemoryLoaderTests
             var path = await loader.InitAsync(dir);
 
             Assert.True(File.Exists(path));
+            Assert.Equal("AGENTS.md", Path.GetFileName(path));
             var text = await File.ReadAllTextAsync(path);
             Assert.Contains("## Instructions", text);
             Assert.Contains("## Conventions", text);
@@ -142,6 +187,28 @@ public class ProjectMemoryLoaderTests
     }
 
     [Fact]
+    public async Task InitAsync_DoesNotOverwrite_ExistingAgentMd()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            // Singular "AGENT.md" — not the legacy name, not the new
+            // default — must still be recognized as "already initialized".
+            var path = Path.Combine(dir, "AGENT.md");
+            await File.WriteAllTextAsync(path, "CUSTOM SINGULAR");
+
+            var loader = new ProjectMemoryLoader();
+            var result = await loader.InitAsync(dir);
+
+            Assert.Equal(path, result);
+            var text = await File.ReadAllTextAsync(result);
+            Assert.Equal("CUSTOM SINGULAR", text);
+            Assert.False(File.Exists(Path.Combine(dir, "AGENTS.md")));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public async Task DiagnoseAsync_ReportsMissingMemory_AsWarning()
     {
         var dir = CreateTempDir();
@@ -150,7 +217,7 @@ public class ProjectMemoryLoaderTests
             var loader = new ProjectMemoryLoader();
             var report = await loader.DiagnoseAsync(dir);
 
-            var memCheck = Assert.Single(report.Checks.Where(c => c.Name == "AIAGENT.md"));
+            var memCheck = Assert.Single(report.Checks.Where(c => c.Name == "Project Memory"));
             Assert.Equal(DoctorStatus.Warning, memCheck.Status);
         }
         finally { Directory.Delete(dir, true); }
@@ -168,7 +235,7 @@ public class ProjectMemoryLoaderTests
             var loader = new ProjectMemoryLoader();
             var report = await loader.DiagnoseAsync(dir);
 
-            var memCheck = Assert.Single(report.Checks.Where(c => c.Name == "AIAGENT.md"));
+            var memCheck = Assert.Single(report.Checks.Where(c => c.Name == "Project Memory"));
             Assert.Equal(DoctorStatus.Ok, memCheck.Status);
         }
         finally { Directory.Delete(dir, true); }

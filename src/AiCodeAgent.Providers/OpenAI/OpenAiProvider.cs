@@ -193,6 +193,27 @@ public class OpenAiProvider : BaseHttpProvider
             yield return pendingFinishedChunk;
     }
 
+    /// <summary>
+    /// Builds OpenAI's mixed content-parts array for a user message carrying
+    /// image attachments: a leading text part (if any) followed by one
+    /// image_url part per attachment, using inline data: URLs.
+    /// </summary>
+    private static List<object> BuildUserContentParts(Message msg)
+    {
+        var parts = new List<object>();
+        if (!string.IsNullOrEmpty(msg.Content))
+            parts.Add(new { type = "text", text = msg.Content });
+        foreach (var image in msg.Images!)
+        {
+            parts.Add(new
+            {
+                type = "image_url",
+                image_url = new { url = $"data:{image.MediaType};base64,{image.Base64Data}" }
+            });
+        }
+        return parts;
+    }
+
     private object BuildPayload(CompletionRequest request, bool stream)
     {
         var messages = new List<object>();
@@ -204,6 +225,9 @@ public class OpenAiProvider : BaseHttpProvider
         {
             switch (msg.Role)
             {
+                case MessageRole.User when msg.Images is { Count: > 0 }:
+                    messages.Add(new { role = "user", content = BuildUserContentParts(msg) });
+                    break;
                 case MessageRole.User:
                     messages.Add(new { role = "user", content = msg.Content });
                     break;

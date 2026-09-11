@@ -29,6 +29,14 @@ public partial class CheckpointBrowserViewModel : ObservableObject
 
     public ObservableCollection<CheckpointGroupViewModel> Groups { get; } = new();
 
+    /// <summary>
+    /// Raised when the user asks to view the diff for a checkpointed file.
+    /// MainViewModel subscribes to this to open the diff viewer panel —
+    /// kept as an event rather than a direct reference so this view-model
+    /// doesn't need to know about the diff viewer to be constructed.
+    /// </summary>
+    public event Action<CheckpointItemViewModel>? ViewDiffRequested;
+
     public CheckpointBrowserViewModel(ICheckpointManager checkpointManager)
     {
         _checkpointManager = checkpointManager;
@@ -65,6 +73,7 @@ public partial class CheckpointBrowserViewModel : ObservableObject
                         FilePath = checkpoint.FilePath,
                         FileName = Path.GetFileName(checkpoint.FilePath),
                         Timestamp = checkpoint.Timestamp,
+                        OriginalContent = checkpoint.OriginalContent,
                         CanRestore = true
                     });
                 }
@@ -104,6 +113,14 @@ public partial class CheckpointBrowserViewModel : ObservableObject
         SessionId = sessionId;
         _ = RefreshAsync();
     }
+
+    /// <summary>Ask whoever hosts this panel (MainViewModel) to open a diff viewer for this checkpoint's file.</summary>
+    [RelayCommand]
+    private void ViewDiff(CheckpointItemViewModel item)
+    {
+        if (item == null) return;
+        ViewDiffRequested?.Invoke(item);
+    }
 }
 
 public partial class CheckpointGroupViewModel : ObservableObject
@@ -139,4 +156,7 @@ public partial class CheckpointItemViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _canRestore;
+
+    /// <summary>The file's content as of this checkpoint — used as the diff-viewer baseline; not shown directly in the list row.</summary>
+    public string OriginalContent { get; init; } = string.Empty;
 }

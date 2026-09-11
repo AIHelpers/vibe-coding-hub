@@ -4,6 +4,8 @@
         xmlns:views="using:AiCodeAgent.App.Views"
         xmlns:cmd="using:AiCodeAgent.App.CommandPalette"
         xmlns:core="using:AiCodeAgent.Core.Agent"
+        xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
+        xmlns:mdtight="https://github.com/whistyun/Markdown.Avalonia.Tight"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
@@ -38,6 +40,10 @@
         <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding ToggleCommandPaletteCommand}"/>
         <!-- Ctrl+Shift+O: Change Working Directory -->
         <KeyBinding Gesture="Ctrl+Shift+O" Command="{Binding ChangeWorkingDirectoryCommand}"/>
+        <!-- Ctrl+P: Quick Open (fuzzy file search) -->
+        <KeyBinding Gesture="Ctrl+P" Command="{Binding QuickOpenFilesCommand}"/>
+        <!-- Ctrl+T: Go to Symbol in Workspace -->
+        <KeyBinding Gesture="Ctrl+T" Command="{Binding QuickOpenSymbolsCommand}"/>
         <!-- Ctrl+O: Open File in Editor -->
         <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenFilePickerCommand}"/>
         <!-- Ctrl+,: Open Settings -->
@@ -69,6 +75,9 @@
                     <Button Content="⌘" Command="{Binding ToggleCommandPaletteCommand}" 
                             ToolTip.Tip="Command Palette (Ctrl+Shift+P)" 
                             Width="32" Height="28" Padding="0"/>
+                    <Button Content="🔎" Command="{Binding QuickOpenFilesCommand}" 
+                            ToolTip.Tip="Quick Open — go to file (Ctrl+P) or #symbol (Ctrl+T)" 
+                            Width="32" Height="28" Padding="0"/>
                     <Button Content="📁" Command="{Binding ToggleFileExplorerCommand}" 
                             ToolTip.Tip="Toggle File Explorer (Ctrl+B)" 
                             Width="32" Height="28" Padding="0"/>
@@ -78,6 +87,25 @@
                     <Button Content="📄" Command="{Binding ToggleCheckpointBrowserCommand}" 
                             ToolTip.Tip="Toggle Checkpoint Browser" 
                             Width="32" Height="28" Padding="0"/>
+                    <Button Content="🔀" Command="{Binding ViewActiveFileDiffCommand}" 
+                            ToolTip.Tip="View Diff (active file vs. last checkpoint)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="🧠" Command="{Binding ToggleProjectKnowledgeCommand}" 
+                            ToolTip.Tip="Project Knowledge — AGENTS.md and Skills" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Command="{Binding ToggleBackgroundTasksCommand}" 
+                            ToolTip.Tip="Background Tasks — delegate work, keep chatting" 
+                            Width="32" Height="28" Padding="0">
+                        <Grid>
+                            <TextBlock Text="🧵" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border IsVisible="{Binding BackgroundTasks.HasRunningTasks}"
+                                    Background="#4A9EFF" CornerRadius="8" Width="16" Height="16"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0">
+                                <TextBlock Text="{Binding BackgroundTasks.RunningCount}" FontSize="9"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+                            </Border>
+                        </Grid>
+                    </Button>
                     <Button Content="📦" Command="{Binding ToggleSessionHistoryCommand}" 
                             ToolTip.Tip="Toggle Session History (export/import)" 
                             Width="32" Height="28" Padding="0"/>
@@ -239,6 +267,50 @@
             <views:CheckpointBrowserView DataContext="{Binding CheckpointBrowser}"/>
         </Border>
 
+        <!-- Diff Viewer Overlay: view/edit the diff between a file's baseline
+             (checkpoint) and its current content. Wide centered modal since
+             it needs room for two side-by-side text panes. -->
+        <Border IsVisible="{Binding DiffViewer.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="40"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:DiffViewerView DataContext="{Binding DiffViewer}"/>
+        </Border>
+
+        <!-- Project Knowledge Overlay: AGENTS.md editor + doctor checks, and
+             the skills browser/creator. Wide centered modal, same footprint
+             as the diff viewer. -->
+        <Border IsVisible="{Binding ProjectKnowledge.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="40"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:ProjectKnowledgeView DataContext="{Binding ProjectKnowledge}"/>
+        </Border>
+
+        <!-- Background Tasks Overlay: Cowork-style delegated tasks that run
+             independently of the main chat conversation. Right-docked panel
+             (like the checkpoint browser) rather than a wide modal, since
+             it's meant to stay glanceable alongside ongoing chat work. -->
+        <Border IsVisible="{Binding BackgroundTasks.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="420"
+                ZIndex="55">
+            <views:BackgroundTaskManagerView DataContext="{Binding BackgroundTasks}"/>
+        </Border>
+
         <!-- Autonomous Plan Overlay -->
         <Border IsVisible="{Binding ChatViewModel.PlanVM.IsVisible}"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
@@ -353,9 +425,27 @@
                                           SelectedItem="{Binding FileExplorer.SelectedItem, Mode=TwoWay}"
                                           SelectionChanged="OnFileExplorerSelectionChanged"
                                           DoubleTapped="OnFileExplorerItemDoubleTapped">
+                                    <TreeView.Styles>
+                                        <Style Selector="TreeViewItem">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                        </Style>
+                                    </TreeView.Styles>
                                     <TreeView.ItemTemplate>
                                         <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:FileExplorerItem">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                                        IsVisible="{Binding IsPlaceholder, Converter={StaticResource InverseBool}}">
+                                                <StackPanel.ContextFlyout>
+                                                    <MenuFlyout>
+                                                        <MenuItem Header="Open"
+                                                                  Command="{Binding $parent[Window].DataContext.OpenExplorerFileCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding CanOpen}"/>
+                                                        <MenuItem Header="Open Preview"
+                                                                  Command="{Binding $parent[Window].DataContext.OpenExplorerFilePreviewCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding CanOpen}"/>
+                                                    </MenuFlyout>
+                                                </StackPanel.ContextFlyout>
                                                 <TextBlock Text="{Binding Icon}" FontSize="14"/>
                                                 <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Text="⏳" 
@@ -379,9 +469,26 @@
 
                 <!-- Main Content (Editor + Chat + Terminal) -->
                 <SplitView.Content>
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                        <!-- Left Column: Chat + Terminal stacked -->
-                        <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto,Auto">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding EditorPane.HasOpenTabs, Converter={StaticResource BoolToStarGridLength}}"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Editor next to Explorer when a file is open -->
+                        <Border Grid.Column="0"
+                                IsVisible="{Binding EditorPane.HasOpenTabs}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Padding="0"
+                                Margin="0,0,8,8"
+                                MinWidth="300">
+                            <views:EditorView Name="EditorViewControl" DataContext="{Binding EditorPane}"/>
+                        </Border>
+
+                        <!-- Chat + Terminal stacked -->
+                        <Grid Grid.Column="1" RowDefinitions="*,Auto,Auto,Auto">
                             <!-- Chat Messages -->
                             <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
                                 <StackPanel Spacing="8" Margin="16,0">
@@ -414,9 +521,13 @@
                                                                     Background="Transparent"
                                                                     BorderThickness="0"/>
                                                         </Grid>
-                                                        <TextBlock Text="{Binding Content}" 
-                                                                   TextWrapping="Wrap"
-                                                                   FontSize="13"/>
+                                                        <md:MarkdownScrollViewer Markdown="{Binding Content}">
+                                                            <md:MarkdownScrollViewer.Plugins>
+                                                                <md:MdAvPlugins>
+                                                                    <mdtight:ChatAISetup/>
+                                                                </md:MdAvPlugins>
+                                                            </md:MarkdownScrollViewer.Plugins>
+                                                        </md:MarkdownScrollViewer>
                                                     </StackPanel>
                                                 </Border>
                                             </DataTemplate>
@@ -680,17 +791,6 @@
                             </Grid>
                         </Grid>
 
-                        <!-- Editor Pane (Middle Column - shown when a file is open) -->
-                        <Border Grid.Column="1"
-                                IsVisible="{Binding EditorPane.HasOpenTabs}"
-                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
-                                Padding="0"
-                                Margin="8,0,0,8"
-                                MinWidth="300"
-                                MaxWidth="500">
-                            <views:EditorView DataContext="{Binding EditorPane}"/>
-                        </Border>
-
                         <!-- Preview Pane (click-to-edit visual layer) -->
                         <Border Grid.Column="2"
                                 IsVisible="{Binding IsPreviewPaneOpen}"
@@ -870,6 +970,71 @@
                                                Opacity="0.5"
                                                VerticalAlignment="Center"
                                                Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- Quick Open Overlay: fuzzy file search (Ctrl+P), or workspace-wide
+             symbol search when the query starts with '#' (Ctrl+T seeds it). -->
+        <Border Grid.RowSpan="3"
+                IsVisible="{Binding QuickOpen.IsOpen}"
+                Background="#88000000"
+                ZIndex="100"
+                PointerPressed="OnQuickOpenBackdropPressed">
+            <Border Width="640"
+                    MaxHeight="480"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    BoxShadow="0 8 24 0 #66000000">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <TextBox Name="QuickOpenSearchBox"
+                                 Watermark="Go to file... (type # for symbols)"
+                                 Text="{Binding QuickOpen.SearchText}"
+                                 KeyDown="OnQuickOpenKeyDown"
+                                 MinHeight="34"
+                                 FontSize="14"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="Ctrl+P / Ctrl+T"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding QuickOpen.Results.Count, StringFormat='{}{0} results'}"
+                               FontSize="11"
+                               Opacity="0.5"
+                               Margin="0,0,0,8"/>
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding QuickOpen.Results}"
+                             SelectedIndex="{Binding QuickOpen.SelectedIndex, Mode=TwoWay}"
+                             MaxHeight="320"
+                             Background="Transparent"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:QuickOpenResult">
+                                <Grid ColumnDefinitions="Auto,*" Margin="4">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding DisplayName}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SubText}"
+                                               FontSize="11"
+                                               Opacity="0.5"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

@@ -32,65 +32,68 @@ public partial class FileExplorerItem : ObservableObject
     [ObservableProperty]
     private string _icon = "📄";
 
+    /// <summary>Dummy child used so directory expanders appear before children are loaded.</summary>
+    public bool IsPlaceholder { get; init; }
+
+    /// <summary>True when this item is a real file that can be opened in the editor.</summary>
+    public bool CanOpen => !IsDirectory && !IsPlaceholder;
+
     public ObservableCollection<FileExplorerItem> Children { get; } = new();
 
     public bool IsInitiallyLoaded { get; set; }
 
     partial void OnIsExpandedChanged(bool value)
     {
-        if (value && !IsInitiallyLoaded && IsDirectory)
+        if (value && IsDirectory && !IsInitiallyLoaded)
         {
             _ = LoadChildrenAsync();
         }
     }
 
+    public static FileExplorerItem CreateDirectory(string name, string fullPath)
+    {
+        var item = new FileExplorerItem
+        {
+            Name = name,
+            FullPath = fullPath,
+            IsDirectory = true,
+            Icon = "📁"
+        };
+        item.Children.Add(CreatePlaceholder());
+        return item;
+    }
+
+    public static FileExplorerItem CreateFile(string name, string fullPath)
+    {
+        return new FileExplorerItem
+        {
+            Name = name,
+            FullPath = fullPath,
+            IsDirectory = false,
+            Icon = GetFileIcon(Path.GetExtension(name))
+        };
+    }
+
+    public static FileExplorerItem CreatePlaceholder() => new()
+    {
+        Name = string.Empty,
+        Icon = string.Empty,
+        IsPlaceholder = true
+    };
+
     public async Task LoadChildrenAsync()
     {
-        if (IsLoading || IsInitiallyLoaded) return;
+        if (!IsDirectory || IsPlaceholder || IsLoading || IsInitiallyLoaded)
+            return;
+
         IsLoading = true;
 
         try
         {
-            var items = await Task.Run(() =>
-            {
-                var children = new List<FileExplorerItem>();
-                try
-                {
-                    var dirInfo = new DirectoryInfo(FullPath);
-                    if (!dirInfo.Exists) return children;
+            var path = FullPath;
+            var items = await Task.Run(() => EnumerateChildren(path));
 
-                    foreach (var dir in dirInfo.GetDirectories()
-                        .Where(d => !d.Attributes.HasFlag(FileAttributes.Hidden) && !d.Name.StartsWith('.'))
-                        .OrderBy(d => d.Name))
-                    {
-                        children.Add(new FileExplorerItem
-                        {
-                            Name = dir.Name,
-                            FullPath = dir.FullName,
-                            IsDirectory = true,
-                            Icon = "📁"
-                        });
-                    }
-
-                    foreach (var file in dirInfo.GetFiles()
-                        .Where(f => !f.Attributes.HasFlag(FileAttributes.Hidden) && !f.Name.StartsWith('.'))
-                        .OrderBy(f => f.Name))
-                    {
-                        children.Add(new FileExplorerItem
-                        {
-                            Name = file.Name,
-                            FullPath = file.FullName,
-                            IsDirectory = false,
-                            Icon = GetFileIcon(file.Extension)
-                        });
-                    }
-                }
-                catch (UnauthorizedAccessException) { }
-                catch (DirectoryNotFoundException) { }
-
-                return children;
-            });
-
+            Children.Clear();
             foreach (var child in items)
             {
                 Children.Add(child);
@@ -107,7 +110,36 @@ public partial class FileExplorerItem : ObservableObject
         }
     }
 
-    private static string GetFileIcon(string extension) => extension.ToLowerInvariant() switch
+    internal static List<FileExplorerItem> EnumerateChildren(string directoryPath)
+    {
+        var children = new List<FileExplorerItem>();
+        try
+        {
+            var dirInfo = new DirectoryInfo(directoryPath);
+            if (!dirInfo.Exists)
+                return children;
+
+            foreach (var dir in dirInfo.GetDirectories()
+                .Where(d => !d.Attributes.HasFlag(FileAttributes.Hidden) && !d.Name.StartsWith('.'))
+                .OrderBy(d => d.Name))
+            {
+                children.Add(CreateDirectory(dir.Name, dir.FullName));
+            }
+
+            foreach (var file in dirInfo.GetFiles()
+                .Where(f => !f.Attributes.HasFlag(FileAttributes.Hidden) && !f.Name.StartsWith('.'))
+                .OrderBy(f => f.Name))
+            {
+                children.Add(CreateFile(file.Name, file.FullName));
+            }
+        }
+        catch (UnauthorizedAccessException) { }
+        catch (DirectoryNotFoundException) { }
+
+        return children;
+    }
+
+    internal static string GetFileIcon(string extension) => extension.ToLowerInvariant() switch
     {
         ".cs" => "🔷",
         ".xaml" or ".axaml" => "🟦",
@@ -158,50 +190,11 @@ public partial class FileExplorerViewModel : ObservableObject
         try
         {
             var rootDir = new DirectoryInfo(RootPath);
-            var rootItem = new FileExplorerItem
-            {
-                Name = rootDir.Name,
-                FullPath = rootDir.FullName,
-                IsDirectory = true,
-                Icon = "📁"
-            };
+            var rootItem = FileExplorerItem.CreateDirectory(rootDir.Name, rootDir.FullName);
 
-            // Load first level
-            var items = await Task.Run(() =>
-            {
-                var children = new List<FileExplorerItem>();
-                try
-                {
-                    foreach (var dir in rootDir.GetDirectories()
-                        .Where(d => !d.Attributes.HasFlag(FileAttributes.Hidden) && !d.Name.StartsWith('.'))
-                        .OrderBy(d => d.Name))
-                    {
-                        children.Add(new FileExplorerItem
-                        {
-                            Name = dir.Name,
-                            FullPath = dir.FullName,
-                            IsDirectory = true,
-                            Icon = "📁"
-                        });
-                    }
+            var items = await Task.Run(() => FileExplorerItem.EnumerateChildren(rootDir.FullName));
 
-                    foreach (var file in rootDir.GetFiles()
-                        .Where(f => !f.Attributes.HasFlag(FileAttributes.Hidden) && !f.Name.StartsWith('.'))
-                        .OrderBy(f => f.Name))
-                    {
-                        children.Add(new FileExplorerItem
-                        {
-                            Name = file.Name,
-                            FullPath = file.FullName,
-                            IsDirectory = false,
-                            Icon = GetFileIcon(file.Extension)
-                        });
-                    }
-                }
-                catch (UnauthorizedAccessException) { }
-                return children;
-            });
-
+            rootItem.Children.Clear();
             foreach (var child in items)
             {
                 rootItem.Children.Add(child);
@@ -209,6 +202,7 @@ public partial class FileExplorerViewModel : ObservableObject
 
             rootItem.IsInitiallyLoaded = true;
             RootItems.Add(rootItem);
+            rootItem.IsExpanded = true;
         }
         finally
         {
@@ -233,7 +227,7 @@ public partial class FileExplorerViewModel : ObservableObject
     {
         var files = new List<string>();
         var dir = directory ?? RootPath;
-        
+
         if (!Directory.Exists(dir)) return files;
 
         try
@@ -258,21 +252,4 @@ public partial class FileExplorerViewModel : ObservableObject
 
         return files;
     }
-
-    private static string GetFileIcon(string extension) => extension.ToLowerInvariant() switch
-    {
-        ".cs" => "🔷",
-        ".xaml" or ".axaml" => "🟦",
-        ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "📋",
-        ".md" or ".txt" => "📝",
-        ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" or ".ico" => "🖼️",
-        ".csproj" or ".sln" or ".slnx" => "📦",
-        ".gitignore" or ".gitattributes" => "🔧",
-        ".js" or ".ts" or ".jsx" or ".tsx" => "🟨",
-        ".py" => "🐍",
-        ".html" or ".css" or ".scss" => "🌐",
-        ".sql" or ".db" => "🗄️",
-        ".dll" or ".exe" => "⚙️",
-        _ => "📄"
-    };
 }

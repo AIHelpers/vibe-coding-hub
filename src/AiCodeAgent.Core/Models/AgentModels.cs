@@ -166,6 +166,12 @@ public record AgentOptions
     /// <summary>Granular per-risk-category rights (read/edit/execute). When set, these override the coarse PermissionMode for the corresponding risk levels.</summary>
     public GranularRights? Rights { get; init; }
     public string? SessionId { get; init; }
+    /// <summary>
+    /// Optional image attachments (screenshots, pasted images, annotation
+    /// captures) to attach to this turn's user message. See
+    /// <see cref="ImageAttachment"/>.
+    /// </summary>
+    public List<ImageAttachment>? Images { get; init; }
     /// <summary>Agent instance key for multi-agent sessions.</summary>
     public string? AgentId { get; init; }
     /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
@@ -214,6 +220,15 @@ public record ToolExecution
 }
 
 public abstract record AgentEvent;
+/// <summary>
+/// Wraps any <see cref="AgentEvent"/> with the session it belongs to. The
+/// shared <see cref="IAgentEventBus"/> carries events for every running
+/// session (the main chat, plus any background tasks — see
+/// <c>BackgroundTaskManagerViewModel</c>), so each listener must check
+/// <see cref="SessionId"/> and ignore events for sessions it doesn't own
+/// rather than assuming every event on the bus is its own.
+/// </summary>
+public sealed record SessionScopedEvent(string SessionId, AgentEvent Inner) : AgentEvent;
 public record TextDeltaEvent(string Delta) : AgentEvent;
 public record ThinkingEvent(string Content) : AgentEvent;
 public record ToolCallStartEvent(ToolCall Call) : AgentEvent;

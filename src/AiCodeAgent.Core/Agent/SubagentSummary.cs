@@ -36,11 +36,13 @@ public record SubagentSummary
     /// <summary>Non-null when the subagent ended with an error.</summary>
     public string? Error { get; init; }
 
-    /// <summary>Convenience: a human-readable block to inject into the main agent's context.</summary>
+    /// <summary>Convenience: an XML-tagged block to inject into the main agent's context.</summary>
     public string ToPromptBlock() =>
+        $"<subagent_result id=\"{SubagentId}\">\n" +
         $"# Subagent result ({SubagentId})\nTask: {Task}\n" +
         (Forked ? "Mode: forked from current conversation\n" : "Mode: fresh context\n") +
         $"Tool calls: {ToolCallCount}  |  Tokens: {Usage.TotalTokens}  |  Duration: {Duration.TotalSeconds:F1}s\n" +
         (WasCancelled ? "Status: cancelled\n" : Error is null ? "Status: completed\n" : $"Status: error ({Error})\n") +
-        $"Summary:\n{Content}";
+        $"Summary:\n{Content}\n" +
+        "</subagent_result>";
 }

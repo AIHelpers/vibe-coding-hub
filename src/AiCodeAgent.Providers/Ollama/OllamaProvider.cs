@@ -248,6 +248,17 @@ public class OllamaProvider : BaseHttpProvider
                         content = msg.Content
                     });
                     break;
+                case MessageRole.User when msg.Images is { Count: > 0 }:
+                    // Ollama's vision format: plain text content plus a
+                    // sibling `images` array of raw base64 strings (no
+                    // data: URL prefix, no per-image media type).
+                    messages.Add(new
+                    {
+                        role = "user",
+                        content = msg.Content,
+                        images = msg.Images.Select(i => i.Base64Data).ToArray()
+                    });
+                    break;
                 default:
                     messages.Add(new { role = msg.Role.ToString().ToLower(), content = msg.Content });
                     break;

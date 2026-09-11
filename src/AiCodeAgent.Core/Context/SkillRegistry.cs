@@ -34,6 +34,12 @@ public class SkillRegistry : ISkillRegistry
         _overrides = overrides ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>The global skills directory this instance scans (e.g. for a "New Skill" UI to know where to write).</summary>
+    public string GlobalSkillsDirectory => _globalSkillsDir;
+
+    /// <summary>The project skills directory this instance scans, or null if none was configured.</summary>
+    public string? ProjectSkillsDirectory => _projectSkillsDir;
+
     /// <summary>Default global skills directory: <c>~/.aiagent/skills</c>.</summary>
     public static string GetDefaultGlobalSkillsDir()
     {
@@ -96,6 +102,13 @@ public class SkillRegistry : ISkillRegistry
     {
         EnsureScanned();
         return _cache.TryGetValue(skillName, out var info) ? info.FilePath : null;
+    }
+
+    /// <inheritdoc />
+    public void Refresh()
+    {
+        _cache.Clear();
+        _scanned = false;
     }
 
     private bool IsVisible(SkillInfo skill)

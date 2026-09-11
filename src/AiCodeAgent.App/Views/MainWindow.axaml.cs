@@ -118,6 +118,38 @@ public partial class MainWindow : Window
                         return false;
                 }
             };
+
+            // Quick Open: file results just open; symbol results open and
+            // jump to the definition's line via the same navigation path
+            // Ctrl+Click/F12 go-to-definition already uses.
+            mainVm.QuickOpen.ResultChosen -= OnQuickOpenResultChosen;
+            mainVm.QuickOpen.ResultChosen += OnQuickOpenResultChosen;
+        }
+    }
+
+    private async void OnQuickOpenResultChosen(QuickOpenResult result)
+    {
+        if (result.IsSymbol && result.Line >= 0)
+        {
+            await NavigateEditorToLocationAsync(result.FilePath, result.Line);
+        }
+        else if (DataContext is MainViewModel mainVm)
+        {
+            await mainVm.EditorPane.OpenFileAsync(result.FilePath);
+        }
+    }
+
+    private async Task NavigateEditorToLocationAsync(string path, int line)
+    {
+        if (EditorViewControl != null)
+        {
+            await EditorViewControl.OpenLocationAsync(path, line);
+        }
+        else if (DataContext is MainViewModel mainVm)
+        {
+            // Fallback: EditorView not yet realized (e.g. no tabs open) —
+            // still open the file even without the line-jump.
+            await mainVm.EditorPane.OpenFileAsync(path);
         }
     }
 
@@ -171,6 +203,14 @@ public partial class MainWindow : Window
     {
         if (DataContext is MainViewModel mainVm)
             return mainVm.CommandPalette;
+        return null;
+    }
+
+    // Helper to access the quick open view model
+    private QuickOpenViewModel? GetQuickOpen()
+    {
+        if (DataContext is MainViewModel mainVm)
+            return mainVm.QuickOpen;
         return null;
     }
 
@@ -249,13 +289,10 @@ public partial class MainWindow : Window
         // DoubleTapped event fires, leaving the editor stuck on "No file open".
         var item = ResolveFileExplorerItem(e.Source);
         if (item != null &&
-            !item.IsDirectory &&
+            item.CanOpen &&
             DataContext is MainViewModel mainVm)
         {
-            // Open the file in the editor pane (editable by default).
-            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath);
-            // Collapse the checkpoint browser to give the editor focus.
-            mainVm.IsCheckpointBrowserOpen = false;
+            _ = mainVm.OpenExplorerItemAsync(item, isPreview: false);
         }
     }
 
@@ -270,11 +307,10 @@ public partial class MainWindow : Window
     {
         if (sender is TreeView treeView &&
             treeView.SelectedItem is FileExplorerItem item &&
-            !item.IsDirectory &&
+            item.CanOpen &&
             DataContext is MainViewModel mainVm)
         {
-            // Open as preview on single-click selection
-            _ = mainVm.EditorPane.OpenFileAsync(item.FullPath, isPreview: true);
+            _ = mainVm.OpenExplorerItemAsync(item, isPreview: true);
         }
     }
 
@@ -368,6 +404,51 @@ public partial class MainWindow : Window
         if (e.Source is Border border && ReferenceEquals(border, sender))
         {
             palette.Close();
+            e.Handled = true;
+        }
+    }
+
+    private void OnQuickOpenKeyDown(object? sender, KeyEventArgs e)
+    {
+        var quickOpen = GetQuickOpen();
+        if (quickOpen == null)
+            return;
+
+        switch (e.Key)
+        {
+            case Key.Down:
+                quickOpen.SelectNext();
+                e.Handled = true;
+                break;
+
+            case Key.Up:
+                quickOpen.SelectPrevious();
+                e.Handled = true;
+                break;
+
+            case Key.Enter:
+                quickOpen.ChooseSelected();
+                e.Handled = true;
+                break;
+
+            case Key.Escape:
+                quickOpen.Close();
+                e.Handled = true;
+                break;
+        }
+        _ = HandleQuickOpenFocusAsync(quickOpen);
+    }
+
+    private void OnQuickOpenBackdropPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var quickOpen = GetQuickOpen();
+        if (quickOpen == null)
+            return;
+
+        // Only dismiss when clicking the backdrop itself (not the inner card)
+        if (e.Source is Border border && ReferenceEquals(border, sender))
+        {
+            quickOpen.Close();
             e.Handled = true;
         }
     }
@@ -466,6 +547,32 @@ public partial class MainWindow : Window
             // Defer so the palette is visible and layout has run.
             await Task.Delay(1);
             PaletteSearchBox?.Focus();
+        }
+        else
+        {
+            // Return focus to the main input box.
+            InputBox?.Focus();
+        }
+    }
+
+    /// <summary>
+    /// Keeps keyboard focus on the Quick Open search box while it's open.
+    /// Called after each key event and when the popup opens/closes.
+    /// </summary>
+    private async Task HandleQuickOpenFocusAsync(QuickOpenViewModel? quickOpen = null)
+    {
+        quickOpen ??= GetQuickOpen();
+        if (quickOpen == null)
+            return;
+
+        if (quickOpen.IsOpen)
+        {
+            // Defer so the popup is visible and layout has run.
+            await Task.Delay(1);
+            QuickOpenSearchBox?.Focus();
+            // Select-all so typing over a seeded prefix (e.g. the '#' from
+            // Ctrl+T) replaces it in one keystroke, matching VSCode's feel.
+            QuickOpenSearchBox?.SelectAll();
         }
         else
         {

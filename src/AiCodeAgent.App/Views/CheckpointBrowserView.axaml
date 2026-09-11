@@ -55,14 +55,20 @@
                                                                    Opacity="0.4"
                                                                    TextTrimming="CharacterEllipsis"/>
                                                     </StackPanel>
-                                                    <Button Grid.Column="1"
-                                                            Content="↩️ Restore"
-                                                            Command="{Binding DataContext.RestoreCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            CommandParameter="{Binding}"
-                                                            FontSize="10"
-                                                            Padding="6,2"
-                                                            Margin="8,0,0,0"
-                                                            VerticalAlignment="Center"/>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
+                                                        <Button Content="🔀 Diff"
+                                                                Command="{Binding DataContext.ViewDiffCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"
+                                                                FontSize="10"
+                                                                Padding="6,2"
+                                                                VerticalAlignment="Center"/>
+                                                        <Button Content="↩️ Restore"
+                                                                Command="{Binding DataContext.RestoreCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                CommandParameter="{Binding}"
+                                                                FontSize="10"
+                                                                Padding="6,2"
+                                                                VerticalAlignment="Center"/>
+                                                    </StackPanel>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

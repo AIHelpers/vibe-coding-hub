@@ -13,6 +13,34 @@ public record Message
     public string? ToolCallId { get; init; }
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;
     public int TokenCount { get; set; }
+
+    /// <summary>
+    /// Optional image attachments (screenshots, pasted images, annotation
+    /// captures) carried alongside a User message's text. Populated for
+    /// multimodal turns — e.g. a visual annotation on the preview pane, or a
+    /// browser-tool screenshot fed back to the model. Providers that support
+    /// vision (Anthropic, OpenAI-compatible, Ollama vision models) render
+    /// these as inline image content blocks; providers/paths that don't
+    /// simply ignore them and fall back to <see cref="Content"/> text.
+    /// </summary>
+    public List<ImageAttachment>? Images { get; init; }
+}
+
+/// <summary>
+/// A single inline image attached to a <see cref="Message"/>. Stored as raw
+/// base64 image bytes plus a MIME type, matching what every supported
+/// provider's multimodal content-block format expects.
+/// </summary>
+public record ImageAttachment
+{
+    /// <summary>MIME type, e.g. "image/png" or "image/jpeg".</summary>
+    public string MediaType { get; init; } = "image/png";
+
+    /// <summary>Raw image bytes, base64-encoded (no data: URL prefix).</summary>
+    public string Base64Data { get; init; } = string.Empty;
+
+    /// <summary>Human-readable origin, e.g. "Preview pane annotation", for logs/UI.</summary>
+    public string? SourceDescription { get; init; }
 }
 
 public record ToolCall

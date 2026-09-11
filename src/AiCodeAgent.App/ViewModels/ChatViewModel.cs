@@ -237,12 +237,32 @@ public partial class ChatViewModel : ObservableObject
         var description = annotation.ToDescription();
         var svg = annotation.ToSvg();
         var bounds = annotation.Bounds;
+        var hasScreenshot = !string.IsNullOrEmpty(annotation.CroppedPreviewBase64);
         var content = $"[Visual Annotation] {note}\n\n" +
                       $"Annotated region: ({bounds.X:F0},{bounds.Y:F0}) " +
                       $"{bounds.Width:F0}×{bounds.Height:F0}px\n" +
                       $"Strokes: {description}\n\n" +
                       $"SVG:\n{svg}\n\n" +
-                      "Please identify the target element in the annotated region and make the requested change.";
+                      (hasScreenshot
+                          ? "An image of the annotated region is attached — use it to see exactly what the " +
+                            "user marked up, then identify the target element and make the requested change."
+                          : "Please identify the target element in the annotated region and make the requested change.");
+
+        // Attach the actual screenshot pixels (not just the vector/SVG
+        // description) so vision-capable models can see what the user is
+        // pointing at, the same way Cursor/Claude Code/Antigravity feed
+        // screenshots back to the model.
+        var annotationImages = hasScreenshot
+            ? new List<ImageAttachment>
+              {
+                  new()
+                  {
+                      MediaType = annotation.CroppedPreviewMimeType,
+                      Base64Data = annotation.CroppedPreviewBase64!,
+                      SourceDescription = "Preview pane annotation"
+                  }
+              }
+            : null;
 
         Messages.Add(new ChatMessage
         {
@@ -278,6 +298,7 @@ public partial class ChatViewModel : ObservableObject
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
                     WorkingDirectory = WorkingDirectory,
+                    Images = annotationImages,
                     Rights = new GranularRights
                     {
                         AllowRead = AllowRead,
@@ -559,7 +580,7 @@ public partial class ChatViewModel : ObservableObject
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // Start the event-processing loop on the calling (UI) thread so it
         // captures the real SynchronizationContext (see SendAsync for rationale).
-        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        var processingTask = ProcessEventsAsync(assistantMessage, token, pipelineSessionId);
         try
         {
             // Drive the pipeline to completion; events are consumed via the event bus subscription above.
@@ -608,13 +629,27 @@ public partial class ChatViewModel : ObservableObject
             assistantMessage.Content = "*(No response generated)*";
         }
     }
-    private async Task ProcessEventsAsync(ChatMessage assistantMessage, CancellationToken token)
+    private async Task ProcessEventsAsync(ChatMessage assistantMessage, CancellationToken token, string sessionId = "default")
     {
         var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
         try
         {
-            await foreach (var evt in _eventBus.GetEventsAsync(token))
+            await foreach (var raw in _eventBus.GetEventsAsync(token))
             {
+                // Every event on the shared bus is now wrapped with the
+                // session/task it belongs to (see SessionScopedEvent) since
+                // background tasks can run concurrently with this chat on
+                // the same bus. Skip anything that isn't ours, and unwrap
+                // the rest so the switch below sees the original event
+                // types unchanged.
+                AgentEvent evt = raw;
+                if (raw is SessionScopedEvent scoped)
+                {
+                    if (!string.Equals(scoped.SessionId, sessionId, StringComparison.Ordinal))
+                        continue;
+                    evt = scoped.Inner;
+                }
+
                 switch (evt)
                 {
                     case TextDeltaEvent delta:
@@ -1550,10 +1585,10 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        var sessionId = Guid.NewGuid().ToString("N");
+        var processingTask = ProcessEventsAsync(assistantMessage, token, sessionId);
         try
         {
-            var sessionId = Guid.NewGuid().ToString("N");
             var steps = await _planGenerator.GenerateAsync(task, WorkingDirectory, token)
                 .ConfigureAwait(true);
             var options = new AgentOptions

@@ -55,6 +55,16 @@ public class AgentOrchestrator : IAgentOrchestrator
         _permissionManager = permissionManager;
     }
 
+    /// <summary>
+    /// Publishes an event scoped to <paramref name="sessionId"/> — every
+    /// event this orchestrator emits goes through here (never
+    /// <c>_eventBus.Publish</c> directly) so listeners on the shared bus can
+    /// tell which session/task an event belongs to. See
+    /// <see cref="SessionScopedEvent"/>.
+    /// </summary>
+    private void PublishScoped(string sessionId, AgentEvent evt) =>
+        _eventBus?.Publish(new SessionScopedEvent(sessionId, evt));
+
     public async Task<AgentResponse> RunAsync(
         string userMessage,
         string sessionId,
@@ -97,7 +107,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         // Emit status update
         var statusEvent = new StatusUpdateEvent("Processing", "Starting agent loop");
         yield return statusEvent;
-        _eventBus?.Publish(statusEvent);
+        PublishScoped(sessionId, statusEvent);
 
         // Run PreSessionStart hooks
         if (_hookRunner is not null)
@@ -112,15 +122,18 @@ public class AgentOrchestrator : IAgentOrchestrator
             {
                 var hookEvent = new StatusUpdateEvent("Hook", preSessionResult.CombinedOutput);
                 yield return hookEvent;
-                _eventBus?.Publish(hookEvent);
+                PublishScoped(sessionId, hookEvent);
             }
         }
 
-        // Add user message to context
+        // Add user message to context (with any attached images — see
+        // AgentOptions.Images — so vision-capable providers can see
+        // screenshots/annotations alongside the text instruction).
         await _contextManager.AddMessageAsync(sessionId, new Message
         {
             Role = MessageRole.User,
-            Content = userMessage
+            Content = userMessage,
+            Images = options.Images
         }).ConfigureAwait(false);
 
         var tools = _toolRegistry.GetTools(options.EnabledTools) ?? new List<ITool>();
@@ -179,7 +192,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                             autoResult.TokensSaved,
                             autoResult.Focus);
                         yield return compactedEvent;
-                        _eventBus?.Publish(compactedEvent);
+                        PublishScoped(sessionId, compactedEvent);
 
                         // Refresh messages after compaction
                         messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
@@ -235,7 +248,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     fullContent.Append(chunk.Delta);
                     var textEvent = new TextDeltaEvent(chunk.Delta);
                     yield return textEvent;
-                    _eventBus?.Publish(textEvent);
+                    PublishScoped(sessionId, textEvent);
                 }
 
                 if (chunk.Usage != null)
@@ -246,7 +259,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens
                     };
                     var usageEvent = new TokenUsageEvent(totalUsage);
-                    _eventBus?.Publish(usageEvent);
+                    PublishScoped(sessionId, usageEvent);
                 }
 
                 if (chunk.IsFinished)
@@ -267,7 +280,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     WasCancelled = true
                 });
                 yield return finishedEvent;
-                _eventBus?.Publish(finishedEvent);
+                PublishScoped(sessionId, finishedEvent);
                 yield break;
             }
 
@@ -310,12 +323,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                     toolExecutions.Add(new ToolExecution { Call = toolCall, Result = result, Duration = duration });
                     var endEvent = new ToolCallEndEvent(toolCall, result, duration);
                     yield return endEvent;
-                    _eventBus?.Publish(endEvent);
+                    PublishScoped(sessionId, endEvent);
 
                     await _contextManager.AddMessageAsync(sessionId, new Message
                     {
                         Role = MessageRole.Tool,
-                        Content = result.Content,
+                        Content = FormatToolResultForModel(toolCall, result),
                         ToolCallId = toolCall.Id,
                         Name = toolCall.Name
                     }).ConfigureAwait(false);
@@ -325,7 +338,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 // Check permissions before executing
                 var statusEvent2 = new StatusUpdateEvent($"Requesting approval for {toolCall.Name}");
                 yield return statusEvent2;
-                _eventBus?.Publish(statusEvent2);
+                PublishScoped(sessionId, statusEvent2);
 
                 // For write/execute operations, check permissions
                 if (tool.Risk != RiskLevel.Read)
@@ -353,12 +366,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                         toolExecutions.Add(new ToolExecution { Call = toolCall, Result = mgrDeniedResult, Duration = TimeSpan.Zero });
                         var mgrDeniedEndEvent = new ToolCallEndEvent(toolCall, mgrDeniedResult, TimeSpan.Zero);
                         yield return mgrDeniedEndEvent;
-                        _eventBus?.Publish(mgrDeniedEndEvent);
+                        PublishScoped(sessionId, mgrDeniedEndEvent);
 
                         await _contextManager.AddMessageAsync(sessionId, new Message
                         {
                             Role = MessageRole.Tool,
-                            Content = mgrDeniedResult.Content,
+                            Content = FormatToolResultForModel(toolCall, mgrDeniedResult),
                             ToolCallId = toolCall.Id,
                             Name = toolCall.Name
                         }).ConfigureAwait(false);
@@ -389,12 +402,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                             toolExecutions.Add(new ToolExecution { Call = toolCall, Result = planDeniedResult, Duration = planDeniedDuration });
                             var planDeniedEndEvent = new ToolCallEndEvent(toolCall, planDeniedResult, planDeniedDuration);
                             yield return planDeniedEndEvent;
-                            _eventBus?.Publish(planDeniedEndEvent);
+                            PublishScoped(sessionId, planDeniedEndEvent);
 
                             await _contextManager.AddMessageAsync(sessionId, new Message
                             {
                                 Role = MessageRole.Tool,
-                                Content = planDeniedResult.Content,
+                                Content = FormatToolResultForModel(toolCall, planDeniedResult),
                                 ToolCallId = toolCall.Id,
                                 Name = toolCall.Name
                             }).ConfigureAwait(false);
@@ -405,7 +418,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         var approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                         var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs, tool.Risk);
                         yield return approvalEvent;
-                        _eventBus?.Publish(approvalEvent);
+                        PublishScoped(sessionId, approvalEvent);
 
                         // Wait for user approval (cancel-aware to avoid hang)
                         using var approvalCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -451,12 +464,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                             toolExecutions.Add(new ToolExecution { Call = toolCall, Result = deniedResult, Duration = deniedDuration });
                             var deniedEndEvent = new ToolCallEndEvent(toolCall, deniedResult, deniedDuration);
                             yield return deniedEndEvent;
-                            _eventBus?.Publish(deniedEndEvent);
+                            PublishScoped(sessionId, deniedEndEvent);
 
                             await _contextManager.AddMessageAsync(sessionId, new Message
                             {
                                 Role = MessageRole.Tool,
-                                Content = deniedResult.Content,
+                                Content = FormatToolResultForModel(toolCall, deniedResult),
                                 ToolCallId = toolCall.Id,
                                 Name = toolCall.Name
                             }).ConfigureAwait(false);
@@ -477,7 +490,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         {
                             var checkpoint = await _checkpointManager.CreateCheckpointAsync(filePath, turnId, sessionId);
                             checkpointEvent = new CheckpointCreatedEvent(checkpoint);
-                            _eventBus?.Publish(checkpointEvent);
+                            PublishScoped(sessionId, checkpointEvent);
                         }
                         catch (Exception ex)
                         {
@@ -517,12 +530,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                         toolExecutions.Add(new ToolExecution { Call = toolCall, Result = denyResult, Duration = TimeSpan.Zero });
                         var denyEndEvent = new ToolCallEndEvent(toolCall, denyResult, TimeSpan.Zero);
                         yield return denyEndEvent;
-                        _eventBus?.Publish(denyEndEvent);
+                        PublishScoped(sessionId, denyEndEvent);
 
                         await _contextManager.AddMessageAsync(sessionId, new Message
                         {
                             Role = MessageRole.Tool,
-                            Content = denyResult.Content,
+                            Content = FormatToolResultForModel(toolCall, denyResult),
                             ToolCallId = toolCall.Id,
                             Name = toolCall.Name
                         }).ConfigureAwait(false);
@@ -537,11 +550,11 @@ public class AgentOrchestrator : IAgentOrchestrator
                     // Execute tool
                     var startEvent = new ToolCallStartEvent(toolCall);
                     yield return startEvent;
-                    _eventBus?.Publish(startEvent);
+                    PublishScoped(sessionId, startEvent);
 
                     var statusEvent3 = new StatusUpdateEvent($"Executing {toolCall.Name}");
                     yield return statusEvent3;
-                    _eventBus?.Publish(statusEvent3);
+                    PublishScoped(sessionId, statusEvent3);
 
                     try
                     {
@@ -564,7 +577,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     toolExecutions.Add(new ToolExecution { Call = toolCall, Result = toolResult, Duration = execDuration });
                     var toolEndEvent = new ToolCallEndEvent(toolCall, toolResult, execDuration);
                     yield return toolEndEvent;
-                    _eventBus?.Publish(toolEndEvent);
+                    PublishScoped(sessionId, toolEndEvent);
 
                     // Run PostToolUse hooks
                     if (_hookRunner is not null)
@@ -581,7 +594,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         {
                             var hookStatus = new StatusUpdateEvent("Hook", postToolResult.CombinedOutput);
                             yield return hookStatus;
-                            _eventBus?.Publish(hookStatus);
+                            PublishScoped(sessionId, hookStatus);
                         }
                     }
                 }
@@ -610,7 +623,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         };
                         var diffEvent = new DiffProducedEvent(diffEntry);
                         yield return diffEvent;
-                        _eventBus?.Publish(diffEvent);
+                        PublishScoped(sessionId, diffEvent);
                     }
                 }
 
@@ -618,7 +631,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 await _contextManager.AddMessageAsync(sessionId, new Message
                 {
                     Role = MessageRole.Tool,
-                    Content = toolResult.Content,
+                    Content = FormatToolResultForModel(toolCall, toolResult),
                     ToolCallId = toolCall.Id,
                     Name = toolCall.Name
                 }).ConfigureAwait(false);
@@ -649,7 +662,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         var finished = new AgentFinishedEvent(response);
         yield return finished;
-        _eventBus?.Publish(finished);
+        PublishScoped(sessionId, finished);
 
         // Run PostSessionEnd hooks
         if (_hookRunner is not null)
@@ -664,57 +677,56 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         var doneEvent = new StatusUpdateEvent("Done", "Agent completed");
         yield return doneEvent;
-        _eventBus?.Publish(doneEvent);
+        PublishScoped(sessionId, doneEvent);
     }
 
     private string BuildSystemPrompt(AgentOptions options)
     {
-        var roleLine = string.IsNullOrEmpty(options.Role)
-            ? string.Empty
-            : $"Role: {options.Role}";
-        var agentLine = string.IsNullOrEmpty(options.AgentId)
-            ? string.Empty
-            : $"Agent ID: {options.AgentId}";
-        var roleInstructions = string.IsNullOrWhiteSpace(options.RoleSystemPrompt)
-            ? string.Empty
-            : $"\n{options.RoleSystemPrompt.Trim()}\n";
-
-        var requirementsBlock = options.Requirements is null || string.IsNullOrWhiteSpace(options.Requirements.ToPromptBlock())
-            ? string.Empty
-            : $"\n{options.Requirements.ToPromptBlock()}\n";
-
-        var memoryBlock = options.ProjectMemory is null || !options.ProjectMemory.HasContent
-            ? string.Empty
-            : $"\n{options.ProjectMemory.ToPromptBlock()}\n";
-
-        var autoMemoryBlock = string.IsNullOrWhiteSpace(options.AutoMemory)
-            ? string.Empty
-            : $"\n# Learned Preferences (Auto-Memory)\n{options.AutoMemory.Trim()}\n";
-
-        return $"""
-            You are an expert AI coding assistant with deep knowledge of software development.
-            You have access to tools to read/write files, execute commands, search code, and more.
-            
+        var environmentBlock = $"""
             Working directory: {options.WorkingDirectory}
             Date: {DateTime.UtcNow:yyyy-MM-dd}
             OS: {RuntimeInformation.OSDescription}
             Permission mode: {options.PermissionMode}
-            {roleLine}
-            {agentLine}
-            {roleInstructions}
-            {requirementsBlock}
-            {memoryBlock}
-            {autoMemoryBlock}
-            {BuildSkillsBlock()}
-            {(options.PermissionMode == PermissionMode.Plan ? """
-            Plan mode is ACTIVE:
-            - You may ONLY use read-only tools (read files, search, list directories)
-            - Write, execute, and edit tools are DISABLED and will return errors
-            - Do NOT attempt write/execute tools; plan the work and present it instead
-            - Gather information with read tools, then summarize a plan for the user
-            
-            """ : string.Empty)}
-            Guidelines:
+            """;
+
+        var roleBlock = BuildRoleBlock(options);
+        var requirementsBlock = options.Requirements?.ToPromptBlock() ?? string.Empty;
+        var memoryBlock = options.ProjectMemory?.HasContent == true
+            ? options.ProjectMemory.ToPromptBlock()
+            : string.Empty;
+        var autoMemoryBlock = string.IsNullOrWhiteSpace(options.AutoMemory)
+            ? string.Empty
+            : $"Learned from earlier turns in this project — apply unless the user says otherwise:\n{options.AutoMemory.Trim()}";
+        var skillsBlock = BuildSkillsBlock();
+        var planModeBlock = options.PermissionMode == PermissionMode.Plan
+            ? """
+              Plan mode is ACTIVE:
+              - You may ONLY use read-only tools (read files, search, list directories)
+              - Write, execute, and edit tools are DISABLED and will return errors
+              - Do NOT attempt write/execute tools; plan the work and present it instead
+              - Gather information with read tools, then summarize a plan for the user
+              """
+            : string.Empty;
+
+        // Structuring the system prompt with XML tags — the same convention
+        // Anthropic's own prompts use — gives the model unambiguous
+        // boundaries between environment facts, project-specific context,
+        // and behavioral guidelines, instead of one undifferentiated block
+        // of prose. Each section is omitted entirely when it has nothing to
+        // say, so an agent with no role/memory/requirements set still gets a
+        // clean prompt rather than empty tags.
+        var sb = new StringBuilder();
+        sb.AppendLine("You are an expert AI coding assistant with deep knowledge of software development.");
+        sb.AppendLine("You have access to tools to read/write files, execute commands, search code, and more.");
+        sb.AppendLine();
+        sb.Append(WrapSection("environment", environmentBlock));
+        sb.Append(WrapSection("role", roleBlock));
+        sb.Append(WrapSection("confirmed_requirements_context", requirementsBlock, alreadyTagged: true));
+        sb.Append(WrapSection("project_memory_context", memoryBlock, alreadyTagged: true));
+        sb.Append(WrapSection("learned_preferences", autoMemoryBlock));
+        sb.Append(WrapSection("available_skills", skillsBlock));
+        sb.Append(WrapSection("plan_mode_constraints", planModeBlock));
+        sb.Append(WrapSection("guidelines", """
             - Always read files before editing them to understand current state
             - Make minimal, targeted changes when fixing bugs
             - Run diagnostics after making changes to verify correctness
@@ -722,8 +734,9 @@ public class AgentOrchestrator : IAgentOrchestrator
             - If a task is ambiguous, ask for clarification
             - Prefer editing specific code over rewriting entire files
             - Use git to understand history when helpful
-
-            Important вЂ” "write" does not always mean "create a file":
+            """));
+        sb.Append(WrapSection("write_tool_usage", """
+            "Write" does not always mean "create a file":
             - When the user asks you to "write a plan", "write an outline",
               "write a summary", "write a description", or similar, they want
               you to produce that content as your chat response (text), NOT to
@@ -732,18 +745,68 @@ public class AgentOrchestrator : IAgentOrchestrator
               you to create, modify, or save a file (e.g. "create a file
               named X", "save this to a file", "edit the file at path Y").
             - When in doubt, answer in chat and ask before touching the filesystem.
-
-            When writing code:
+            """));
+        sb.Append(WrapSection("code_style_guidelines", """
             - Follow existing code style and conventions
             - Add appropriate error handling
             - Write clean, maintainable code
             - Consider edge cases
-            """;
+            """));
+
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>Builds the &lt;role&gt; section body (role name, agent id, custom role instructions).</summary>
+    private static string BuildRoleBlock(AgentOptions options)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrEmpty(options.Role)) lines.Add($"Role: {options.Role}");
+        if (!string.IsNullOrEmpty(options.AgentId)) lines.Add($"Agent ID: {options.AgentId}");
+        if (!string.IsNullOrWhiteSpace(options.RoleSystemPrompt)) lines.Add(options.RoleSystemPrompt.Trim());
+        return string.Join("\n", lines);
     }
 
     /// <summary>
-    /// Builds the skills description block for the system prompt. Lists
-    /// visible skills so the model can invoke them by name.
+    /// Wraps non-empty content in an XML tag for the system prompt. Sections
+    /// with nothing to say are omitted entirely rather than emitted as empty
+    /// tags. When <paramref name="alreadyTagged"/> is true, the content
+    /// already carries its own top-level tag (e.g. a nested
+    /// <c>ToPromptBlock()</c> result) — <paramref name="tag"/> is used only
+    /// as an outer grouping wrapper in that case.
+    /// </summary>
+    private static string WrapSection(string tag, string content, bool alreadyTagged = false)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return string.Empty;
+
+        return alreadyTagged
+            ? $"{content.Trim()}\n\n"
+            : $"<{tag}>\n{content.Trim()}\n</{tag}>\n\n";
+    }
+
+    /// <summary>
+    /// Wraps a tool's result in an XML tag before it becomes a "tool" role
+    /// message sent back to the model — the same structuring convention
+    /// <see cref="BuildSystemPrompt"/> uses for the system prompt, so the
+    /// model sees a consistent, unambiguous shape for every kind of
+    /// structured content in the conversation. Applied only at this point:
+    /// <see cref="ToolResult.Content"/> itself is left untagged so UI
+    /// surfaces (tool call cards, the event log, CLI output) keep showing
+    /// clean, human-readable text rather than raw XML.
+    /// </summary>
+    private static string FormatToolResultForModel(ToolCall call, ToolResult result)
+    {
+        var name = string.IsNullOrEmpty(result.ToolName) ? call.Name : result.ToolName;
+        var statusAttr = result.IsError ? " status=\"error\"" : string.Empty;
+        return $"<tool_result name=\"{EscapeXmlAttribute(name)}\"{statusAttr}>\n{result.Content}\n</tool_result>";
+    }
+
+    private static string EscapeXmlAttribute(string value) =>
+        value.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>
+    /// Builds the skills list for the &lt;available_skills&gt; section. Returns
+    /// just the inner content — BuildSystemPrompt applies the wrapping tag.
     /// </summary>
     private string BuildSkillsBlock()
     {
@@ -752,14 +815,12 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             var skills = _skillRegistry.ListAsync(default).GetAwaiter().GetResult();
             if (skills.Count == 0) return string.Empty;
-            var sb = new StringBuilder("\n# Available Skills\n");
-            sb.AppendLine("Skills are reusable prompt expansions. Invoke a skill by name when relevant.");
+            var sb = new StringBuilder("Skills are reusable prompt expansions. Invoke a skill by name when relevant.\n");
             foreach (var s in skills)
             {
                 var desc = string.IsNullOrWhiteSpace(s.Description) ? string.Empty : $" — {s.Description}";
                 sb.AppendLine($"- {s.Name}{desc}");
             }
-            sb.AppendLine();
             return sb.ToString();
         }
         catch

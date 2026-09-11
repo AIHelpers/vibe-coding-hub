@@ -221,6 +221,8 @@ public class AnthropicProvider : BaseHttpProvider
 
     private static object BuildMessage(Message msg) => msg.Role switch
     {
+        MessageRole.User when msg.Images is { Count: > 0 } =>
+            new { role = "user", content = BuildUserContentBlocks(msg) },
         MessageRole.User => new { role = "user", content = msg.Content },
         MessageRole.Assistant when msg.ToolCalls?.Count > 0 => new
         {
@@ -248,6 +250,33 @@ public class AnthropicProvider : BaseHttpProvider
         },
         _ => new { role = "assistant", content = msg.Content }
     };
+
+    /// <summary>
+    /// Builds Anthropic's mixed content-block array for a user message that
+    /// carries image attachments: one image block per attachment, followed
+    /// by a trailing text block (Anthropic wants images before the text that
+    /// refers to them).
+    /// </summary>
+    private static List<object> BuildUserContentBlocks(Message msg)
+    {
+        var blocks = new List<object>();
+        foreach (var image in msg.Images!)
+        {
+            blocks.Add(new
+            {
+                type = "image",
+                source = new
+                {
+                    type = "base64",
+                    media_type = image.MediaType,
+                    data = image.Base64Data
+                }
+            });
+        }
+        if (!string.IsNullOrEmpty(msg.Content))
+            blocks.Add(new { type = "text", text = msg.Content });
+        return blocks;
+    }
 
     private static CompletionResponse MapResponse(AnthropicResponse result)
     {

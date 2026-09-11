@@ -5,12 +5,13 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using AiCodeAgent.Indexing;
 using AiCodeAgent.Indexing.Models;
@@ -61,6 +62,10 @@ public partial class MainViewModel : ObservableObject
     public SessionManagerViewModel SessionManager { get; }
     public SessionDashboardViewModel SessionDashboard { get; }
     public CommandPaletteViewModel CommandPalette { get; }
+    public DiffViewerViewModel DiffViewer { get; }
+    public QuickOpenViewModel QuickOpen { get; }
+    public ProjectKnowledgeViewModel ProjectKnowledge { get; }
+    public BackgroundTaskManagerViewModel BackgroundTasks { get; }
 
     [ObservableProperty]
     private bool _isPreviewPaneOpen;
@@ -75,6 +80,10 @@ public partial class MainViewModel : ObservableObject
         SessionManagerViewModel sessionManager,
         SessionDashboardViewModel sessionDashboard,
         CommandPaletteViewModel commandPalette,
+        DiffViewerViewModel diffViewer,
+        QuickOpenViewModel quickOpen,
+        ProjectKnowledgeViewModel projectKnowledge,
+        BackgroundTaskManagerViewModel backgroundTasks,
         WorkspaceIndexQueryService? indexQueryService = null)
     {
         _serviceProvider = serviceProvider;
@@ -86,6 +95,10 @@ public partial class MainViewModel : ObservableObject
         SessionManager = sessionManager;
         SessionDashboard = sessionDashboard;
         CommandPalette = commandPalette;
+        DiffViewer = diffViewer;
+        QuickOpen = quickOpen;
+        ProjectKnowledge = projectKnowledge;
+        BackgroundTasks = backgroundTasks;
         _indexQueryService = indexQueryService;
         _configurationService = serviceProvider.GetService<ConfigurationService>();
 
@@ -115,9 +128,6 @@ public partial class MainViewModel : ObservableObject
         // Update status
         UpdateFileExplorerStatus();
 
-        // Wire file explorer file-click to editor
-        FileExplorer.PropertyChanged += OnFileExplorerPropertyChanged;
-
         // Feature 9: Forward freehand visual annotations from the preview pane
         // to the chat view-model so the agent receives them as instructions.
         var chatForAnnotation = GetOrCreateChatViewModel();
@@ -125,6 +135,10 @@ public partial class MainViewModel : ObservableObject
         {
             _ = chatForAnnotation.SendAnnotationAsync(annotation);
         };
+
+        // Route "view diff" requests from the checkpoint browser to the
+        // standalone diff viewer panel.
+        CheckpointBrowser.ViewDiffRequested += OnCheckpointViewDiffRequested;
 
         // React to configuration saves (e.g. when the user changes the working
         // directory in Settings) so the file explorer and status update live.
@@ -164,23 +178,30 @@ public partial class MainViewModel : ObservableObject
         {
             _configurationService.Saved -= OnConfigurationSaved;
         }
-        FileExplorer.PropertyChanged -= OnFileExplorerPropertyChanged;
+        CheckpointBrowser.ViewDiffRequested -= OnCheckpointViewDiffRequested;
     }
 
-    private void OnFileExplorerPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    /// <summary>
+    /// Opens a file chosen in Explorer. Preview tabs are reused on single-click;
+    /// a non-preview open pins the tab (double-click / context menu Open).
+    /// </summary>
+    public async Task OpenExplorerItemAsync(FileExplorerItem? item, bool isPreview)
     {
-        if (e.PropertyName == nameof(FileExplorerViewModel.SelectedItem))
-        {
-            var selected = FileExplorer.SelectedItem;
-            if (selected != null && !selected.IsDirectory)
-            {
-                // Open as preview by default on single-click selection
-                SafeFireAndForget(EditorPane.OpenFileAsync(selected.FullPath, isPreview: true), "OpenFile");
-                IsCheckpointBrowserOpen = false;
-                IsSessionHistoryOpen = false;
-            }
-        }
+        if (item == null || !item.CanOpen)
+            return;
+
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        await EditorPane.OpenFileAsync(item.FullPath, isPreview: isPreview);
     }
+
+    [RelayCommand]
+    private Task OpenExplorerFile(FileExplorerItem? item)
+        => OpenExplorerItemAsync(item, isPreview: false);
+
+    [RelayCommand]
+    private Task OpenExplorerFilePreview(FileExplorerItem? item)
+        => OpenExplorerItemAsync(item, isPreview: true);
 
     [RelayCommand]
     private void NavigateToChat()
@@ -250,8 +271,134 @@ public partial class MainViewModel : ObservableObject
         if (IsCheckpointBrowserOpen)
         {
             IsSettingsMode = false;
+            DiffViewer.Close();
+            ProjectKnowledge.Close();
             CheckpointBrowser.RefreshCommand.Execute(null);
         }
+    }
+
+    [RelayCommand]
+    private void QuickOpenFiles()
+    {
+        QuickOpen.Open();
+    }
+
+    [RelayCommand]
+    private void QuickOpenSymbols()
+    {
+        QuickOpen.OpenForSymbols();
+    }
+
+    /// <summary>Opens the Project Knowledge panel (AGENTS.md + skills) for the current working directory.</summary>
+    [RelayCommand]
+    private async Task ToggleProjectKnowledgeAsync()
+    {
+        if (ProjectKnowledge.IsVisible)
+        {
+            ProjectKnowledge.Close();
+            return;
+        }
+
+        IsSettingsMode = false;
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        IsSessionDashboardOpen = false;
+        DiffViewer.Close();
+        await ProjectKnowledge.OpenAsync(WorkingDirectory);
+    }
+
+    /// <summary>
+    /// Opens/closes the Background Tasks panel — Cowork-style delegated
+    /// tasks that run independently of the main chat conversation.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleBackgroundTasks()
+    {
+        if (BackgroundTasks.IsVisible)
+        {
+            BackgroundTasks.Close();
+            return;
+        }
+
+        IsSettingsMode = false;
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        IsSessionDashboardOpen = false;
+        DiffViewer.Close();
+        ProjectKnowledge.Close();
+        BackgroundTasks.WorkingDirectory = WorkingDirectory;
+        BackgroundTasks.IsVisible = true;
+    }
+
+    /// <summary>
+    /// Starts <paramref name="prompt"/> as a detached background task using
+    /// the same working directory/permission settings the main chat is
+    /// currently using.
+    /// </summary>
+    public BackgroundTaskItemViewModel StartBackgroundTask(string prompt)
+    {
+        var options = new AgentOptions
+        {
+            WorkingDirectory = WorkingDirectory,
+            // See BackgroundTaskManagerViewModel.StartNewTask for why AutoEdit
+            // (not Ask) is the right default for unattended background work.
+            PermissionMode = Core.Models.PermissionMode.AutoEdit
+        };
+        return BackgroundTasks.StartTask(prompt, options);
+    }
+
+    /// <summary>Opens the diff viewer comparing a checkpointed file against its current on-disk content.</summary>
+    private void OnCheckpointViewDiffRequested(CheckpointItemViewModel item)
+    {
+        IsSettingsMode = false;
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        IsSessionDashboardOpen = false;
+        ProjectKnowledge.Close();
+        DiffViewer.Load(
+            item.FilePath,
+            item.OriginalContent,
+            $"Checkpoint @ {item.Timestamp:t}",
+            item.CheckpointId);
+    }
+
+    /// <summary>
+    /// Opens the diff viewer for the file in the active editor tab, comparing
+    /// it against its own most recent checkpoint (if any) in the current
+    /// session — the "what have I changed?" shortcut from the editor itself.
+    /// </summary>
+    [RelayCommand]
+    private async Task ViewActiveFileDiffAsync()
+    {
+        var activeTab = EditorPane.ActiveTab;
+        if (activeTab == null || string.IsNullOrEmpty(activeTab.FilePath))
+        {
+            StatusText = "Open a file to view its diff";
+            return;
+        }
+
+        var checkpointManager = _serviceProvider.GetService<ICheckpointManager>();
+        if (checkpointManager == null)
+            return;
+
+        var checkpoints = await checkpointManager.GetCheckpointsForSessionAsync("default");
+        var latest = checkpoints
+            .Where(c => string.Equals(c.FilePath, activeTab.FilePath, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(c => c.Timestamp)
+            .FirstOrDefault();
+
+        if (latest == null)
+        {
+            StatusText = "No checkpoints for this file yet";
+            return;
+        }
+
+        IsSettingsMode = false;
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        IsSessionDashboardOpen = false;
+        ProjectKnowledge.Close();
+        DiffViewer.Load(latest.FilePath, latest.OriginalContent, $"Checkpoint @ {latest.Timestamp:t}", latest.CheckpointId);
     }
 
     [RelayCommand]
@@ -440,6 +587,8 @@ public partial class MainViewModel : ObservableObject
         int count = 0;
         foreach (var child in item.Children)
         {
+            if (child.IsPlaceholder)
+                continue;
             if (!child.IsDirectory)
                 count++;
             else
@@ -486,6 +635,33 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "checkpoint", "restore", "history", "snapshots" },
                 KeybindingHint = "",
                 Action = ToggleCheckpointBrowser
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.diffViewer",
+                Title = "View Diff (active file vs. last checkpoint)",
+                Category = "Navigation",
+                Keywords = new[] { "diff", "compare", "changes", "hunk", "review" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(ViewActiveFileDiffAsync(), "ViewActiveFileDiff")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.projectKnowledge",
+                Title = "Project Knowledge (AGENTS.md + Skills)",
+                Category = "Navigation",
+                Keywords = new[] { "agents.md", "agent.md", "aiagent.md", "memory", "skills", "skill.md", "doctor", "init" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(ToggleProjectKnowledgeAsync(), "ToggleProjectKnowledge")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.backgroundTasks",
+                Title = "Background Tasks (delegate work)",
+                Category = "Navigation",
+                Keywords = new[] { "background", "task", "delegate", "cowork", "async", "queue" },
+                KeybindingHint = "",
+                Action = ToggleBackgroundTasks
             },
             new CommandPaletteEntry
             {
@@ -561,9 +737,9 @@ public partial class MainViewModel : ObservableObject
                 Id = "index.goToFile",
                 Title = "Go to File...",
                 Category = "Workspace",
-                Keywords = new[] { "file", "open", "goto", "navigate", "index" },
+                Keywords = new[] { "file", "open", "goto", "navigate", "index", "quick open" },
                 KeybindingHint = "Ctrl+P",
-                Action = () => SafeFireAndForget(OpenIndexedFileAsync(), "OpenIndexedFile")
+                Action = () => QuickOpen.Open()
             },
             new CommandPaletteEntry
             {
@@ -571,8 +747,8 @@ public partial class MainViewModel : ObservableObject
                 Title = "Go to Symbol...",
                 Category = "Workspace",
                 Keywords = new[] { "symbol", "goto", "navigate", "index", "class", "method" },
-                KeybindingHint = "Ctrl+Shift+O",
-                Action = () => SafeFireAndForget(OpenIndexedSymbolAsync(), "OpenIndexedSymbol")
+                KeybindingHint = "Ctrl+T",
+                Action = () => QuickOpen.OpenForSymbols()
             },
 
             // ---- Editor ----
@@ -706,52 +882,6 @@ public partial class MainViewModel : ObservableObject
             _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
         }
         return _chatViewModel;
-    }
-
-    /// <summary>
-    /// Opens a lightweight "Go to file" flow: queries the workspace index and
-    /// opens the first matching file in the editor.
-    /// </summary>
-    private async Task OpenIndexedFileAsync()
-    {
-        if (_indexQueryService == null)
-            return;
-
-        try
-        {
-            var matches = await _indexQueryService.SearchFilesAsync(limit: 1);
-            if (matches.Count > 0)
-            {
-                await EditorPane.OpenFileAsync(matches[0].Path);
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Go to file failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Opens a lightweight "Go to symbol" flow: queries the workspace index for
-    /// symbols and opens the first matching file at the symbol's line.
-    /// </summary>
-    private async Task OpenIndexedSymbolAsync()
-    {
-        if (_indexQueryService == null)
-            return;
-
-        try
-        {
-            var matches = await _indexQueryService.SearchSymbolsAsync(limit: 1);
-            if (matches.Count > 0)
-            {
-                await EditorPane.OpenFileAsync(matches[0].FilePath);
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Go to symbol failed: {ex.Message}");
-        }
     }
 
     /// <summary>

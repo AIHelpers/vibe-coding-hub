@@ -51,13 +51,15 @@ public record ProjectMemory
     /// <summary>Whether any memory content was actually loaded.</summary>
     public bool HasContent => !string.IsNullOrWhiteSpace(RawContent);
 
-    /// <summary>Render the memory as a system-prompt block.</summary>
+    /// <summary>Render the memory as an XML-tagged system-prompt block.</summary>
     public string ToPromptBlock()
     {
         if (!HasContent) return string.Empty;
         return $"""
+            <project_memory source="AIAGENT.md">
             # Project Memory (AIAGENT.md)
             {RawContent.Trim()}
+            </project_memory>
             """;
     }
 }

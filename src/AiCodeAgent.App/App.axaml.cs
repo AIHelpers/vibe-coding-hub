@@ -209,6 +209,9 @@ public partial class App : Application
         services.AddSingleton<SessionImporter>();
         services.AddSingleton<PromptPackService>();
 
+        // Project memory: AGENTS.md / AGENT.md / AIAGENT.md (Feature 04)
+        services.AddSingleton<IProjectMemoryLoader, ProjectMemoryLoader>();
+
         // Skills (Feature 06)
         services.AddSingleton<ISkillRegistry>(sp =>
         {
@@ -402,6 +405,10 @@ public partial class App : Application
         services.AddSingleton<TerminalViewModel>();
         services.AddSingleton<EditorPaneViewModel>();
         services.AddSingleton<CheckpointBrowserViewModel>();
+        services.AddSingleton<DiffViewerViewModel>();
+        services.AddSingleton<QuickOpenViewModel>();
+        services.AddSingleton<ProjectKnowledgeViewModel>();
+        services.AddSingleton<BackgroundTaskManagerViewModel>();
         services.AddSingleton<SessionManagerViewModel>();
 
         // ViewModels
