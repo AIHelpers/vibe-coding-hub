@@ -10,6 +10,9 @@ namespace AiCodeAgent.Tools.Shell;
 
 public class ExecuteCommandTool : BaseTool
 {
+    /// <summary>Cap on captured stdout/stderr so a runaway or chatty command can't exhaust memory or blow the context window.</summary>
+    private const int MaxOutputChars = 30_000; // ~30 KB
+
     // Commands that are inherently dangerous regardless of arguments
     private static readonly HashSet<string> DangerousCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -66,10 +69,21 @@ public class ExecuteCommandTool : BaseTool
         var command = GetArg<string>(call, "command");
         var workingDir = GetArg<string>(call, "working_dir", context.WorkingDirectory);
         var timeout = GetArg<int>(call, "timeout", 30);
+        var envJson = GetArg<string>(call, "env", string.Empty);
 
-        // Validate command against dangerous patterns
-        if (ContainsDangerousPattern(command))
-            return Error($"Command blocked: contains dangerous pattern. Use the file system tools instead.");
+        // The pattern/command denylist below is a HINT, not a gate: it's
+        // trivially bypassed (`rm -fr /`, `find / -delete`,
+        // `python -c "os.remove(...)"`, a differently-spelled flag, ...) and
+        // it also blocked perfectly ordinary commands like `rm -rf ./build`.
+        // The actual safety boundary is the permission/approval flow the
+        // orchestrator runs BEFORE this tool is ever invoked — by the time
+        // ExecuteAsync runs, a human (or the FullAuto classifier, which now
+        // denies-by-default and rejects chaining/redirection) has already
+        // decided this specific command may run. We still surface a match as
+        // a warning so it's visible in the transcript.
+        var dangerWarning = ContainsDangerousPattern(command) || ContainsDangerousCommand(command)
+            ? "⚠ This command matched a known-dangerous pattern; review the output carefully.\n"
+            : string.Empty;
 
         if (context.IsReadOnly && ContainsDangerousCommand(command))
             return Error("Potentially dangerous commands are disabled in read-only mode.");
@@ -81,8 +95,8 @@ public class ExecuteCommandTool : BaseTool
         try
         {
             var (executable, arguments) = ParseCommand(command);
-            
-            var process = new Process
+
+            using var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
@@ -103,24 +117,82 @@ public class ExecuteCommandTool : BaseTool
             foreach (var (key, value) in context.Environment)
                 process.StartInfo.Environment[key] = value;
 
+            // Add per-call environment overrides. This parameter was
+            // advertised in the tool schema but previously never read.
+            if (!string.IsNullOrWhiteSpace(envJson))
+            {
+                try
+                {
+                    var extraEnv = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(envJson);
+                    if (extraEnv != null)
+                    {
+                        foreach (var (key, value) in extraEnv)
+                            process.StartInfo.Environment[key] = value;
+                    }
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    Logger.LogWarning(ex, "Ignoring malformed `env` JSON for execute_command: {Env}", envJson);
+                }
+            }
+
             var stdoutBuilder = new StringBuilder();
             var stderrBuilder = new StringBuilder();
+            var stdoutTruncated = false;
+            var stderrTruncated = false;
 
-            process.OutputDataReceived += (_, e) => { if (e.Data != null) stdoutBuilder.AppendLine(e.Data); };
-            process.ErrorDataReceived += (_, e) => { if (e.Data != null) stderrBuilder.AppendLine(e.Data); };
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data == null || stdoutTruncated) return;
+                if (stdoutBuilder.Length + e.Data.Length + 1 > MaxOutputChars)
+                {
+                    var remaining = Math.Max(0, MaxOutputChars - stdoutBuilder.Length);
+                    stdoutBuilder.Append(e.Data.AsSpan(0, Math.Min(remaining, e.Data.Length)));
+                    stdoutBuilder.Append("\n...[stdout truncated at 30 KB]");
+                    stdoutTruncated = true;
+                    return;
+                }
+                stdoutBuilder.AppendLine(e.Data);
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data == null || stderrTruncated) return;
+                if (stderrBuilder.Length + e.Data.Length + 1 > MaxOutputChars)
+                {
+                    var remaining = Math.Max(0, MaxOutputChars - stderrBuilder.Length);
+                    stderrBuilder.Append(e.Data.AsSpan(0, Math.Min(remaining, e.Data.Length)));
+                    stderrBuilder.Append("\n...[stderr truncated at 30 KB]");
+                    stderrTruncated = true;
+                    return;
+                }
+                stderrBuilder.AppendLine(e.Data);
+            };
 
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
-            await process.WaitForExitAsync(cts.Token);
+            try
+            {
+                await process.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Kill the WHOLE process tree — a bare process.Kill() only
+                // killed the shell wrapper (cmd.exe/bash -c), leaving
+                // whatever it had spawned running in the background forever.
+                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                return Error($"Command timed out after {timeout} seconds: {command}");
+            }
 
             var stdout = stdoutBuilder.ToString().Trim();
             var stderr = stderrBuilder.ToString().Trim();
             var exitCode = process.ExitCode;
 
             var sb = new StringBuilder();
+            if (!string.IsNullOrEmpty(dangerWarning))
+                sb.Append(dangerWarning);
             sb.AppendLine($"$ {command}");
             sb.AppendLine($"Exit code: {exitCode}");
             if (!string.IsNullOrEmpty(stdout))
@@ -142,10 +214,6 @@ public class ExecuteCommandTool : BaseTool
                     Content = sb.ToString(),
                     IsError = exitCode != 0
                 };
-        }
-        catch (OperationCanceledException)
-        {
-            return Error($"Command timed out after {timeout} seconds: {command}");
         }
         catch (Exception ex)
         {
@@ -169,7 +237,7 @@ public class ExecuteCommandTool : BaseTool
     {
         // Split by common shell delimiters to find all commands in the pipeline/chain
         var tokens = command.Split([' ', '\t', '|', ';', '&', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
-        
+
         foreach (var token in tokens)
         {
             // Strip leading path components (e.g., /usr/bin/rm -> rm)

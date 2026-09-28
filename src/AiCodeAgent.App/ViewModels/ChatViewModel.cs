@@ -37,6 +37,17 @@ public partial class ChatViewModel : ObservableObject
     // Feature 6: In-Chat Branch / PR Workflow
     private readonly GitService? _gitService;
     private CancellationTokenSource? _cancellationTokenSource;
+
+    /// <summary>
+    /// Stable id for this chat conversation's lifetime, used for every
+    /// agent run this view-model starts (chat messages, annotations,
+    /// grounded/semantic-retrieval answers). Previously every call site
+    /// passed the literal "default", which happened to work only because
+    /// every call used the exact same literal; a real per-instance id lets
+    /// checkpoints and other session-scoped state be looked up reliably
+    /// (see MainViewModel, which forwards this to CheckpointBrowser).
+    /// </summary>
+    public string SessionId { get; } = Guid.NewGuid().ToString("N");
     /// <summary>
     /// The working directory the agent operates in. Falls back to the
     /// configured <see cref="AgentConfiguration.WorkingDirectory"/>, then to
@@ -197,13 +208,13 @@ public partial class ChatViewModel : ObservableObject
                 : savedModel; // keep even if not in the static list (may be a provider model id)
         }
         // Initialize slash commands
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "вњЏпёЏ" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "рџ”Ќ" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "рџ’Ў" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "рџ§Є" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "рџ”§" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "рџ”„" });
-        SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "вќ“" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "🔍" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "💡" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "🧪" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "🔧" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "🔄" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "❓" });
         // Add welcome message
         Messages.Add(new ChatMessage
         {
@@ -211,12 +222,12 @@ public partial class ChatViewModel : ObservableObject
             Content = "Hello! I'm your AI Code Assistant. I can help you read, write, and edit files, " +
                       "search code, run commands, work with git, and more.\n\n" +
                       "**Features:**\n" +
-                      "- рџЋЇ Streaming responses in real-time\n" +
-                      "- рџ”’ Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
-                      "- рџ“ќ Diff-based editing with checkpoints\n" +
-                      "- вљЎ Cancel anytime with Esc or the Cancel button\n" +
-                      "- рџ“Ѓ File Explorer sidebar (click folder icon to toggle)\n" +
-                      "- рџ’» Integrated Terminal (bottom pane)\n" +
+                      "- 🎯 Streaming responses in real-time\n" +
+                      "- 🔒 Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
+                      "- 📝 Diff-based editing with checkpoints\n" +
+                      "- ⚡ Cancel anytime with Esc or the Cancel button\n" +
+                      "- 📁 File Explorer sidebar (click folder icon to toggle)\n" +
+                      "- 💻 Integrated Terminal (bottom pane)\n" +
                       "- @-mention files to add context\n" +
                       "- /slash commands for quick actions",
             Timestamp = DateTime.Now
@@ -288,12 +299,12 @@ public partial class ChatViewModel : ObservableObject
         var token = _cancellationTokenSource.Token;
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
         try
         {
             await _agentService.StreamMessageAsync(
                 content,
-                "default",
+                SessionId,
                 new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
@@ -441,16 +452,16 @@ public partial class ChatViewModel : ObservableObject
         // Start the event-processing loop on the calling (UI) thread so it
         // captures the real SynchronizationContext. Previously this was wrapped
         // in Task.Run, which runs on a thread-pool thread where
-        // SynchronizationContext.Current is null вЂ” causing
+        // SynchronizationContext.Current is null — causing
         // TaskScheduler.FromCurrentSynchronizationContext() to throw, so no
         // events were ever applied and the assistant message stayed empty.
-        var processingTask = ProcessEventsAsync(assistantMessage, token);
+        var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
         try
         {
             // Start streaming
             await _agentService.StreamMessageAsync(
                 userMessage,
-                "default",
+                SessionId,
                 new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
@@ -509,7 +520,7 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task RunPipelineAsync()
     {
-        // Guard conditions вЂ” provide user-visible feedback instead of a silent no-op.
+        // Guard conditions — provide user-visible feedback instead of a silent no-op.
         if (IsProcessing)
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because a turn is already in progress.");
@@ -522,7 +533,7 @@ public partial class ChatViewModel : ObservableObject
             Messages.Add(new ChatMessage
             {
                 Role = "Assistant",
-                Content = "вљ пёЏ SDLC pipeline services are not available. Please check the application configuration.",
+                Content = "⚠️ SDLC pipeline services are not available. Please check the application configuration.",
                 Timestamp = DateTime.Now
             });
             StatusText = "Pipeline unavailable";
@@ -702,12 +713,12 @@ public partial class ChatViewModel : ObservableObject
                                 _pendingApproval = approval.Approval;
                                 // Show an explicit, user-visible approval request in the
                                 // chat transcript so the user knows a decision is needed
-                                // and where to approve/decline вЂ” previously the agent
+                                // and where to approve/decline — previously the agent
                                 // could appear to hang with no visible prompt.
                                 Messages.Add(new ChatMessage
                                 {
                                     Role = "System",
-                                    Content = $"рџ”” **Approval required** вЂ” `{approval.Call.Name}` (risk: {approval.Risk})\n" +
+                                    Content = $"🔔 **Approval required** — `{approval.Call.Name}` (risk: {approval.Risk})\n" +
                                               $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
                                               "Use the approval dialog below to **Approve** or **Decline**.",
                                     Timestamp = DateTime.Now
@@ -930,7 +941,7 @@ public partial class ChatViewModel : ObservableObject
         Messages.Add(new ChatMessage
         {
             Role = "Assistant",
-            Content = $"рџ“ќ **Requirements clarification** ({dimension})\n{question}\n\n_Type your answer, or \"just build it\" to skip._",
+            Content = $"📝 **Requirements clarification** ({dimension})\n{question}\n\n_Type your answer, or \"just build it\" to skip._",
             Timestamp = DateTime.Now
         });
 
@@ -1053,7 +1064,7 @@ public partial class ChatViewModel : ObservableObject
                 Messages.Add(new ChatMessage
                 {
                     Role = "System",
-                    Content = $"рџ”” **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) вЂ” " +
+                    Content = $"🔔 **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) — " +
                               $"`{approval.Call.Name}` (risk: {approval.Risk})\n" +
                               $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
                               "Use the approval dialog below to **Approve** or **Decline**.",
@@ -1272,14 +1283,14 @@ public partial class ChatViewModel : ObservableObject
             };
             var icon = cmd switch
             {
-                "/edit" => "вњЏпёЏ",
-                "/search" => "рџ”Ќ",
-                "/explain" => "рџ’Ў",
-                "/test" => "рџ§Є",
-                "/fix" => "рџ”§",
-                "/refactor" => "рџ”„",
-                "/help" => "вќ“",
-                _ => "рџ“‹"
+                "/edit" => "✏️",
+                "/search" => "🔍",
+                "/explain" => "💡",
+                "/test" => "🧪",
+                "/fix" => "🔧",
+                "/refactor" => "🔄",
+                "/help" => "❓",
+                _ => "📋"
             };
             SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
         }
@@ -1302,14 +1313,14 @@ public partial class ChatViewModel : ObservableObject
             };
             var icon = cmd switch
             {
-                "/edit" => "вњЏпёЏ",
-                "/search" => "рџ”Ќ",
-                "/explain" => "рџ’Ў",
-                "/test" => "рџ§Є",
-                "/fix" => "рџ”§",
-                "/refactor" => "рџ”„",
-                "/help" => "вќ“",
-                _ => "рџ“‹"
+                "/edit" => "✏️",
+                "/search" => "🔍",
+                "/explain" => "💡",
+                "/test" => "🧪",
+                "/fix" => "🔧",
+                "/refactor" => "🔄",
+                "/help" => "❓",
+                _ => "📋"
             };
             SlashCommandItems.Add(new SlashCommandItem { Name = cmd, Description = desc, Icon = icon });
         }
@@ -1344,15 +1355,15 @@ public partial class ChatViewModel : ObservableObject
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         return ext switch
         {
-            ".cs" => "рџ”·",
-            ".xaml" or ".axaml" => "рџџ¦",
-            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "рџ“‹",
-            ".md" or ".txt" => "рџ“ќ",
-            ".csproj" or ".sln" or ".slnx" => "рџ“¦",
-            ".js" or ".ts" or ".jsx" or ".tsx" => "рџџЁ",
-            ".py" => "рџђЌ",
-            ".html" or ".css" or ".scss" => "рџЊђ",
-            _ => "рџ“„"
+            ".cs" => "🔷",
+            ".xaml" or ".axaml" => "🟦",
+            ".json" or ".xml" or ".yaml" or ".yml" or ".toml" => "📋",
+            ".md" or ".txt" => "📝",
+            ".csproj" or ".sln" or ".slnx" => "📦",
+            ".js" or ".ts" or ".jsx" or ".tsx" => "🟨",
+            ".py" => "🐍",
+            ".html" or ".css" or ".scss" => "🌐",
+            _ => "📄"
         };
     }
     [RelayCommand]
@@ -1460,12 +1471,12 @@ public partial class ChatViewModel : ObservableObject
             ToolCallCards.Clear();
             StatusText = "Answering...";
             _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var processingTask = ProcessEventsAsync(assistantMessage, token);
+            var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
             try
             {
                 await _agentService.StreamMessageAsync(
                     groundedPrompt,
-                    "default",
+                    SessionId,
                     new AgentOptions
                     {
                         PermissionMode = ParsePermissionMode(PermissionMode),
@@ -1560,7 +1571,7 @@ public partial class ChatViewModel : ObservableObject
             Messages.Add(new ChatMessage
             {
                 Role = "System",
-                Content = "вљ пёЏ Autonomous agent is not configured (IPlanGenerator/IAutonomousAgentRunner not registered).",
+                Content = "⚠️ Autonomous agent is not configured (IPlanGenerator/IAutonomousAgentRunner not registered).",
                 Timestamp = DateTime.Now
             });
             return;
@@ -2160,12 +2171,12 @@ public class MentionItem
 {
     public string FilePath { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
-    public string Icon { get; set; } = "рџ“„";
+    public string Icon { get; set; } = "📄";
 }
 
 public class SlashCommandItem
 {
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
-    public string Icon { get; set; } = "рџ“‹";
+    public string Icon { get; set; } = "📋";
 }

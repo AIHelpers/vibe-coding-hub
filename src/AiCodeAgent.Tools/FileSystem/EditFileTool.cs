@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using AiCodeAgent.Tools.Code;
@@ -14,6 +15,8 @@ namespace AiCodeAgent.Tools.FileSystem;
 /// </summary>
 public class EditFileTool : BaseTool
 {
+    private static readonly UTF8Encoding NoBomUtf8 = new(encoderShouldEmitUTF8Identifier: false);
+
     private readonly AfterEditDiagnosticsReporter? _diagnosticsReporter;
 
     public EditFileTool(ILogger<EditFileTool> logger) : base(logger) { }
@@ -74,6 +77,8 @@ public class EditFileTool : BaseTool
             int count = CountOccurrences(content, oldString);
             if (count == 0)
                 return Error($"Text not found in {path}. Make sure the text matches exactly (including whitespace).");
+            if (occurrence != 0 && occurrence > count)
+                return Error($"Requested occurrence {occurrence} but only {count} occurrence(s) of the text were found in {path}.");
 
             string newContent;
             if (occurrence == 0)
@@ -85,29 +90,21 @@ public class EditFileTool : BaseTool
                 newContent = ReplaceNthOccurrence(content, oldString, newString, occurrence);
             }
 
-            // Create backup and schedule cleanup
-            var backupPath = resolvedPath + ".bak";
-            await File.WriteAllTextAsync(backupPath, content, Encoding.UTF8);
+            // Write without a BOM (a prior version always wrote UTF-8-with-BOM,
+            // adding a BOM to files that had none, which produced noisy diffs
+            // and broke some shell scripts). No .bak side file either —
+            // CheckpointManager already captured the pre-edit content, so Undo
+            // works without one, and a stray .bak next to the user's file was
+            // triggering file watchers and getting left behind on crashes.
+            await File.WriteAllTextAsync(resolvedPath, newContent, NoBomUtf8);
 
-            try
-            {
-                await File.WriteAllTextAsync(resolvedPath, newContent, Encoding.UTF8);
-            }
-            catch
-            {
-                // If write fails, restore from backup
-                await File.WriteAllTextAsync(resolvedPath, content, Encoding.UTF8);
-                throw;
-            }
-
-            // Clean up backup file after successful edit
-            try { File.Delete(backupPath); } catch { /* Best effort cleanup */ }
-
-            var diff = GenerateDiff(content, newContent, path);
+            var diff = UnifiedDiffBuilder.Build(content, newContent, path);
 
             // Surface live LSP diagnostics (type errors/warnings) after the edit.
             var diagnostics = await ReportDiagnosticsAsync(resolvedPath, newContent, context);
-            return Success($"Successfully edited {path}.\n\n{diff}{diagnostics}");
+            return Success(
+                $"Successfully edited {path}.\n\n{diff}{diagnostics}",
+                new FileWriteResult(content, newContent, FileExistedBefore: true));
         }
         catch (Exception ex)
         {
@@ -140,31 +137,6 @@ public class EditFileTool : BaseTool
             index += oldStr.Length;
         }
         return text;
-    }
-
-    private static string GenerateDiff(string original, string modified, string path)
-    {
-        var origLines = original.Split('\n');
-        var modLines = modified.Split('\n');
-        var sb = new StringBuilder();
-        sb.AppendLine($"--- {path} (original)");
-        sb.AppendLine($"+++ {path} (modified)");
-
-        // Simple diff - show changed regions
-        int maxLines = Math.Max(origLines.Length, modLines.Length);
-        for (int i = 0; i < maxLines; i++)
-        {
-            var origLine = i < origLines.Length ? origLines[i] : null;
-            var modLine = i < modLines.Length ? modLines[i] : null;
-
-            if (origLine != modLine)
-            {
-                if (origLine != null) sb.AppendLine($"- {origLine}");
-                if (modLine != null) sb.AppendLine($"+ {modLine}");
-            }
-        }
-
-        return sb.ToString();
     }
 
     /// <summary>

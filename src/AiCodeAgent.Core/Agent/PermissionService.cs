@@ -85,7 +85,14 @@ public class PermissionService : IPermissionService
 
     public async Task<bool> RequestApprovalAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null)
     {
-        var mode = GetMode(agentId);
+        // The mode comes from the per-call AgentOptions, not from mutable
+        // service-level state (issue 4): this service used to be a singleton
+        // with one global _currentMode that every run overwrote via SetMode,
+        // so a background task started in FullAuto could flip the mode out
+        // from under the main chat's in-flight run. AgentOptions.PermissionMode
+        // is already threaded through every call site, so there is no reason
+        // to consult mutable state here at all.
+        var mode = options.PermissionMode;
 
         // Granular rights take precedence when provided. The per-call options
         // Rights override the service-level rights, so the UI can pass in the
@@ -153,9 +160,13 @@ public class PermissionService : IPermissionService
 
     private string GetCommandSignature(ToolCall call)
     {
-        // Generate a simplified signature for the allowlist
+        // The full command/path is the signature — a prior version truncated
+        // to the first 50 characters, so approving one long command
+        // implicitly allowlisted every other command sharing that prefix
+        // (e.g. approving a 60-character `git commit -m "..."` would then
+        // silently approve any command starting with the same 50 chars).
         if (call.Arguments.TryGetValue("command", out var cmd) && cmd != null)
-            return cmd.ToString()?.Length > 50 ? cmd.ToString()![..50] : cmd.ToString() ?? "";
+            return cmd.ToString() ?? "";
         if (call.Arguments.TryGetValue("path", out var path) && path != null)
             return path.ToString() ?? "";
         return call.Name;

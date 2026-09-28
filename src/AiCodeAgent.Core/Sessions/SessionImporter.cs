@@ -71,21 +71,32 @@ public class SessionImporter
         string bundlePath,
         string? newSessionId = null,
         bool applyCheckpoints = true,
+        string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bundlePath);
 
         var bundle = await LoadBundleAsync(bundlePath, cancellationToken).ConfigureAwait(false);
-        return await ImportAsync(bundle, newSessionId, applyCheckpoints, cancellationToken).ConfigureAwait(false);
+        return await ImportAsync(bundle, newSessionId, applyCheckpoints, workingDirectory, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Import an in-memory session bundle.</summary>
+    /// <param name="workingDirectory">
+    /// Checkpoints in the bundle may only be restored to paths under this
+    /// directory (issue: <see cref="CheckpointSnapshotDto.FilePath"/> comes
+    /// straight from the imported — possibly untrusted — bundle, so without
+    /// this restriction a crafted .agentsession/.zip could restore a
+    /// "checkpoint" to any path on disk). Defaults to the current directory
+    /// when not supplied.
+    /// </param>
     public async Task<SessionImportResult> ImportAsync(
         SessionBundle bundle,
         string? newSessionId = null,
         bool applyCheckpoints = true,
+        string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {
+        var allowedRoot = Path.GetFullPath(string.IsNullOrEmpty(workingDirectory) ? Environment.CurrentDirectory : workingDirectory);
         ArgumentNullException.ThrowIfNull(bundle);
         SessionExporter.ValidateSchema(bundle);
 
@@ -119,7 +130,7 @@ public class SessionImporter
         {
             foreach (var snapshot in bundle.CheckpointSnapshots)
             {
-                var conflict = await TryApplyCheckpointAsync(snapshot, sessionId, cancellationToken).ConfigureAwait(false);
+                var conflict = await TryApplyCheckpointAsync(snapshot, sessionId, allowedRoot, cancellationToken).ConfigureAwait(false);
                 if (conflict != null)
                 {
                     conflicts.Add(conflict);
@@ -197,11 +208,30 @@ public class SessionImporter
     private async Task<ImportConflict?> TryApplyCheckpointAsync(
         CheckpointSnapshotDto snapshot,
         string sessionId,
+        string allowedRoot,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var fullPath = Path.GetFullPath(snapshot.FilePath);
+
+        // Restoring a checkpoint from an untrusted bundle must not be able
+        // to write outside the session's working directory — FilePath comes
+        // straight from the (possibly untrusted) imported bundle.
+        var normalizedRoot = allowedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? allowedRoot
+            : allowedRoot + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(fullPath, allowedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return new ImportConflict
+            {
+                FilePath = snapshot.FilePath,
+                Kind = ConflictKind.FileMissing,
+                Message = $"Checkpoint path '{snapshot.FilePath}' resolves outside the session working " +
+                          $"directory ('{allowedRoot}') and was refused."
+            };
+        }
 
         // File must exist in the target repo
         if (!File.Exists(fullPath))

@@ -128,5 +128,10 @@ public record PropertySchema
     public string Type { get; init; } = "string";
     public string Description { get; init; } = string.Empty;
     public List<string>? Enum { get; init; }
+    /// <summary>Element schema, when Type is "array".</summary>
     public PropertySchema? Items { get; init; }
+    /// <summary>Nested field schemas, when Type is "object".</summary>
+    public Dictionary<string, PropertySchema>? Properties { get; init; }
+    /// <summary>Required field names, when Type is "object".</summary>
+    public List<string>? Required { get; init; }
 }

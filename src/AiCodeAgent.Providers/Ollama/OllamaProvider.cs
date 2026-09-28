@@ -58,7 +58,9 @@ public class OllamaProvider : BaseHttpProvider
             }
         };
 
-        var response = await HttpClient.PostAsJsonAsync("/api/chat", payload, cancellationToken);
+        var response = await SendWithRetryAsync(
+            () => HttpClient.PostAsJsonAsync("/api/chat", payload, cancellationToken),
+            cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -92,17 +94,16 @@ public class OllamaProvider : BaseHttpProvider
             }
         };
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
-        {
-            Content = JsonContent.Create(payload)
-        };
-
         HttpResponseMessage response;
         try
         {
-            response = await HttpClient.SendAsync(
-                httpRequest,
-                HttpCompletionOption.ResponseHeadersRead,
+            // A fresh HttpRequestMessage (and JsonContent) must be built on
+            // every attempt — HttpRequestMessage cannot be sent more than once.
+            response = await SendWithRetryAsync(
+                () => HttpClient.SendAsync(
+                    new HttpRequestMessage(HttpMethod.Post, "/api/chat") { Content = JsonContent.Create(payload) },
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken),
                 cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)

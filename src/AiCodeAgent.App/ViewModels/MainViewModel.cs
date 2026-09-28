@@ -880,6 +880,16 @@ public partial class MainViewModel : ObservableObject
         if (_chatViewModel == null)
         {
             _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
+
+            // Point the checkpoint browser (a singleton that otherwise
+            // defaults to the literal session id "default") at this chat's
+            // real session id, so checkpoints created while chatting are
+            // actually findable there instead of the browser querying a
+            // session id nothing was ever tagged with.
+            if (CheckpointBrowser.SetSessionCommand.CanExecute(_chatViewModel.SessionId))
+            {
+                CheckpointBrowser.SetSessionCommand.Execute(_chatViewModel.SessionId);
+            }
         }
         return _chatViewModel;
     }

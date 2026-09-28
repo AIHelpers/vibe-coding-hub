@@ -16,7 +16,14 @@ public class InMemoryContextManager : IContextManager
     public Task<List<Message>> GetContextAsync(string sessionId)
     {
         var messages = _sessions.GetOrAdd(sessionId, _ => new List<Message>());
-        return Task.FromResult(messages.ToList());
+        // Copy under the same lock AddMessageAsync/TrimContextAsync use —
+        // without it, a concurrent agent adding/removing messages while this
+        // runs List<T>.ToList() could throw "Collection was modified" or
+        // hand back a torn snapshot.
+        lock (messages)
+        {
+            return Task.FromResult(messages.ToList());
+        }
     }
 
     public Task AddMessageAsync(string sessionId, Message message)
@@ -61,17 +68,58 @@ public class InMemoryContextManager : IContextManager
                 }
             }
 
-            // Iterate from oldest non-system messages, removing until under budget
-            var currentTokens = totalTokens;
-
-            // Traverse backwards to safely remove messages by index
-            for (int i = messages.Count - 1; i >= 1 && currentTokens > maxTokens; i--)
+            // Build removable groups in oldest-first order (index 1 upward).
+            // An assistant message that made tool calls is grouped together
+            // with its immediately-following tool_result messages so we never
+            // remove one half of a tool_use/tool_result pair — providers
+            // (Anthropic/OpenAI) reject a request with a dangling tool_result
+            // or a tool_use with no matching result.
+            var groups = new List<List<int>>();
+            for (int i = 0; i < messages.Count; i++)
             {
-                if (i == systemMessageIndex)
-                    continue;
+                if (i == systemMessageIndex) continue;
 
-                currentTokens -= messages[i].TokenCount;
-                messages.RemoveAt(i);
+                var msg = messages[i];
+                if (msg.Role == MessageRole.Assistant && msg.ToolCalls is { Count: > 0 })
+                {
+                    var callIds = new HashSet<string>(msg.ToolCalls.Select(tc => tc.Id));
+                    var group = new List<int> { i };
+                    var j = i + 1;
+                    while (j < messages.Count
+                           && messages[j].Role == MessageRole.Tool
+                           && messages[j].ToolCallId is { } toolCallId
+                           && callIds.Contains(toolCallId))
+                    {
+                        group.Add(j);
+                        j++;
+                    }
+                    groups.Add(group);
+                    i = j - 1; // skip past the group we just consumed
+                }
+                else
+                {
+                    groups.Add(new List<int> { i });
+                }
+            }
+
+            // Remove oldest groups first until under budget.
+            var currentTokens = totalTokens;
+            var toRemove = new HashSet<int>();
+            foreach (var group in groups)
+            {
+                if (currentTokens <= maxTokens) break;
+                foreach (var idx in group)
+                    currentTokens -= messages[idx].TokenCount;
+                toRemove.UnionWith(group);
+            }
+
+            if (toRemove.Count > 0)
+            {
+                for (int i = messages.Count - 1; i >= 0; i--)
+                {
+                    if (toRemove.Contains(i))
+                        messages.RemoveAt(i);
+                }
             }
 
             // If still over budget, truncate the longest individual message content

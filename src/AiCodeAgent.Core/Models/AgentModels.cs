@@ -98,6 +98,16 @@ public record ScopedPermissionSettings
 {
     public PermissionScope Scope { get; init; } = PermissionScope.Personal;
     public PermissionMode Mode { get; init; } = PermissionMode.Ask;
+
+    /// <summary>
+    /// Whether <see cref="Mode"/> was explicitly set at this scope, as
+    /// opposed to sitting at its unconfigured default (which is
+    /// indistinguishable from "deliberately set to Ask" without this flag).
+    /// Only an explicitly configured Organization mode acts as a ceiling on
+    /// Project/Personal overrides.
+    /// </summary>
+    public bool IsModeConfigured { get; init; }
+
     public List<PermissionRule> AllowedCommands { get; init; } = new();
     public bool AlwaysAllowRead { get; init; } = true;
 }
@@ -111,7 +121,23 @@ public record CheckpointEntry
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;
     public string TurnId { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// False when <see cref="FilePath"/> did not exist at checkpoint time (the
+    /// tool call is about to create a new file). Restoring such a checkpoint
+    /// deletes the file instead of writing empty content over it, so Undo can
+    /// remove files the agent created, not just revert edits.
+    /// </summary>
+    public bool ExistedBeforeCheckpoint { get; init; } = true;
 }
+
+/// <summary>
+/// Carried in <see cref="ToolResult.Data"/> by file-writing tools (edit_file,
+/// write_file) so callers — the orchestrator's diff event, checkpoint
+/// restore, etc. — can build a real diff without re-parsing the tool's
+/// human-readable message text.
+/// </summary>
+public record FileWriteResult(string OriginalContent, string NewContent, bool FileExistedBefore);
 
 public record DiffEntry
 {

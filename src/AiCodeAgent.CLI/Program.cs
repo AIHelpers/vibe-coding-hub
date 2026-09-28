@@ -358,6 +358,31 @@ static async Task<ServiceProvider> BuildServiceProvider(
     {
         client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.Add("User-Agent", "AiCodeAgent/1.0");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+    {
+        // See App.axaml.cs for why: WebFetchTool re-validates each redirect
+        // hop itself, and this ConnectCallback is the second, connect-time
+        // SSRF check that catches DNS rebinding.
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, cancellationToken) =>
+        {
+            var entry = await System.Net.Dns.GetHostEntryAsync(context.DnsEndPoint.Host, cancellationToken);
+            var address = entry.AddressList.FirstOrDefault(a => !SsrfGuard.IsBlockedAddress(a))
+                ?? throw new InvalidOperationException(
+                    $"Blocked address for host '{context.DnsEndPoint.Host}' (private/loopback/link-local range).");
+            var socket = new System.Net.Sockets.Socket(System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                await socket.ConnectAsync(address, context.DnsEndPoint.Port, cancellationToken);
+                return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        }
     });
 
     // Configuration
@@ -388,6 +413,8 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<IToolRegistry, ToolRegistry>();
     services.AddSingleton<IAgentEventBus, AgentEventBus>();
     services.AddSingleton<IPermissionService, PermissionService>();
+    // See App.axaml.cs for why this registration matters (issue 3).
+    services.AddSingleton<IPermissionManager, PermissionManager>();
     services.AddSingleton<ICheckpointManager, CheckpointManager>();
     services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);

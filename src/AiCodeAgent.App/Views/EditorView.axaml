@@ -27,10 +27,11 @@
                                         CommandParameter="{Binding}">
                                     <Border CornerRadius="4"
                                             Padding="8,4"
-                                            Background="{Binding IsDirty, Converter={StaticResource InverseBool}}">
+                                            Background="{Binding IsActive, Converter={StaticResource BoolToActiveTabBrush}}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <TextBlock Text="{Binding Title}"
                                                        FontSize="12"
+                                                       Foreground="#E8E8F0"
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Text="●"
                                                        FontSize="8"

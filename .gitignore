@@ -427,3 +427,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Vibe Coding Hub: local runtime artifacts that should never be committed
+# (agent session logs, packaged repo snapshots, and stray session-recording
+# folders that were previously committed by accident).
+*.tar.gz
+ce65d5e0cdc2/

@@ -1,4 +1,5 @@
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.Anthropic;
 using AiCodeAgent.Providers.Ollama;
@@ -6,6 +7,7 @@ using AiCodeAgent.Providers.OpenAI;
 using AiCodeAgent.Providers.OpenAICompatible;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
 
 namespace AiCodeAgent.Providers.Tests;
 
@@ -103,7 +105,10 @@ public class ProviderFactoryTests
     [Fact]
     public void CreateOrFallback_OnFailure_ReturnsNoOpProvider()
     {
-        // Invalid URL will cause the provider constructor to fail
+        // An empty BaseUrl makes `new Uri(config.BaseUrl)` throw inside the
+        // provider's constructor (BaseHttpProvider), which CreateOrFallback
+        // is meant to catch and turn into a NoOpAiProvider instead of letting
+        // DI/startup fail outright.
         var badConfig = new ProviderConfiguration
         {
             Name = "bad",

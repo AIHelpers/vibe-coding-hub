@@ -32,6 +32,7 @@
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
             <converters:BoolToErrorBrushConverter x:Key="BoolToErrorBrush"/>
             <converters:InverseBoolConverter x:Key="InverseBool"/>
+            <converters:BoolToActiveTabBrushConverter x:Key="BoolToActiveTabBrush"/>
             <converters:StringNotEmptyConverter x:Key="StringNotEmpty"/>
             <converters:BoolToStarGridLengthConverter x:Key="BoolToStarGridLength"/>
         </ResourceDictionary>

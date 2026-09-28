@@ -153,6 +153,35 @@ public partial class App : Application
         {
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Add("User-Agent", "AiCodeAgent/1.0");
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+        {
+            // WebFetchTool follows redirects itself, re-validating each hop's
+            // host against SsrfGuard before connecting (issue: SSRF guard
+            // only checked the host once, so a redirect to an internal
+            // address used to sail through).
+            AllowAutoRedirect = false,
+            // Second SSRF check, at actual TCP-connect time — this is what
+            // catches DNS rebinding between the tool's pre-check and the
+            // moment the connection is opened.
+            ConnectCallback = async (context, cancellationToken) =>
+            {
+                var entry = await System.Net.Dns.GetHostEntryAsync(context.DnsEndPoint.Host, cancellationToken);
+                var address = entry.AddressList.FirstOrDefault(a => !SsrfGuard.IsBlockedAddress(a))
+                    ?? throw new InvalidOperationException(
+                        $"Blocked address for host '{context.DnsEndPoint.Host}' (private/loopback/link-local range).");
+                var socket = new System.Net.Sockets.Socket(System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp) { NoDelay = true };
+                try
+                {
+                    await socket.ConnectAsync(address, context.DnsEndPoint.Port, cancellationToken);
+                    return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            }
         });
 
         // Core services
@@ -177,6 +206,13 @@ public partial class App : Application
         
         // Permission Service
         services.AddSingleton<IPermissionService, PermissionService>();
+
+        // Permission Manager (Feature 10: classifier + scoped org/project/personal
+        // settings + allow-rules). Was never registered, so AgentOrchestrator's
+        // optional IPermissionManager? dependency resolved to null and every
+        // decision fell through to PermissionService, where FullAuto approves
+        // every tool call unconditionally (issue 3).
+        services.AddSingleton<IPermissionManager, PermissionManager>();
         
         // Checkpoint Manager
         services.AddSingleton<ICheckpointManager, CheckpointManager>();

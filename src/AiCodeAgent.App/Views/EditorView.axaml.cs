@@ -165,6 +165,16 @@ public partial class EditorView : UserControl
 
     private void UpdateEditorDocument()
     {
+        // Belt-and-suspenders: _codeEditor is normally resolved once in
+        // OnAttachedToVisualTree, but if that lookup ever fails or races
+        // with template realization on the very first attach, _codeEditor
+        // would stay null forever and every future call here would then
+        // silently do nothing for the rest of the session — tab titles
+        // would keep updating correctly (that's ViewModel-only) while the
+        // content pane stayed permanently blank for every file. Re-resolve
+        // here too so a one-time lookup failure can't cause that.
+        _codeEditor ??= this.FindControl<TextEditor>("CodeEditor");
+
         if (_activeTab == null)
         {
             if (_codeEditor != null)
@@ -183,14 +193,39 @@ public partial class EditorView : UserControl
             _codeEditor.Document = _activeTab.Document;
             _codeEditor.IsReadOnly = _activeTab.IsReadOnly;
 
-            // Apply syntax highlighting
-            var highlighting = _highlightingResolver.Resolve(_activeTab.FilePath);
-            _codeEditor.SyntaxHighlighting = highlighting;
+            // Apply syntax highlighting. Isolated in its own try/catch so a
+            // highlighting-resolution failure (a bad/missing definition,
+            // e.g.) can never prevent the document text itself — or the
+            // InvalidateMeasure/Arrange calls that make it actually show up
+            // — from being applied. Before this fix, an unhandled exception
+            // here would abort the rest of the method, leaving the editor
+            // showing a blank pane even though the Document was set.
+            try
+            {
+                var highlighting = _highlightingResolver.Resolve(_activeTab.FilePath);
+                _codeEditor.SyntaxHighlighting = highlighting;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"Failed to resolve syntax highlighting for {_activeTab.FilePath}: {ex.Message}");
+                _codeEditor.SyntaxHighlighting = null;
+            }
 
             // Force layout and visual refresh
             _codeEditor.TextArea?.TextView?.InvalidateVisual();
             _codeEditor.InvalidateMeasure();
             _codeEditor.InvalidateArrange();
+        }
+        else if (_activeTab != null)
+        {
+            // _codeEditor is still null even after the retry above — the
+            // named "CodeEditor" control couldn't be found in this view's
+            // template at all. Logging this makes a recurrence of the
+            // "every file opens blank" symptom immediately diagnosable
+            // instead of silently doing nothing.
+            System.Diagnostics.Debug.WriteLine(
+                "EditorView: CodeEditor control not found — cannot display " + _activeTab.FilePath);
         }
 
         // Update diff overlay with hunks for this file

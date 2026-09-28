@@ -50,7 +50,9 @@ public class AnthropicProvider : BaseHttpProvider
         CancellationToken cancellationToken = default)
     {
         var payload = BuildPayload(request, stream: false);
-        var response = await HttpClient.PostAsJsonAsync("/v1/messages", payload, cancellationToken);
+        var response = await SendWithRetryAsync(
+            () => HttpClient.PostAsJsonAsync("/v1/messages", payload, cancellationToken),
+            cancellationToken);
         
         if (!response.IsSuccessStatusCode)
         {
@@ -69,14 +71,15 @@ public class AnthropicProvider : BaseHttpProvider
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var payload = BuildPayload(request, stream: true);
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/v1/messages")
-        {
-            Content = JsonContent.Create(payload)
-        };
 
-        var response = await HttpClient.SendAsync(
-            httpRequest,
-            HttpCompletionOption.ResponseHeadersRead,
+        // A fresh HttpRequestMessage (and JsonContent) must be built on every
+        // attempt — HttpRequestMessage cannot be sent more than once, so the
+        // previous single-shot SendAsync could never have been retried as-is.
+        var response = await SendWithRetryAsync(
+            () => HttpClient.SendAsync(
+                new HttpRequestMessage(HttpMethod.Post, "/v1/messages") { Content = JsonContent.Create(payload) },
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken),
             cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -186,6 +189,37 @@ public class AnthropicProvider : BaseHttpProvider
         }
     }
 
+    // Recursively converts a PropertySchema into the plain-object shape the
+    // Anthropic API expects, preserving nested "items" (array element schema)
+    // and "properties"/"required" (object field schemas) instead of the old
+    // inline lambda, which only kept type+description and silently dropped
+    // enum/items/nested-properties for any non-trivial tool parameter.
+    private static object BuildJsonSchemaProperty(PropertySchema schema)
+    {
+        var result = new Dictionary<string, object?>
+        {
+            ["type"] = schema.Type,
+            ["description"] = schema.Description
+        };
+
+        if (schema.Enum is { Count: > 0 })
+            result["enum"] = schema.Enum;
+
+        if (schema.Items != null)
+            result["items"] = BuildJsonSchemaProperty(schema.Items);
+
+        if (schema.Properties is { Count: > 0 })
+        {
+            result["properties"] = schema.Properties.ToDictionary(
+                p => p.Key,
+                p => BuildJsonSchemaProperty(p.Value));
+            if (schema.Required is { Count: > 0 })
+                result["required"] = schema.Required;
+        }
+
+        return result;
+    }
+
     private object BuildPayload(CompletionRequest request, bool stream)
     {
         var messages = request.Messages
@@ -202,7 +236,7 @@ public class AnthropicProvider : BaseHttpProvider
                 type = t.Parameters.Type,
                 properties = t.Parameters.Properties.ToDictionary(
                     p => p.Key,
-                    p => (object)new { type = p.Value.Type, description = p.Value.Description }),
+                    p => BuildJsonSchemaProperty(p.Value)),
                 required = t.Parameters.Required
             }
         }).ToList();

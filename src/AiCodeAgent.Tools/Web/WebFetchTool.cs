@@ -8,26 +8,11 @@ namespace AiCodeAgent.Tools.Web;
 
 public class WebFetchTool : BaseTool
 {
+    private const int MaxRedirects = 5;
+    private const int MaxBytesToRead = 2 * 1024 * 1024; // 2 MB raw bytes, before any text truncation below
+    private const int MaxContentChars = 50_000;
+
     private readonly HttpClient _httpClient;
-
-    // Blocked IP ranges to prevent SSRF attacks
-    private static readonly HashSet<string> BlockedHosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "localhost", "127.0.0.1", "::1", "0.0.0.0",
-        "169.254.169.254", // AWS/GCP/Azure metadata endpoint
-        "metadata.google.internal",
-        "100.100.100.200", // Alibaba Cloud metadata
-    };
-
-    private static readonly string[] BlockedCidrPatterns =
-    [
-        "^10\\.",       // 10.0.0.0/8
-        "^172\\.(1[6-9]|2[0-9]|3[01])\\.", // 172.16.0.0/12
-        "^192\\.168\\.", // 192.168.0.0/16
-        "^127\\.",       // 127.0.0.0/8
-        "^0\\.",         // 0.0.0.0/8
-        "^169\\.254\\.", // 169.254.0.0/16
-    ];
 
     public WebFetchTool(ILogger<WebFetchTool> logger, IHttpClientFactory factory)
         : base(logger)
@@ -38,7 +23,13 @@ public class WebFetchTool : BaseTool
     public override string Name => "web_fetch";
     public override string Description =>
         "Fetch content from a URL. Useful for reading documentation, APIs, or web pages.";
-    public override RiskLevel Risk => RiskLevel.Read;
+
+    // This tool fetches arbitrary attacker-influenceable URLs and hands their
+    // content straight to the model — a prompt-injected page can exfiltrate
+    // data via query strings on a subsequent request, so it needs the same
+    // approval gate as any other Execute-risk action rather than running
+    // silently in every permission mode the way a Read tool does.
+    public override RiskLevel Risk => RiskLevel.Execute;
 
     public override ToolDefinition Definition => new()
     {
@@ -62,34 +53,94 @@ public class WebFetchTool : BaseTool
         var extractText = GetArg<bool>(call, "extract_text", true);
         var timeout = GetArg<int>(call, "timeout", 15);
 
-        // Validate URL to prevent SSRF
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return Error($"Invalid URL: {url}");
 
-        // Only allow HTTP and HTTPS schemes
-        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-            return Error($"URL scheme '{uri.Scheme}' is not allowed. Only http and https are permitted.");
-
-        // Block access to internal/private hosts
-        if (IsBlockedHost(uri.Host))
-            return Error($"Access to '{uri.Host}' is blocked for security reasons.");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
 
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
-            var response = await _httpClient.GetAsync(uri, cts.Token);
-            response.EnsureSuccessStatusCode();
+            // Follow redirects ourselves (the HttpClient is configured with
+            // AllowAutoRedirect=false) so every hop's host gets re-validated
+            // against SsrfGuard before we ever connect to it — a single
+            // upfront check let a redirect to an internal address sail
+            // through. SsrfGuard.IsBlockedAddress is also wired into the
+            // client's ConnectCallback as a second, connect-time check
+            // (defends against DNS rebinding between the check and the
+            // actual connection).
+            HttpResponseMessage response;
+            var currentUri = uri;
+            var redirects = 0;
+            while (true)
+            {
+                var validation = await ValidateUriAsync(currentUri, cts.Token);
+                if (validation != null)
+                    return validation;
 
-            var content = await response.Content.ReadAsStringAsync(cts.Token);
-            var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+                using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
 
-            if (extractText && contentType.Contains("html"))
-                content = ExtractTextFromHtml(content);
+                if (!IsRedirect(response.StatusCode))
+                    break;
 
-            if (content.Length > 50000)
-                content = content[..50000] + "\n... [Content truncated]";
+                if (++redirects > MaxRedirects)
+                {
+                    response.Dispose();
+                    return Error($"Too many redirects (>{MaxRedirects}) fetching {url}.");
+                }
 
-            return Success($"URL: {url}\nStatus: {response.StatusCode}\n\n{content}");
+                var location = response.Headers.Location;
+                response.Dispose();
+                if (location == null)
+                    return Error($"Redirect response from {currentUri} had no Location header.");
+
+                currentUri = location.IsAbsoluteUri ? location : new Uri(currentUri, location);
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                    return Error($"Request to {url} failed with status {(int)response.StatusCode} {response.StatusCode}.");
+
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+
+                // Cap raw bytes read, not just the text we keep afterward —
+                // a huge response used to be read to completion (potentially
+                // gigabytes) before the 50,000-character truncation below
+                // ever kicked in.
+                await using var stream = await response.Content.ReadAsStreamAsync(cts.Token);
+                var buffer = new byte[81920];
+                using var ms = new MemoryStream();
+                int read;
+                var truncated = false;
+                while ((read = await stream.ReadAsync(buffer, cts.Token)) > 0)
+                {
+                    var remaining = MaxBytesToRead - (int)ms.Length;
+                    if (remaining <= 0)
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    await ms.WriteAsync(buffer.AsMemory(0, Math.Min(read, remaining)), cts.Token);
+                    if (read > remaining)
+                    {
+                        truncated = true;
+                        break;
+                    }
+                }
+
+                var content = Encoding.UTF8.GetString(ms.ToArray());
+                if (truncated)
+                    content += "\n... [truncated after reading the byte cap]";
+
+                if (extractText && contentType.Contains("html"))
+                    content = ExtractTextFromHtml(content);
+
+                if (content.Length > MaxContentChars)
+                    content = content[..MaxContentChars] + "\n... [Content truncated]";
+
+                return Success($"URL: {currentUri}\nStatus: {response.StatusCode}\n\n{content}");
+            }
         }
         catch (Exception ex)
         {
@@ -97,36 +148,22 @@ public class WebFetchTool : BaseTool
         }
     }
 
-    private static bool IsBlockedHost(string host)
+    private static bool IsRedirect(System.Net.HttpStatusCode status) =>
+        status is System.Net.HttpStatusCode.MovedPermanently
+            or System.Net.HttpStatusCode.Found
+            or System.Net.HttpStatusCode.SeeOther
+            or System.Net.HttpStatusCode.TemporaryRedirect
+            or System.Net.HttpStatusCode.PermanentRedirect;
+
+    private async Task<ToolResult?> ValidateUriAsync(Uri uri, CancellationToken ct)
     {
-        // Check exact blocked hosts
-        if (BlockedHosts.Contains(host))
-            return true;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            return Error($"URL scheme '{uri.Scheme}' is not allowed. Only http and https are permitted.");
 
-        // Try to resolve the host to check if it's a private IP
-        try
-        {
-            var addresses = System.Net.Dns.GetHostAddresses(host);
-            foreach (var address in addresses)
-            {
-                var ipString = address.ToString();
-                if (BlockedHosts.Contains(ipString))
-                    return true;
+        if (await SsrfGuard.IsBlockedHostAsync(uri.Host, ct))
+            return Error($"Access to '{uri.Host}' is blocked for security reasons.");
 
-                foreach (var pattern in BlockedCidrPatterns)
-                {
-                    if (Regex.IsMatch(ipString, pattern))
-                        return true;
-                }
-            }
-        }
-        catch
-        {
-            // If DNS resolution fails, block the request to be safe
-            return true;
-        }
-
-        return false;
+        return null;
     }
 
     private static string ExtractTextFromHtml(string html)
@@ -137,10 +174,10 @@ public class WebFetchTool : BaseTool
         // Remove HTML tags
         html = Regex.Replace(html, @"<[^>]+>", " ");
         // Decode common HTML entities
-        html = html.Replace("\u0026nbsp;", " ");
-        html = html.Replace("\u0026lt;", "<");
-        html = html.Replace("\u0026gt;", ">");
-        html = html.Replace("\u0026amp;", "\u0026");
+        html = html.Replace("&nbsp;", " ");
+        html = html.Replace("&lt;", "<");
+        html = html.Replace("&gt;", ">");
+        html = html.Replace("&amp;", "&");
         // Normalize whitespace
         html = Regex.Replace(html, @"\s+", " ");
         return html.Trim();

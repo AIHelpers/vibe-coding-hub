@@ -79,6 +79,7 @@ public class SyntaxHighlightingResolver
         [".groovy"] = "Groovy",
         [".gradle"] = "Groovy",
         [".dockerfile"] = "PowerShell",
+        [".makefile"] = "PowerShell",
         [".gitignore"] = "INI",
         [".editorconfig"] = "INI",
     };

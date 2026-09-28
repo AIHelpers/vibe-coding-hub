@@ -101,8 +101,13 @@ public class AgentOrchestrator : IAgentOrchestrator
             Role = options.Role
         };
 
-        // Set permission mode (per-agent if AgentId is provided)
-        _permissionService.SetMode(options.PermissionMode, options.AgentId);
+        // NOTE: we deliberately do NOT call _permissionService.SetMode() here.
+        // PermissionService used to be a singleton with one global
+        // _currentMode; every run overwrote it, so a background task started
+        // in FullAuto could flip the mode for the main chat mid-run (issue 4).
+        // The mode now travels per-call on AgentOptions.PermissionMode and is
+        // read directly wherever a decision is made, below and in
+        // PermissionService.RequestApprovalAsync — no shared mutable state.
 
         // Emit status update
         var statusEvent = new StatusUpdateEvent("Processing", "Starting agent loop");
@@ -150,13 +155,15 @@ public class AgentOrchestrator : IAgentOrchestrator
         var startTime = DateTime.UtcNow;
         var iteration = 0;
         var turnId = Guid.NewGuid().ToString("N")[..12];
+        var consecutiveAllErrorIterations = 0;
+        const int MaxConsecutiveAllErrorIterations = 3;
 
         while (iteration < options.MaxIterations && !cancellationToken.IsCancellationRequested)
         {
             iteration++;
 
-            var messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
             await _contextManager.TrimContextAsync(sessionId, options.MaxTokens).ConfigureAwait(false);
+            var messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
 
             // Auto-compaction: when the usage tracker reports we've crossed
             // the soft limit, compact older messages before sending the next
@@ -305,6 +312,26 @@ public class AgentOrchestrator : IAgentOrchestrator
                 if (string.IsNullOrWhiteSpace(toolCall.Name))
                 {
                     _logger.LogWarning("Received tool call with empty name, skipping");
+                    var emptyNameResult = new ToolResult
+                    {
+                        ToolCallId = toolCall.Id,
+                        ToolName = toolCall.Name ?? string.Empty,
+                        Content = "Tool call had an empty name and could not be executed.",
+                        IsError = true
+                    };
+                    var emptyNameDuration = TimeSpan.Zero;
+                    toolExecutions.Add(new ToolExecution { Call = toolCall, Result = emptyNameResult, Duration = emptyNameDuration });
+                    var emptyNameEndEvent = new ToolCallEndEvent(toolCall, emptyNameResult, emptyNameDuration);
+                    yield return emptyNameEndEvent;
+                    PublishScoped(sessionId, emptyNameEndEvent);
+
+                    await _contextManager.AddMessageAsync(sessionId, new Message
+                    {
+                        Role = MessageRole.Tool,
+                        Content = FormatToolResultForModel(toolCall, emptyNameResult),
+                        ToolCallId = toolCall.Id,
+                        Name = toolCall.Name
+                    }).ConfigureAwait(false);
                     continue;
                 }
 
@@ -388,7 +415,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         // (no approval dialog) so the model gets a tool error
                         // and can continue instead of showing an approval
                         // dialog that would loop forever.
-                        var mode = _permissionService.GetMode(options.AgentId);
+                        var mode = options.PermissionMode;
                         if (mode == PermissionMode.Plan)
                         {
                             var planDeniedResult = new ToolResult
@@ -478,12 +505,22 @@ public class AgentOrchestrator : IAgentOrchestrator
                     }
                 }
 
-                // Create checkpoint before write operations
+                // Create checkpoint before write operations. The path argument
+                // is what the model sent — usually relative — so it must be
+                // resolved against the working directory, not the process CWD
+                // (issue 8). We also checkpoint unconditionally, even when the
+                // target file doesn't exist yet, so Undo can remove a file the
+                // agent is about to create (CheckpointManager records
+                // ExistedBeforeCheckpoint=false for that case).
                 if (tool.Risk == RiskLevel.Write && toolCall.Arguments.TryGetValue("path", out var pathObj) && pathObj != null)
                 {
-                    var filePath = pathObj.ToString() ?? string.Empty;
-                    if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+                    var rawPath = pathObj.ToString() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(rawPath))
                     {
+                        var filePath = Path.IsPathRooted(rawPath)
+                            ? rawPath
+                            : Path.GetFullPath(Path.Combine(options.WorkingDirectory, rawPath));
+
                         // Create checkpoint without yield in try-catch
                         CheckpointCreatedEvent? checkpointEvent = null;
                         try
@@ -507,6 +544,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
                 // Run PreToolUse hooks (may block)
                 var preToolDenied = false;
+                ToolResult? preToolDenyResult = null;
                 if (_hookRunner is not null)
                 {
                     var preToolResult = await _hookRunner.RunAsync(HookEvent.PreToolUse, new HookContext
@@ -520,25 +558,21 @@ public class AgentOrchestrator : IAgentOrchestrator
                     if (preToolResult.Denied)
                     {
                         preToolDenied = true;
-                        var denyResult = new ToolResult
+                        preToolDenyResult = new ToolResult
                         {
                             ToolCallId = toolCall.Id,
                             ToolName = toolCall.Name,
                             Content = $"Tool blocked by hook: {preToolResult.CombinedOutput}",
                             IsError = true
                         };
-                        toolExecutions.Add(new ToolExecution { Call = toolCall, Result = denyResult, Duration = TimeSpan.Zero });
-                        var denyEndEvent = new ToolCallEndEvent(toolCall, denyResult, TimeSpan.Zero);
+                        toolExecutions.Add(new ToolExecution { Call = toolCall, Result = preToolDenyResult, Duration = TimeSpan.Zero });
+                        var denyEndEvent = new ToolCallEndEvent(toolCall, preToolDenyResult, TimeSpan.Zero);
                         yield return denyEndEvent;
                         PublishScoped(sessionId, denyEndEvent);
-
-                        await _contextManager.AddMessageAsync(sessionId, new Message
-                        {
-                            Role = MessageRole.Tool,
-                            Content = FormatToolResultForModel(toolCall, denyResult),
-                            ToolCallId = toolCall.Id,
-                            Name = toolCall.Name
-                        }).ConfigureAwait(false);
+                        // NOTE: the tool_result message for the model is added exactly
+                        // once, by the common path below — adding it here too would
+                        // create a duplicate tool_result with the same ToolCallId,
+                        // which providers reject.
                     }
                 }
 
@@ -600,7 +634,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 }
                 else
                 {
-                    toolResult = new ToolResult
+                    toolResult = preToolDenyResult ?? new ToolResult
                     {
                         ToolCallId = toolCall.Id,
                         ToolName = toolCall.Name,
@@ -609,16 +643,21 @@ public class AgentOrchestrator : IAgentOrchestrator
                     };
                 }
 
-                // Emit diff event for write operations (single-agent mode)
+                // Emit diff event for write operations (single-agent mode).
+                // toolResult.Content is the tool's human-readable message, not a
+                // diff — build the real thing from the FileWriteResult the
+                // file-writing tools attach to ToolResult.Data.
                 if (tool.Risk == RiskLevel.Write && !toolResult.IsError)
                 {
                     var filePath = toolCall.Arguments.TryGetValue("path", out var p) ? p?.ToString() ?? string.Empty : string.Empty;
-                    if (!string.IsNullOrEmpty(filePath))
+                    if (!string.IsNullOrEmpty(filePath) && toolResult.Data is FileWriteResult fileWrite)
                     {
                         var diffEntry = new DiffEntry
                         {
                             FilePath = filePath,
-                            DiffText = toolResult.Content,
+                            OriginalContent = fileWrite.OriginalContent,
+                            ModifiedContent = fileWrite.NewContent,
+                            DiffText = UnifiedDiffBuilder.Build(fileWrite.OriginalContent, fileWrite.NewContent, filePath),
                             AgentId = options.AgentId
                         };
                         var diffEvent = new DiffProducedEvent(diffEntry);
@@ -637,7 +676,10 @@ public class AgentOrchestrator : IAgentOrchestrator
                 }).ConfigureAwait(false);
             }
 
-            // If all tool results in this iteration are errors, break to prevent infinite loop
+            // If every tool result in this iteration is an error, count it toward a
+            // consecutive-all-error streak; only break once that streak reaches a
+            // threshold, so a single failed edit_file (e.g. "text not found") doesn't
+            // end the run before the model gets a chance to see the error and retry.
             // (toolExecutions accumulates across iterations, so check only this iteration's batch)
             var currentIterationExecutions = toolExecutions
                 .Skip(toolExecutions.Count - pendingToolCalls.Count)
@@ -645,9 +687,19 @@ public class AgentOrchestrator : IAgentOrchestrator
             if (pendingToolCalls.Count > 0 && currentIterationExecutions.Count > 0 &&
                 currentIterationExecutions.All(te => te.Result.IsError))
             {
-                _logger.LogWarning("All {Count} tool calls in iteration {Iteration} returned errors вЂ” breaking to prevent infinite loop",
-                    currentIterationExecutions.Count, iteration);
-                break;
+                consecutiveAllErrorIterations++;
+                _logger.LogWarning("All {Count} tool calls in iteration {Iteration} returned errors ({Streak}/{Max} consecutive)",
+                    currentIterationExecutions.Count, iteration, consecutiveAllErrorIterations, MaxConsecutiveAllErrorIterations);
+                if (consecutiveAllErrorIterations >= MaxConsecutiveAllErrorIterations)
+                {
+                    _logger.LogWarning("{Streak} consecutive all-error iterations — breaking to prevent infinite loop",
+                        consecutiveAllErrorIterations);
+                    break;
+                }
+            }
+            else if (pendingToolCalls.Count > 0 && currentIterationExecutions.Count > 0)
+            {
+                consecutiveAllErrorIterations = 0;
             }
         }
 

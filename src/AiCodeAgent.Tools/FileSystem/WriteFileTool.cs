@@ -10,6 +10,7 @@ public class WriteFileTool : BaseTool
 {
     private const int MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB max file size
     private const int MaxContentLength = 1_000_000; // 1M characters max content
+    private static readonly UTF8Encoding NoBomUtf8 = new(encoderShouldEmitUTF8Identifier: false);
 
     private readonly AfterEditDiagnosticsReporter? _diagnosticsReporter;
 
@@ -75,13 +76,22 @@ public class WriteFileTool : BaseTool
                     Directory.CreateDirectory(dir);
             }
 
+            // Check existence (and read prior content, for the diff/checkpoint
+            // data below) BEFORE writing — computing "action" after the write
+            // meant File.Exists was always true and the tool reported
+            // "Updated" even for brand-new files.
+            var existedBefore = File.Exists(resolvedPath);
+            var previousContent = existedBefore && !append
+                ? await File.ReadAllTextAsync(resolvedPath, Encoding.UTF8)
+                : string.Empty;
+
             if (append)
-                await File.AppendAllTextAsync(resolvedPath, content, Encoding.UTF8);
+                await File.AppendAllTextAsync(resolvedPath, content, NoBomUtf8);
             else
-                await File.WriteAllTextAsync(resolvedPath, content, Encoding.UTF8);
+                await File.WriteAllTextAsync(resolvedPath, content, NoBomUtf8);
 
             var lines = content.Split('\n').Length;
-            var action = append ? "Appended" : (File.Exists(resolvedPath) ? "Updated" : "Created");
+            var action = append ? "Appended" : (existedBefore ? "Updated" : "Created");
 
             // Surface live LSP diagnostics (type errors/warnings) after the write.
             // Only for non-append writes, since append produces partial content.
@@ -94,7 +104,8 @@ public class WriteFileTool : BaseTool
                 diagnostics = await _diagnosticsReporter.ReportAsync(resolvedPath, content, workspaceRoot);
             }
 
-            return Success($"{action} {path} ({lines} lines, {contentBytes:N0} bytes){diagnostics}");
+            var data = append ? null : new FileWriteResult(previousContent, content, existedBefore);
+            return Success($"{action} {path} ({lines} lines, {contentBytes:N0} bytes){diagnostics}", data);
         }
         catch (Exception ex)
         {

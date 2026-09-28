@@ -22,6 +22,9 @@ public partial class EditorTabViewModel : ObservableObject
     private bool _isReadOnly;
 
     [ObservableProperty]
+    private bool _isActive;
+
+    [ObservableProperty]
     private bool _isPreview;
 
     [ObservableProperty]
@@ -93,11 +96,24 @@ public partial class EditorTabViewModel : ObservableObject
         FilePath = path;
         IsReadOnly = readOnly;
 
-        var content = await File.ReadAllTextAsync(path);
-        
-        Document = new TextDocument(content);
-        
-        IsDirty = false;
+        // FilePath is set (and the tab title updates) before this read even
+        // starts, since it's an observable property. If the read then fails,
+        // leaving Document untouched would show a correctly-titled tab with
+        // silently blank content and no indication anything went wrong — so
+        // on failure we still set Document, to a visible error message,
+        // rather than leaving it stale or default-empty.
+        try
+        {
+            var content = await File.ReadAllTextAsync(path);
+            Document = new TextDocument(content);
+            IsDirty = false;
+        }
+        catch (Exception ex)
+        {
+            Document = new TextDocument($"# Failed to load '{Path.GetFileName(path)}'\n# {ex.GetType().Name}: {ex.Message}");
+            IsReadOnly = true;
+            IsDirty = false;
+        }
     }
 
     /// <summary>Save the document back to disk.</summary>

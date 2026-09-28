@@ -74,6 +74,16 @@ public partial class EditorPaneViewModel : ObservableObject
 
     partial void OnActiveTabChanged(EditorTabViewModel? value)
     {
+        // Keep each tab's IsActive flag in sync so the tab strip can
+        // highlight whichever one is current (see EditorView.axaml) —
+        // previously nothing tracked this, and the tab strip bound its
+        // highlight to IsDirty (unsaved-changes state) instead, which is
+        // an unrelated concept and isn't even a valid brush value.
+        foreach (var tab in Tabs)
+        {
+            tab.IsActive = ReferenceEquals(tab, value);
+        }
+
         // When switching tabs, refresh diff overlays
         if (value != null)
         {

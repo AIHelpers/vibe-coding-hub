@@ -84,6 +84,59 @@ public abstract class BaseHttpProvider : IAiProvider, IDisposable
     public virtual Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(SupportedModels);
 
+    /// <summary>
+    /// Sends a request with retry + exponential backoff on transient
+    /// failures (HTTP 429 rate-limit, 529 overloaded, and any 5xx). Only
+    /// meant to wrap a request whose response hasn't started being consumed
+    /// by the caller yet — for streaming calls that means retrying the
+    /// initial connect/headers phase, never a partially-read stream.
+    /// Honors a `Retry-After` header when the server sends one.
+    /// </summary>
+    protected async Task<HttpResponseMessage> SendWithRetryAsync(
+        Func<Task<HttpResponseMessage>> send,
+        CancellationToken cancellationToken,
+        int maxAttempts = 4)
+    {
+        HttpResponseMessage? response = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (attempt > 1)
+                response?.Dispose();
+
+            response = await send().ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode || !IsRetryableStatus(response.StatusCode) || attempt == maxAttempts)
+                return response;
+
+            var delay = GetRetryDelay(response, attempt);
+            Logger.LogWarning(
+                "{Provider} request failed with {Status} (attempt {Attempt}/{Max}); retrying in {DelayMs}ms",
+                Name, (int)response.StatusCode, attempt, maxAttempts, delay.TotalMilliseconds);
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+
+        return response!;
+    }
+
+    private static bool IsRetryableStatus(HttpStatusCode status) =>
+        (int)status == 429 || (int)status == 529 || (int)status >= 500;
+
+    private static TimeSpan GetRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+            return delta;
+        if (response.Headers.RetryAfter?.Date is { } date)
+        {
+            var diff = date - DateTimeOffset.UtcNow;
+            if (diff > TimeSpan.Zero) return diff;
+        }
+
+        // Exponential backoff with jitter: ~500ms, ~1s, ~2s, ...
+        var baseDelayMs = 500 * Math.Pow(2, attempt - 1);
+        var jitterMs = Random.Shared.NextDouble() * 250;
+        return TimeSpan.FromMilliseconds(baseDelayMs + jitterMs);
+    }
+
     protected async IAsyncEnumerable<string> ReadSseStreamAsync(
         HttpResponseMessage response,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)

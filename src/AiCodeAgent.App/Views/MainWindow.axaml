@@ -141,6 +141,8 @@
                     <ToolTip.Tip>
                         <TextBlock Text="{Binding WorkingDirectory}" FontSize="11" MaxWidth="500" TextWrapping="Wrap"/>
                     </ToolTip.Tip>
+                    <ToolTip.Placement>Bottom</ToolTip.Placement>
+                    <ToolTip.VerticalOffset>4</ToolTip.VerticalOffset>
                     <Grid ColumnDefinitions="Auto,*,Auto">
                         <TextBlock Grid.Column="0" Text="📁" FontSize="12" VerticalAlignment="Center" Opacity="0.7" Margin="0,0,4,0"/>
                         <TextBlock Grid.Column="1" 
@@ -183,8 +185,13 @@
                 <ComboBox Grid.Column="4" 
                           SelectedItem="{Binding ChatViewModel.PermissionMode}"
                           VerticalAlignment="Center"
-                          Width="80"
+                          MinWidth="100"
                           Margin="4,0">
+                    <ComboBox.Styles>
+                        <Style Selector="ComboBox">
+                            <Setter Property="FontSize" Value="12"/>
+                        </Style>
+                    </ComboBox.Styles>
                     <ComboBoxItem Content="Ask" />
                     <ComboBoxItem Content="AutoEdit" />
                     <ComboBoxItem Content="FullAuto" />

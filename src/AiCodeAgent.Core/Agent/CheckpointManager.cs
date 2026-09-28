@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -26,18 +27,26 @@ public class CheckpointManager : ICheckpointManager
 
     public async Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId, string? sessionId = null)
     {
-        if (!File.Exists(filePath))
-            throw new FileNotFoundException($"File not found for checkpoint: {filePath}");
+        // A file that does not exist yet is a valid checkpoint target: the
+        // upcoming tool call is about to create it, and Undo needs to be able
+        // to remove it again (see CheckpointEntry.ExistedBeforeCheckpoint).
+        var existed = File.Exists(filePath);
+        var content = existed ? await File.ReadAllTextAsync(filePath) : string.Empty;
 
-        var content = await File.ReadAllTextAsync(filePath);
         var fileHash = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(content)));
+        var pathHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(filePath)));
 
-        var checkpointId = $"{turnId}_{fileHash[..12]}";
+        // Include a hash of the path (not just the content) in the id: two
+        // different files with identical content checkpointed in the same
+        // turn used to collide and overwrite each other's backup.
+        var checkpointId = $"{turnId}_{pathHash[..8]}_{fileHash[..12]}";
         var backupPath = Path.Combine(_checkpointDir, $"{checkpointId}.bak");
 
-        await File.WriteAllTextAsync(backupPath, content);
+        await File.WriteAllTextAsync(backupPath, content, new System.Text.UTF8Encoding(false));
 
         var entry = new CheckpointEntry
         {
@@ -47,11 +56,12 @@ public class CheckpointManager : ICheckpointManager
             OriginalContent = content,
             Timestamp = DateTime.UtcNow,
             TurnId = turnId,
-            SessionId = sessionId ?? string.Empty
+            SessionId = sessionId ?? string.Empty,
+            ExistedBeforeCheckpoint = existed
         };
 
         _checkpoints[checkpointId] = entry;
-        _logger.LogDebug("Created checkpoint {CheckpointId} for {FilePath}", checkpointId, filePath);
+        _logger.LogDebug("Created checkpoint {CheckpointId} for {FilePath} (existed={Existed})", checkpointId, filePath, existed);
 
         return entry;
     }
@@ -63,7 +73,18 @@ public class CheckpointManager : ICheckpointManager
 
         try
         {
-            await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent);
+            if (!entry.ExistedBeforeCheckpoint)
+            {
+                // The file didn't exist when we checkpointed it, so the tool
+                // call created it — undo removes it rather than writing empty
+                // content over whatever is there now.
+                if (File.Exists(entry.FilePath))
+                    File.Delete(entry.FilePath);
+                _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath} (removed file, did not exist before)", checkpointId, entry.FilePath);
+                return true;
+            }
+
+            await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent, new System.Text.UTF8Encoding(false));
             _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath}", checkpointId, entry.FilePath);
             return true;
         }
@@ -169,19 +190,30 @@ public class CheckpointManager : ICheckpointManager
                 ? await File.ReadAllTextAsync(entry.FilePath)
                 : string.Empty;
 
-            await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent);
-
-            _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath}", checkpointId, entry.FilePath);
+            string restoredContent;
+            if (!entry.ExistedBeforeCheckpoint)
+            {
+                if (File.Exists(entry.FilePath))
+                    File.Delete(entry.FilePath);
+                restoredContent = string.Empty;
+                _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath} (removed file, did not exist before)", checkpointId, entry.FilePath);
+            }
+            else
+            {
+                await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent, new System.Text.UTF8Encoding(false));
+                restoredContent = entry.OriginalContent;
+                _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath}", checkpointId, entry.FilePath);
+            }
 
             // Emit a diff event so the user sees what changed.
-            if (eventBus != null && currentContent != entry.OriginalContent)
+            if (eventBus != null && currentContent != restoredContent)
             {
-                var diffText = ComputeSimpleDiff(currentContent, entry.OriginalContent);
+                var diffText = UnifiedDiffBuilder.Build(currentContent, restoredContent, entry.FilePath);
                 var diffEntry = new DiffEntry
                 {
                     FilePath = entry.FilePath,
                     OriginalContent = currentContent,
-                    ModifiedContent = entry.OriginalContent,
+                    ModifiedContent = restoredContent,
                     DiffText = diffText,
                     IsAccepted = true
                 };

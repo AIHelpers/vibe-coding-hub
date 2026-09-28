@@ -57,7 +57,7 @@ public class PermissionManager : IPermissionManager
             _agentModes[agentId] = mode;
             return Task.CompletedTask;
         }
-        _scoped[scope] = _scoped[scope] with { Mode = mode };
+        _scoped[scope] = _scoped[scope] with { Mode = mode, IsModeConfigured = true };
         return Task.CompletedTask;
     }
 
@@ -97,11 +97,11 @@ public class PermissionManager : IPermissionManager
             if (doc.RootElement.TryGetProperty("permissions", out var perms))
             {
                 if (perms.TryGetProperty("organization", out var org) && org.TryGetProperty("mode", out var om) && Enum.TryParse<PermissionMode>(om.GetString(), out var orgMode))
-                    _scoped[PermissionScope.Organization] = _scoped[PermissionScope.Organization] with { Mode = orgMode };
+                    _scoped[PermissionScope.Organization] = _scoped[PermissionScope.Organization] with { Mode = orgMode, IsModeConfigured = true };
                 if (perms.TryGetProperty("project", out var proj) && proj.TryGetProperty("mode", out var pm) && Enum.TryParse<PermissionMode>(pm.GetString(), out var projMode))
-                    _scoped[PermissionScope.Project] = _scoped[PermissionScope.Project] with { Mode = projMode };
+                    _scoped[PermissionScope.Project] = _scoped[PermissionScope.Project] with { Mode = projMode, IsModeConfigured = true };
                 if (perms.TryGetProperty("personal", out var pers) && pers.TryGetProperty("mode", out var persm) && Enum.TryParse<PermissionMode>(persm.GetString(), out var pMode))
-                    _scoped[PermissionScope.Personal] = _scoped[PermissionScope.Personal] with { Mode = pMode };
+                    _scoped[PermissionScope.Personal] = _scoped[PermissionScope.Personal] with { Mode = pMode, IsModeConfigured = true };
             }
         }
         catch (System.Exception ex)
@@ -119,17 +119,20 @@ public class PermissionManager : IPermissionManager
         if (MatchesAllowRule(call))
             return Task.FromResult(PermissionDecision.Allow);
 
-        // 2. Granular rights override the coarse mode when set.
+        // 2. Read-only session blocks writes/execute — checked BEFORE
+        // granular rights, so a read-only session can't be unlocked by
+        // someone ticking "Edit" in the granular-rights checkboxes
+        // (issue 5: the checkboxes used to be checked first).
+        if (options.IsReadOnly && risk != RiskLevel.Read)
+            return Task.FromResult(PermissionDecision.Deny);
+
+        // 3. Granular rights override the coarse mode when set.
         if (options.Rights != null)
         {
             var granular = GranularRightsDecision(risk, options.Rights);
             if (granular != null)
                 return Task.FromResult(granular.Value);
         }
-
-        // 3. Read-only session blocks writes/execute.
-        if (options.IsReadOnly && risk != RiskLevel.Read)
-            return Task.FromResult(PermissionDecision.Deny);
 
         // 4. Mode-based decision.
         var mode = GetModeAsync(agentId, ct).GetAwaiter().GetResult();
@@ -146,13 +149,39 @@ public class PermissionManager : IPermissionManager
 
     private PermissionMode EffectiveScopedMode()
     {
-        // Highest non-default scope wins. Personal > Project > Organization.
-        var personal = _scoped[PermissionScope.Personal].Mode;
-        if (personal != PermissionMode.Ask) return personal;
-        var project = _scoped[PermissionScope.Project].Mode;
-        if (project != PermissionMode.Ask) return project;
-        return _scoped[PermissionScope.Organization].Mode;
+        // Personal, if explicitly configured, wins over Project, which wins
+        // over Organization's own mode. But an explicitly configured
+        // Organization mode is a CEILING, not just a fallback: a project or
+        // personal setting can never end up MORE permissive than a policy
+        // the organization deliberately set (previously Personal overrode
+        // Organization unconditionally, so an org policy could never be
+        // enforced).
+        var personal = _scoped[PermissionScope.Personal];
+        var project = _scoped[PermissionScope.Project];
+        var org = _scoped[PermissionScope.Organization];
+
+        var requested = personal.IsModeConfigured ? personal.Mode
+            : project.IsModeConfigured ? project.Mode
+            : org.Mode;
+
+        if (org.IsModeConfigured && PermissivenessRank(requested) > PermissivenessRank(org.Mode))
+            return org.Mode;
+
+        return requested;
     }
+
+    /// <summary>
+    /// How much a mode lets run without asking, from most restrictive (0) to
+    /// least (3). Used to enforce the Organization-scope ceiling above.
+    /// </summary>
+    private static int PermissivenessRank(PermissionMode mode) => mode switch
+    {
+        PermissionMode.Plan => 0,
+        PermissionMode.Ask => 1,
+        PermissionMode.AutoEdit => 2,
+        PermissionMode.FullAuto => 3,
+        _ => 1
+    };
 
     private bool MatchesAllowRule(ToolCall call)
     {

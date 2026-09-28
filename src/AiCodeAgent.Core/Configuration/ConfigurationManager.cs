@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using ProtectedDataApi = System.Security.Cryptography.ProtectedData;
 
 namespace AiCodeAgent.Core.Configuration;
 
@@ -50,22 +51,40 @@ public class ConfigurationService
                 _config.DefaultProvider = _config.DefaultProvider.ToLowerInvariant();
             }
 
-            // Decrypt any encrypted API keys
+            // Decrypt any encrypted API keys. A key stored in the legacy
+            // AESGCM format (see DecryptString) is decrypted via a
+            // migration fallback and flagged so we immediately re-save it
+            // using the current scheme (DPAPI on Windows) — otherwise it
+            // would keep round-tripping through the fragile legacy key
+            // derivation on every load until it finally broke.
             var decryptedProviders = new Dictionary<string, ProviderConfiguration>();
+            var needsMigration = false;
             foreach (var (key, provider) in _config.Providers)
             {
                 if (!string.IsNullOrEmpty(provider.ApiKey) && IsEncrypted(provider.ApiKey))
                 {
-                    var decrypted = DecryptString(provider.ApiKey);
+                    var (decrypted, wasLegacy) = DecryptString(provider.ApiKey);
                     if (decrypted != null)
                     {
                         decryptedProviders[key] = provider with { ApiKey = decrypted };
+                        if (wasLegacy)
+                            needsMigration = true;
                         continue;
                     }
+
+                    _logger?.LogWarning(
+                        "Could not decrypt the stored API key for provider '{Provider}' — it will need to be re-entered.",
+                        key);
                 }
                 decryptedProviders[key] = provider;
             }
             _config.Providers = decryptedProviders;
+
+            if (needsMigration)
+            {
+                _logger?.LogInformation("Migrating one or more API keys to the current encryption scheme.");
+                await SaveAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -130,14 +149,38 @@ public class ConfigurationService
     }
 
     /// <summary>
-    /// Encrypts a string using AES-256-GCM with a machine-derived key.
-    /// Works cross-platform on Windows, Linux, and macOS.
+    /// DPAPI entropy — an extra, app-specific secret mixed into the
+    /// Windows Data Protection API call so another app running as the same
+    /// user can't call ProtectedData.Unprotect on our blob.
+    /// </summary>
+    private static readonly byte[] DpapiEntropy = Encoding.UTF8.GetBytes("AiCodeAgent-DPAPI-v1");
+
+    /// <summary>
+    /// Encrypts a string. On Windows this uses DPAPI (<see cref="ProtectedDataApi"/>,
+    /// scoped to the current user account) — the OS already binds and
+    /// protects the key material, with no derivation of our own to get
+    /// wrong or invalidate. Elsewhere (no built-in OS-keychain API in the
+    /// BCL) it falls back to AES-256-GCM with a machine-derived key.
     /// </summary>
     private static string EncryptString(string plainText)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var plainBytes = Encoding.UTF8.GetBytes(plainText);
+                var protectedBytes = ProtectedDataApi.Protect(plainBytes, DpapiEntropy, DataProtectionScope.CurrentUser);
+                return $"DPAPI:{Convert.ToBase64String(protectedBytes)}";
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to encrypt API key via DPAPI.", ex);
+            }
+        }
+
         try
         {
-            var key = GetMachineKey();
+            var key = GetMachineKeyStable();
             var plainBytes = Encoding.UTF8.GetBytes(plainText);
             var nonce = new byte[AesGcm.NonceByteSizes.MaxSize]; // 12 bytes
             var tag = new byte[AesGcm.TagByteSizes.MaxSize];     // 16 bytes
@@ -158,60 +201,104 @@ public class ConfigurationService
     }
 
     /// <summary>
-    /// Decrypts a string encrypted with EncryptString.
+    /// Decrypts a string produced by <see cref="EncryptString"/>. Returns the
+    /// plaintext plus whether it had to fall back to the legacy
+    /// (OS-version-dependent) key derivation to get there, which callers use
+    /// to trigger a one-time migration back to the current scheme.
     /// </summary>
-    private static string? DecryptString(string encryptedText)
+    private static (string? PlainText, bool WasLegacy) DecryptString(string encryptedText)
     {
         try
         {
-            if (!encryptedText.StartsWith("AESGCM:"))
-                return null;
+            if (encryptedText.StartsWith("DPAPI:", StringComparison.Ordinal))
+            {
+                if (!OperatingSystem.IsWindows())
+                    return (null, false); // DPAPI blobs don't travel across OSes
+
+                var protectedBytes = Convert.FromBase64String(encryptedText["DPAPI:".Length..]);
+                var plainBytes = ProtectedDataApi.Unprotect(protectedBytes, DpapiEntropy, DataProtectionScope.CurrentUser);
+                return (Encoding.UTF8.GetString(plainBytes), false);
+            }
+
+            if (!encryptedText.StartsWith("AESGCM:", StringComparison.Ordinal))
+                return (null, false);
 
             var parts = encryptedText.Split(':');
             if (parts.Length != 4)
-                return null;
+                return (null, false);
 
             var nonce = Convert.FromBase64String(parts[1]);
             var ciphertext = Convert.FromBase64String(parts[2]);
             var tag = Convert.FromBase64String(parts[3]);
-            var key = GetMachineKey();
-            var plainBytes = new byte[ciphertext.Length];
+            var plainBytes2 = new byte[ciphertext.Length];
 
-            using var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize);
-            aes.Decrypt(nonce, ciphertext, tag, plainBytes);
+            // Try the current (stable) key first, then fall back to the
+            // legacy derivation — which included Environment.MachineName,
+            // the user-profile PATH and Environment.OSVersion.VersionString,
+            // so a Windows update or a renamed profile directory silently
+            // made every previously-saved key undecryptable (issue 10).
+            foreach (var (key, isLegacy) in new[] { (GetMachineKeyStable(), false), (GetMachineKeyLegacy(), true) })
+            {
+                try
+                {
+                    using var aes = new AesGcm(key, AesGcm.TagByteSizes.MaxSize);
+                    aes.Decrypt(nonce, ciphertext, tag, plainBytes2);
+                    return (Encoding.UTF8.GetString(plainBytes2), isLegacy);
+                }
+                catch (CryptographicException)
+                {
+                    // Wrong key for this blob (e.g. AuthenticationTagMismatchException
+                    // on a modern runtime) — try the next one.
+                }
+            }
 
-            return Encoding.UTF8.GetString(plainBytes);
+            return (null, false);
         }
         catch (Exception ex)
         {
             // Log but don't expose details - return null to indicate decryption failure
             System.Diagnostics.Debug.WriteLine($"Decryption failed: {ex.Message}");
-            return null;
+            return (null, false);
         }
     }
 
     /// <summary>
-    /// Checks if a value looks like an encrypted string (AESGCM format).
+    /// Checks if a value looks like an encrypted string (DPAPI or legacy
+    /// AESGCM format).
     /// </summary>
     private static bool IsEncrypted(string value) =>
-        value.StartsWith("AESGCM:");
+        value.StartsWith("DPAPI:", StringComparison.Ordinal) || value.StartsWith("AESGCM:", StringComparison.Ordinal);
 
     /// <summary>
-    /// Derives a machine-specific encryption key using PBKDF2.
-    /// This ensures the key is bound to the machine but works cross-platform.
+    /// Derives a machine-specific encryption key using PBKDF2, for the
+    /// non-Windows fallback path. Deliberately excludes anything that
+    /// changes on its own — no OS version string, no user-profile path —
+    /// so the key stays stable across routine OS updates and account
+    /// changes; only <see cref="Environment.MachineName"/> plus a fixed
+    /// app salt.
     /// </summary>
-    private static byte[] GetMachineKey()
+    private static byte[] GetMachineKeyStable()
     {
-        // Use machine-specific entropy sources that work cross-platform
+        var entropy = Encoding.UTF8.GetBytes($"{Environment.MachineName}::AiCodeAgent-v2");
+        var salt = new byte[16];
+        var appSalt = SHA256.HashData(Encoding.UTF8.GetBytes("AiCodeAgent-KeyDerivation-v2"));
+        Array.Copy(appSalt, salt, Math.Min(salt.Length, appSalt.Length));
+        return Rfc2898DeriveBytes.Pbkdf2(entropy, salt, 600_000, HashAlgorithmName.SHA256, 32);
+    }
+
+    /// <summary>
+    /// The original (buggy) key derivation, kept ONLY so
+    /// <see cref="DecryptString"/> can migrate values that were encrypted
+    /// with it before this fix. Never used for new encryption.
+    /// </summary>
+    private static byte[] GetMachineKeyLegacy()
+    {
         var machineName = Environment.MachineName;
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var osVersion = Environment.OSVersion.VersionString;
 
-        // Combine entropy sources and derive a 256-bit key via PBKDF2
         var entropy = Encoding.UTF8.GetBytes($"{machineName}::{userProfile}::{osVersion}::AiCodeAgent-v1");
         var salt = new byte[16];
-        
-        // Use a fixed salt derived from the application name for deterministic key derivation
         var appSalt = SHA256.HashData(Encoding.UTF8.GetBytes("AiCodeAgent-KeyDerivation-v1"));
         Array.Copy(appSalt, salt, Math.Min(salt.Length, appSalt.Length));
 
