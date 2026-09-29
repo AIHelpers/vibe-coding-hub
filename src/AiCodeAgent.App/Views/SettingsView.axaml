@@ -7,128 +7,157 @@
                 x:Class="AiCodeAgent.App.Views.SettingsView"
                 x:DataType="vm:SettingsViewModel">
 
-    <ScrollViewer Padding="24,24,24,48" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False" VerticalAlignment="Stretch">
-        <StackPanel Spacing="16" MaxWidth="600">
-            <!-- Header -->
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Grid.Column="0" Spacing="4">
-                    <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
-                    <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
+    <!-- The footer is pinned OUTSIDE the ScrollViewer so the single Save
+         button is always on screen, however small the window is or wherever
+         the scrollbar happens to be. Only the fields in the middle row scroll. -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="24,24,24,8">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="✕ Close"
+                    Command="{Binding CloseCommand}"
+                    ToolTip.Tip="Back to chat (Esc)"
+                    VerticalAlignment="Top"
+                    Padding="14,8"/>
+        </Grid>
+
+        <!-- Scrollable settings fields -->
+        <!-- No Padding on the ScrollViewer itself: padding there is not reliably counted in the
+             scrollable extent, which left the last rows unreachable. The spacing lives on the content. -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Visible"
+                      HorizontalScrollBarVisibility="Disabled"
+                      AllowAutoHide="False">
+            <StackPanel Spacing="16" MaxWidth="600" Margin="24,8,24,8">
+                <!-- Provider Selection -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="AI Provider" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding AvailableProviders}"
+                              SelectedItem="{Binding SelectedProvider}"
+                              Width="300"/>
                 </StackPanel>
-                <!-- Save lives in the header so it is always reachable, however tall the window is. -->
+
+                <!-- Base URL -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Base URL" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding BaseUrl}"
+                             Width="400"
+                             Watermark="e.g. http://localhost:1234"/>
+                    <TextBlock Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"
+                               Opacity="0.6" FontSize="12"/>
+                </StackPanel>
+
+                <!-- Model -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Model" FontSize="13" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto,Auto" Width="400">
+                        <ComboBox Grid.Column="0"
+                                  x:Name="ModelComboBox"
+                                  ItemsSource="{Binding AvailableModels}"
+                                  SelectedItem="{Binding Model}"
+                                  PlaceholderText="Select a model"
+                                  ToolTip.Tip="Select a model from the list"
+                                  MinWidth="300"
+                                  VerticalAlignment="Center"
+                                  PointerPressed="ModelComboBox_OnPointerPressed"/>
+                        <Button Grid.Column="1"
+                                Content="🔄"
+                                Command="{Binding RefreshModelsCommand}"
+                                Width="28" Height="28"
+                                Margin="4,0,0,0"
+                                ToolTip.Tip="Load / refresh available models"
+                                VerticalAlignment="Center"/>
+                        <ProgressBar Grid.Column="2"
+                                     IsVisible="{Binding IsLoadingModels}"
+                                     IsIndeterminate="True"
+                                     Width="20" Height="20"
+                                     Margin="8,0,0,0"
+                                     VerticalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock Text="{Binding ModelsStatus}"
+                                Opacity="0.6" FontSize="12"/>
+                </StackPanel>
+
+                <!-- API Key -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="API Key" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding ApiKey}"
+                             PasswordChar="●"
+                             Width="400"/>
+                    <TextBlock Text="Optional for local providers, required for cloud providers"
+                               Opacity="0.6" FontSize="12"/>
+                </StackPanel>
+
+                <!-- SSL Verification -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="SSL Verification" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox IsChecked="{Binding VerifySsl}"
+                              Content="Verify SSL certificates (disable for local dev with self-signed certs)"
+                              FontSize="13"/>
+                </StackPanel>
+
+                <!-- Theme -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Theme" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding ThemeOptions}"
+                              SelectedItem="{Binding SelectedTheme}"
+                              MinWidth="160"/>
+                    <TextBlock Text="System follows your Windows light/dark setting. Press Save to keep the choice."
+                               FontSize="11" Opacity="0.6"/>
+                </StackPanel>
+
+                <!-- Working Directory -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Working Directory" FontSize="13" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding WorkingDirectory}"
+                                 IsReadOnly="True"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="1"
+                                Content="Browse…"
+                                Command="{Binding BrowseDirectoryCommand}"
+                                Width="90" Height="28"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Permission Mode -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox IsChecked="{Binding AutoApprove}"
+                              Content="Auto-approve tool calls (FullAuto)"
+                              FontSize="13"/>
+                </StackPanel>
+
+                <!-- Breathing room so the last row can be scrolled clear of the footer -->
+                <Border Height="56"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer: the single Save button, pinned to the bottom of the visible area -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource AppInsetBrush}"
+                CornerRadius="8"
+                Margin="24,4,24,16"
+                Padding="16,10">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="Changes are written to the configuration file when you save."
+                           FontSize="12"
+                           Opacity="0.6"
+                           VerticalAlignment="Center"/>
                 <Button Grid.Column="1"
-                        Content="💾 Save"
+                        Content="💾 Save Settings"
                         Command="{Binding SaveCommand}"
-                        VerticalAlignment="Center"
-                        Padding="16,8"/>
+                        Padding="20,10"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"/>
             </Grid>
-
-            <!-- Provider Selection -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="AI Provider" FontSize="13" FontWeight="SemiBold"/>
-                <ComboBox ItemsSource="{Binding AvailableProviders}"
-                          SelectedItem="{Binding SelectedProvider}"
-                          Width="300"/>
-            </StackPanel>
-
-            <!-- Base URL -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Base URL" FontSize="13" FontWeight="SemiBold"/>
-                <TextBox Text="{Binding BaseUrl}"
-                         Width="400"
-                         Watermark="e.g. http://localhost:1234"/>
-                <TextBlock Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"
-                           Opacity="0.6" FontSize="12"/>
-            </StackPanel>
-
-            <!-- Model -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Model" FontSize="13" FontWeight="SemiBold"/>
-                <Grid ColumnDefinitions="*,Auto,Auto" Width="400">
-                    <ComboBox Grid.Column="0"
-                              x:Name="ModelComboBox"
-                              ItemsSource="{Binding AvailableModels}"
-                              SelectedItem="{Binding Model}"
-                              PlaceholderText="Select a model"
-                              ToolTip.Tip="Select a model from the list"
-                              MinWidth="300"
-                              VerticalAlignment="Center"
-                              PointerPressed="ModelComboBox_OnPointerPressed"/>
-                    <Button Grid.Column="1"
-                            Content="🔄"
-                            Command="{Binding RefreshModelsCommand}"
-                            Width="28" Height="28"
-                            Margin="4,0,0,0"
-                            ToolTip.Tip="Load / refresh available models"
-                            VerticalAlignment="Center"/>
-                    <ProgressBar Grid.Column="2"
-                                 IsVisible="{Binding IsLoadingModels}"
-                                 IsIndeterminate="True"
-                                 Width="20" Height="20"
-                                 Margin="8,0,0,0"
-                                 VerticalAlignment="Center"/>
-                </Grid>
-                <TextBlock Text="{Binding ModelsStatus}"
-                            Opacity="0.6" FontSize="12"/>
-            </StackPanel>
-
-            <!-- API Key -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="API Key" FontSize="13" FontWeight="SemiBold"/>
-                <TextBox Text="{Binding ApiKey}"
-                         PasswordChar="●"
-                         Width="400"/>
-                <TextBlock Text="Optional for local providers, required for cloud providers"
-                           Opacity="0.6" FontSize="12"/>
-            </StackPanel>
-
-            <!-- SSL Verification -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="SSL Verification" FontSize="13" FontWeight="SemiBold"/>
-                <CheckBox IsChecked="{Binding VerifySsl}"
-                          Content="Verify SSL certificates (disable for local dev with self-signed certs)"
-                          FontSize="13"/>
-            </StackPanel>
-
-            <!-- Theme -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Theme" FontSize="13" FontWeight="SemiBold"/>
-                <ComboBox ItemsSource="{Binding ThemeOptions}"
-                          SelectedItem="{Binding SelectedTheme}"
-                          MinWidth="160"/>
-                <TextBlock Text="System follows your Windows light/dark setting. Press Save to keep the choice."
-                           FontSize="11" Opacity="0.6"/>
-            </StackPanel>
-
-            <!-- Working Directory -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Working Directory" FontSize="13" FontWeight="SemiBold"/>
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBox Grid.Column="0"
-                             Text="{Binding WorkingDirectory}"
-                             IsReadOnly="True"
-                             Margin="0,0,8,0"/>
-                    <Button Grid.Column="1"
-                            Content="Browse…"
-                            Command="{Binding BrowseDirectoryCommand}"
-                            Width="90" Height="28"/>
-                </Grid>
-            </StackPanel>
-
-            <!-- Permission Mode -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>
-                <CheckBox IsChecked="{Binding AutoApprove}"
-                          Content="Auto-approve tool calls (FullAuto)"
-                          FontSize="13"/>
-            </StackPanel>
-
-            <!-- Save Button -->
-            <Button Content="💾 Save Settings"
-                    Command="{Binding SaveCommand}"
-                    HorizontalAlignment="Left"
-                    Padding="16,8"
-                    Margin="0,8,0,0"/>
-        </StackPanel>
-    </ScrollViewer>
+        </Border>
+    </Grid>
 </UserControl>

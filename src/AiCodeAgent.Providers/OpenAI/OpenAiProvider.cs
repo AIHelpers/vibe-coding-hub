@@ -315,17 +315,29 @@ public class OpenAiProvider : BaseHttpProvider
             }
         }).ToList();
 
-        return new
+        var model = request.Options.Model ?? Config.DefaultModel;
+        var body = new Dictionary<string, object?>
         {
-            model = request.Options.Model ?? Config.DefaultModel,
-            messages,
-            tools = tools.Count > 0 ? tools : null,
-            tool_choice = tools.Count > 0 ? "auto" : null,
-            temperature = request.Options.Temperature,
-            max_tokens = request.Options.MaxTokens,
-            stream,
-            stream_options = stream ? new { include_usage = true } : null
+            ["model"] = model,
+            ["messages"] = messages,
+            ["tools"] = tools.Count > 0 ? tools : null,
+            ["tool_choice"] = tools.Count > 0 ? "auto" : null,
+            ["temperature"] = request.Options.Temperature,
+            ["max_tokens"] = request.Options.MaxTokens,
+            ["stream"] = stream,
+            ["stream_options"] = stream ? new { include_usage = true } : null
         };
+
+        // Reasoning models (o-series, gpt-5) use max_completion_tokens, reject a custom temperature, and take reasoning_effort.
+        if (OpenAiReasoning.IsReasoningModel(model))
+        {
+            body.Remove("temperature");
+            body.Remove("max_tokens");
+            body["max_completion_tokens"] = request.Options.MaxTokens;
+            var effort = OpenAiReasoning.Effort(model, request.Options.Reasoning);
+            if (effort != null) body["reasoning_effort"] = effort;
+        }
+        return body;
     }
 
     private static CompletionResponse MapResponse(OpenAiResponse result)

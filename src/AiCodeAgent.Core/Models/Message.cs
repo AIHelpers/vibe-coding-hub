@@ -4,6 +4,23 @@ namespace AiCodeAgent.Core.Models;
 
 public enum MessageRole { System, User, Assistant, Tool }
 
+/// <summary>How much the model should think before answering. Null on options = provider default.</summary>
+public enum ReasoningEffort { Off, Low, Medium, High }
+
+/// <summary>
+/// A reasoning ("thinking") block returned by the model. Anthropic requires the blocks of the latest assistant turn to be
+/// sent back unmodified, signature included, when that turn used tools, so they are kept on the message.
+/// </summary>
+public record ThinkingBlock
+{
+    /// <summary>"thinking" or "redacted_thinking".</summary>
+    public string Type { get; init; } = "thinking";
+    public string Text { get; init; } = string.Empty;
+    public string? Signature { get; init; }
+    /// <summary>Opaque payload of a redacted_thinking block.</summary>
+    public string? Data { get; init; }
+}
+
 public record Message
 {
     public MessageRole Role { get; init; }
@@ -13,6 +30,9 @@ public record Message
     public string? ToolCallId { get; init; }
     public DateTime Timestamp { get; init; } = DateTime.UtcNow;
     public int TokenCount { get; set; }
+
+    /// <summary>Reasoning blocks that preceded this assistant message (providers that support them).</summary>
+    public List<ThinkingBlock>? ThinkingBlocks { get; init; }
 
     /// <summary>
     /// Optional image attachments (screenshots, pasted images, annotation
@@ -82,6 +102,8 @@ public record CompletionOptions
     public bool Stream { get; init; } = true;
     public string? Model { get; init; }
     public float TopP { get; init; } = 1.0f;
+    /// <summary>Requested reasoning depth; null = provider default (no extended thinking).</summary>
+    public ReasoningEffort? Reasoning { get; init; }
 }
 
 public record CompletionResponse
@@ -97,6 +119,10 @@ public record TokenUsage
 {
     public int PromptTokens { get; init; }
     public int CompletionTokens { get; init; }
+    /// <summary>Input tokens served from the provider's prompt cache (billed at a discount). Not included in <see cref="PromptTokens"/>.</summary>
+    public int CacheReadTokens { get; init; }
+    /// <summary>Input tokens written to the provider's prompt cache on this request. Not included in <see cref="PromptTokens"/>.</summary>
+    public int CacheCreationTokens { get; init; }
     public int TotalTokens => PromptTokens + CompletionTokens;
 }
 
@@ -107,6 +133,10 @@ public record StreamChunk
     public bool IsFinished { get; init; }
     public string? FinishReason { get; init; }
     public TokenUsage? Usage { get; init; }
+    /// <summary>Incremental reasoning text (for display); never part of the answer.</summary>
+    public string? ThinkingDelta { get; init; }
+    /// <summary>On the finished chunk: the complete reasoning blocks of this response.</summary>
+    public List<ThinkingBlock>? ThinkingBlocks { get; init; }
 }
 
 public record ToolDefinition

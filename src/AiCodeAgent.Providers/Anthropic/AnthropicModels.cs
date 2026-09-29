@@ -42,6 +42,16 @@ public class AnthropicContent
 
     [JsonPropertyName("input")]
     public Dictionary<string, object?>? Input { get; set; }
+
+    [JsonPropertyName("thinking")]
+    public string? Thinking { get; set; }
+
+    [JsonPropertyName("signature")]
+    public string? Signature { get; set; }
+
+    /// <summary>Opaque payload of a redacted_thinking block.</summary>
+    [JsonPropertyName("data")]
+    public string? Data { get; set; }
 }
 
 public class AnthropicUsage
@@ -51,6 +61,12 @@ public class AnthropicUsage
 
     [JsonPropertyName("output_tokens")]
     public int OutputTokens { get; set; }
+
+    [JsonPropertyName("cache_read_input_tokens")]
+    public int CacheReadInputTokens { get; set; }
+
+    [JsonPropertyName("cache_creation_input_tokens")]
+    public int CacheCreationInputTokens { get; set; }
 }
 
 public class AnthropicStreamEvent
@@ -96,6 +112,12 @@ public class AnthropicDelta
 
     [JsonPropertyName("partial_json")]
     public string? PartialJson { get; set; }
+
+    [JsonPropertyName("thinking")]
+    public string? Thinking { get; set; }
+
+    [JsonPropertyName("signature")]
+    public string? Signature { get; set; }
 
     [JsonPropertyName("stop_reason")]
     public string? StopReason { get; set; }

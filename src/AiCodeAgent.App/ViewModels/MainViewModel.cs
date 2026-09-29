@@ -224,9 +224,17 @@ public partial class MainViewModel : ObservableObject
         StatusText = "Chat Mode";
     }
 
+    private void OnSettingsCloseRequested(object? sender, EventArgs e) => NavigateToChat();
+
     [RelayCommand]
     private void NavigateToSettings()
     {
+        // The gear button toggles: pressing it again on the settings page returns to the chat.
+        if (IsSettingsMode && CurrentViewModel is SettingsViewModel)
+        {
+            NavigateToChat();
+            return;
+        }
         var settings = _serviceProvider.GetRequiredService<SettingsViewModel>();
         // Wire up the host window's storage provider so the folder picker
         // button works (DI registers SettingsViewModel with a null provider).
@@ -234,6 +242,8 @@ public partial class MainViewModel : ObservableObject
         {
             settings.StorageProvider = _hostWindow.StorageProvider;
         }
+        settings.CloseRequested -= OnSettingsCloseRequested;
+        settings.CloseRequested += OnSettingsCloseRequested;
         CurrentViewModel = settings;
         IsSettingsMode = true;
         IsCheckpointBrowserOpen = false;
@@ -943,6 +953,14 @@ public partial class MainViewModel : ObservableObject
             {
                 CheckpointBrowser.SetSessionCommand.Execute(_chatViewModel.SessionId);
             }
+
+            // A fork moves the chat onto a new session id: keep the checkpoint browser pointed at it.
+            _chatViewModel.SessionIdChanged += (_, _) =>
+            {
+                var id = _chatViewModel.SessionId;
+                if (CheckpointBrowser.SetSessionCommand.CanExecute(id))
+                    CheckpointBrowser.SetSessionCommand.Execute(id);
+            };
         }
         return _chatViewModel;
     }

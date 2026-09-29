@@ -24,6 +24,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IHookRunner? _hookRunner;
     private readonly IPermissionManager? _permissionManager;
+    private readonly Usage.SessionCostTracker? _costTracker;
 
     public AgentOrchestrator(
         IAiProvider provider,
@@ -38,7 +39,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         IContextCompactor? compactor = null,
         ISkillRegistry? skillRegistry = null,
         IHookRunner? hookRunner = null,
-        IPermissionManager? permissionManager = null)
+        IPermissionManager? permissionManager = null,
+        Usage.SessionCostTracker? costTracker = null)
     {
         _provider = provider;
         _contextManager = contextManager;
@@ -53,6 +55,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _skillRegistry = skillRegistry;
         _hookRunner = hookRunner;
         _permissionManager = permissionManager;
+        _costTracker = costTracker;
     }
 
     /// <summary>
@@ -178,10 +181,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         const int MaxConsecutiveAllErrorIterations = 3;
         var finishedNaturally = false;
         string? stopReason = null;
+        var budgetExceeded = false;
 
         while (iteration < options.MaxIterations && !cancellationToken.IsCancellationRequested)
         {
             iteration++;
+
+            // Spend cap: checked before every model call, so a run can overshoot by at most one response.
+            if (budgetExceeded)
+            {
+                stopReason = "budget_exceeded";
+                break;
+            }
 
             await _contextManager.TrimContextAsync(contextId, options.MaxTokens).ConfigureAwait(false);
             var messages = await _contextManager.GetContextAsync(contextId).ConfigureAwait(false) ?? new List<Message>();
@@ -236,6 +247,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 Options = new CompletionOptions
                 {
                     Model = options.Model,
+                    Reasoning = options.Reasoning,
                     Stream = true,
                     MaxTokens = options.MaxCompletionTokens > 0 ? options.MaxCompletionTokens : 8192
                 }
@@ -243,6 +255,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
             var currentContent = new StringBuilder();
             List<ToolCall>? pendingToolCalls = null;
+            List<ThinkingBlock>? thinkingBlocks = null;
 
             var wasCancelled = false;
 
@@ -279,14 +292,35 @@ public class AgentOrchestrator : IAgentOrchestrator
                     PublishScoped(sessionId, textEvent);
                 }
 
+                if (!string.IsNullOrEmpty(chunk.ThinkingDelta))
+                {
+                    var thinkingEvent = new ThinkingEvent(chunk.ThinkingDelta);
+                    yield return thinkingEvent;
+                    PublishScoped(sessionId, thinkingEvent);
+                }
+
+                if (chunk.ThinkingBlocks is { Count: > 0 })
+                    thinkingBlocks = chunk.ThinkingBlocks;
+
                 if (chunk.Usage != null)
                 {
                     totalUsage = new TokenUsage
                     {
                         PromptTokens = totalUsage.PromptTokens + chunk.Usage.PromptTokens,
-                        CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens
+                        CompletionTokens = totalUsage.CompletionTokens + chunk.Usage.CompletionTokens,
+                        CacheReadTokens = totalUsage.CacheReadTokens + chunk.Usage.CacheReadTokens,
+                        CacheCreationTokens = totalUsage.CacheCreationTokens + chunk.Usage.CacheCreationTokens
                     };
-                    var usageEvent = new TokenUsageEvent(totalUsage);
+                    if (_costTracker is not null)
+                    {
+                        var snapshot = _costTracker.Record(sessionId, options.Model, chunk.Usage);
+                        if (options.AgentId is not null)
+                            _costTracker.Record("agent:" + options.AgentId, options.Model, chunk.Usage);
+                        if (options.MaxBudgetUsd is > 0 && snapshot.CostUsd >= options.MaxBudgetUsd.Value)
+                            budgetExceeded = true;
+                    }
+                    var usageEvent = new TokenUsageEvent(totalUsage,
+                        _costTracker?.Get(sessionId).CostUsd ?? 0m);
                     PublishScoped(sessionId, usageEvent);
                 }
 
@@ -317,7 +351,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             {
                 Role = MessageRole.Assistant,
                 Content = currentContent.ToString(),
-                ToolCalls = pendingToolCalls
+                ToolCalls = pendingToolCalls,
+                ThinkingBlocks = thinkingBlocks
             };
             await _contextManager.AddMessageAsync(contextId, assistantMessage).ConfigureAwait(false);
 
@@ -805,6 +840,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             var reasonText = stopReason == "repeated_errors"
                 ? "Stopped: every tool call failed several rounds in a row. Check the errors above, then send a follow-up to continue."
+                : stopReason == "budget_exceeded"
+                ? $"Stopped: this session reached its spend cap of ${options.MaxBudgetUsd:0.00}. Raise the cap to continue."
                 : $"Stopped: reached the limit of {options.MaxIterations} steps before the task was complete. Send a follow-up to continue.";
             fullContent.AppendLine().AppendLine().Append(reasonText);
             var limitEvent = new StatusUpdateEvent("Limit", reasonText);

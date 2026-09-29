@@ -37,12 +37,16 @@ public class AgentSessionCoordinator
 
     public IReadOnlyDictionary<string, IAgentOrchestrator> Agents => _agents;
 
+    private readonly IWorkspaceIsolation? _isolation;
+
     public AgentSessionCoordinator(
         ILogger<AgentSessionCoordinator> logger,
         IAgentEventBus? eventBus = null,
         RolePresetLoader? presetLoader = null,
-        IContextManager? contextManager = null)
+        IContextManager? contextManager = null,
+        IWorkspaceIsolation? workspaceIsolation = null)
     {
+        _isolation = workspaceIsolation;
         _logger = logger;
         _eventBus = eventBus;
         _presetLoader = presetLoader;
@@ -317,20 +321,56 @@ public class AgentSessionCoordinator
                     if (branchIds.TryGetValue(step, out var branch))
                         stepOptions = stepOptions with { ContextSessionId = branch };
 
-                    await foreach (var evt in orchestrator.StreamRunAsync(
-                        prompt,
-                        sessionId,
-                        stepOptions,
-                        cancellationToken))
+                    // Give the agent its own git worktree so parallel agents cannot overwrite each other's files.
+                    WorkspaceLease? lease = null;
+                    if (_isolation != null && step.IsolateInWorktree)
                     {
-                        var tagged = new AgentTaggedEvent(evt, step.AgentId, step.Role);
-                        await channel.Writer.WriteAsync(tagged, CancellationToken.None);
+                        lease = await _isolation.AcquireAsync(stepOptions.WorkingDirectory, sessionId, step.AgentId, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (lease != null)
+                        {
+                            var baseDir = Path.GetFullPath(stepOptions.WorkingDirectory);
+                            var allowed = stepOptions.AllowedPaths
+                                .Select(a => string.Equals(Path.GetFullPath(a), baseDir, StringComparison.OrdinalIgnoreCase) ? lease.WorkingDirectory : a)
+                                .ToList();
+                            stepOptions = stepOptions with { WorkingDirectory = lease.WorkingDirectory, AllowedPaths = allowed };
+                            await channel.Writer.WriteAsync(new AgentTaggedEvent(
+                                new StatusUpdateEvent("Worktree", $"Isolated on branch {lease.Branch}"), step.AgentId, step.Role),
+                                CancellationToken.None);
+                        }
+                    }
 
-                        if (evt is AgentFinishedEvent fin)
-                            finalTexts[step.AgentId] = fin.Response.Content;
+                    try
+                    {
+                        await foreach (var evt in orchestrator.StreamRunAsync(
+                            prompt,
+                            sessionId,
+                            stepOptions,
+                            cancellationToken))
+                        {
+                            var tagged = new AgentTaggedEvent(evt, step.AgentId, step.Role);
+                            await channel.Writer.WriteAsync(tagged, CancellationToken.None);
 
-                        if (evt is DiffProducedEvent diffEvent)
-                            CaptureDiff(diffEvent, step.AgentId);
+                            if (evt is AgentFinishedEvent fin)
+                                finalTexts[step.AgentId] = fin.Response.Content;
+
+                            if (evt is DiffProducedEvent diffEvent)
+                                CaptureDiff(diffEvent, step.AgentId);
+                        }
+                    }
+                    finally
+                    {
+                        if (lease != null && _isolation != null)
+                        {
+                            var summaryText = finalTexts.TryGetValue(step.AgentId, out var final) ? final : step.Prompt;
+                            var result = await _isolation.CompleteAsync(lease, summaryText,
+                                merge: !cancellationToken.IsCancellationRequested, CancellationToken.None).ConfigureAwait(false);
+                            finalTexts[step.AgentId] = (finalTexts.TryGetValue(step.AgentId, out var prev) ? prev : string.Empty)
+                                + $"\n\n[worktree] {result.Message}";
+                            await channel.Writer.WriteAsync(new AgentTaggedEvent(
+                                new StatusUpdateEvent(result.Succeeded ? "Worktree merged" : "Worktree needs attention", result.Message),
+                                step.AgentId, step.Role), CancellationToken.None);
+                        }
                     }
                 }
                 catch (OperationCanceledException)

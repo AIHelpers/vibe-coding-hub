@@ -202,6 +202,10 @@ public record AgentOptions
     public string? ContextSessionId { get; init; }
     /// <summary>Max tokens the model may generate per reply (independent of the context budget <see cref="MaxTokens"/>).</summary>
     public int MaxCompletionTokens { get; init; } = 8192;
+    /// <summary>Optional hard spend cap in USD for the session; the run stops with StopReason "budget_exceeded" once reached. Null = unlimited.</summary>
+    public decimal? MaxBudgetUsd { get; init; }
+    /// <summary>How hard the model should think (extended thinking / reasoning effort). Null = provider default.</summary>
+    public ReasoningEffort? Reasoning { get; init; }
     public bool IsReadOnly { get; init; } = false;
     public PermissionMode PermissionMode { get; init; } = PermissionMode.Ask;
     /// <summary>Granular per-risk-category rights (read/edit/execute). When set, these override the coarse PermissionMode for the corresponding risk levels.</summary>
@@ -282,7 +286,18 @@ public record ApprovalRequestEvent(ToolCall Call, TaskCompletionSource<bool> App
 public record DiffProducedEvent(DiffEntry Diff) : AgentEvent;
 public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;
-public record TokenUsageEvent(TokenUsage Usage) : AgentEvent;
+public record TokenUsageEvent(TokenUsage Usage, decimal SessionCostUsd = 0m) : AgentEvent
+{
+    /// <summary>Compact status-bar text, e.g. "Tokens: 12345 · $0.42 · cache 63%".</summary>
+    public string Format()
+    {
+        var text = $"Tokens: {Usage.TotalTokens + Usage.CacheReadTokens + Usage.CacheCreationTokens}";
+        if (SessionCostUsd > 0) text += $" · ${SessionCostUsd:0.00##}";
+        var input = Usage.PromptTokens + Usage.CacheReadTokens + Usage.CacheCreationTokens;
+        if (Usage.CacheReadTokens > 0 && input > 0) text += $" · cache {(int)(100.0 * Usage.CacheReadTokens / input)}%";
+        return text;
+    }
+}
 
 /// <summary>Emitted when context is auto-compacted (older messages summarized).</summary>
 public record ContextCompactedEvent(int MessagesBefore, int MessagesAfter, int TokensSaved, string? Focus) : AgentEvent;
@@ -427,6 +442,12 @@ public record SessionStep
 
     /// <summary>When true the coordinator asks the user to confirm before this step starts (e.g. Deploy).</summary>
     public bool RequireConfirmation { get; init; }
+
+    /// <summary>
+    /// When true (default) and the coordinator has workspace isolation available, an agent in a parallel group works
+    /// in its own git worktree and its changes are merged back when it finishes. Set false to share the directory.
+    /// </summary>
+    public bool IsolateInWorktree { get; init; } = true;
 }
 
 /// <summary>Plan for a multi-agent session (sequential turn-taking).</summary>

@@ -140,6 +140,14 @@ Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supp
 - **Cross-platform**: .NET 10, native publishing for Win/Linux/macOS
 - **Configuration**: JSON config file + environment variables
 
+## Cost, isolation, verification and safety (new)
+
+- **Prompt caching + cost tracking**: the Anthropic provider marks the system prompt and tool list as cacheable; the status bar shows tokens, session cost and cache-hit %. Set `AgentOptions.MaxBudgetUsd` to stop a run at a spend cap (`StopReason = "budget_exceeded"`). Built-in prices are estimates: override them in `~/.aiagent/pricing.json` (`{"claude-sonnet": {"InputPerMillion": 3, "OutputPerMillion": 15}}`). Unknown models (e.g. Ollama) are treated as free. The cost only appears when `AgentOptions.Model` is set explicitly.
+- **Git worktrees for parallel agents**: agents in a parallel group each work in their own worktree/branch (`agent/<session>/<agent>`) and are merged back one at a time; conflicts keep the branch for manual resolution. Opt out per step with `SessionStep.IsolateInWorktree = false`. Agents start from `HEAD`, so uncommitted changes in your checkout are not visible to them.
+- **New tools**: `glob`, `todo_write`, `ask_user`, `multi_edit`, `apply_patch` (single file, unified-diff hunks), `verify_changes` (build/test/lint from `.aiagent/verify.json`, `AGENTS.md` "Build/Test/Lint command:" lines, or auto-detection; stops after 5 failed attempts in a row), and `browser_check` (headless Chrome/Edge driven over the DevTools protocol: title, text, exact console levels, uncaught exceptions and failed requests, screenshot in `.aiagent/screenshots`; optional `actions` click, type, press keys, wait and `eval` before the report; set `AIAGENT_BROWSER` if the browser is not found, and `AIAGENT_BROWSER_NO_SANDBOX=1` in containers).
+- **Desktop**: the header has a reasoning-effort selector (Default/Off/Low/Medium/High) and a rewind button; `/rewind [N [chat|code|both]]`, `/fork N` and `/effort ...` also work in the chat box. Rewind removes a message and everything after it (and can restore the files the agent changed since), fork continues from that point in a new session.
+- **Sandboxed shell**: `AIAGENT_SANDBOX=docker` runs `execute_command` and `verify_changes` in a throw-away container (workspace mounted, network off, capabilities dropped). Options: `AIAGENT_SANDBOX_IMAGE` (default `ubuntu:24.04`, must contain your toolchain), `AIAGENT_SANDBOX_NETWORK=on`, `AIAGENT_SANDBOX_MEMORY`, `AIAGENT_SANDBOX_CPUS`. If Docker is unavailable the command is refused, never run on the host.
+
 ## Publish
 
 ```bash

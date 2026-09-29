@@ -70,8 +70,10 @@ public class TerminalUI
         IHookRunner? hookRunner = null,
         IPermissionManager? permissionManager = null,
         ConfigurationService? configurationService = null,
-        ModelRegistry? modelRegistry = null)
+        ModelRegistry? modelRegistry = null,
+        ConversationRewinder? rewinder = null)
     {
+        _rewinder = rewinder;
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
         _logger = logger;
@@ -350,6 +352,36 @@ public class TerminalUI
         return string.Join(", ", parts) + (args.Count > 3 ? ", ..." : "");
     }
 
+    private readonly ConversationRewinder? _rewinder;
+
+    /// <summary>/effort shows the reasoning level; /effort off|low|medium|high|default changes it for the rest of the session.</summary>
+    private void SetEffortCommand(string arg)
+    {
+        if (arg.Length == 0)
+        {
+            var current = _options.Reasoning?.ToString().ToLowerInvariant() ?? "default";
+            WriteColored($"Reasoning effort: {current}  (change with /effort off|low|medium|high|default)\n", Colors.Info);
+            return;
+        }
+
+        ReasoningEffort? level;
+        switch (arg.ToLowerInvariant())
+        {
+            case "default": level = null; break;
+            case "off": level = ReasoningEffort.Off; break;
+            case "low": level = ReasoningEffort.Low; break;
+            case "medium" or "med": level = ReasoningEffort.Medium; break;
+            case "high": level = ReasoningEffort.High; break;
+            default:
+                WriteColored("Usage: /effort off|low|medium|high|default\n", Colors.Error);
+                return;
+        }
+
+        _options = _options with { Reasoning = level };
+        WriteColored($"Reasoning effort set to {(level?.ToString().ToLowerInvariant() ?? "default")}. " +
+                     "Applies to models that support it (Claude 3.7/4+, OpenAI o-series/gpt-5); others ignore it.\n", Colors.Success);
+    }
+
     private async Task<bool> HandleCommandAsync(string input)
     {
         var trimmed = input.Trim();
@@ -376,6 +408,18 @@ public class TerminalUI
 
             case var s when s.StartsWith("/branch"):
                 await BranchSessionAsync(s["/branch".Length..].Trim());
+                return true;
+
+            case var s when s == "/effort" || s.StartsWith("/effort "):
+                SetEffortCommand(s["/effort".Length..].Trim());
+                return true;
+
+            case var s when s == "/rewind" || s.StartsWith("/rewind "):
+                await RewindCommandAsync(s["/rewind".Length..].Trim());
+                return true;
+
+            case var s when s == "/fork" || s.StartsWith("/fork "):
+                await ForkCommandAsync(s["/fork".Length..].Trim());
                 return true;
 
             case "/tasks":
@@ -608,6 +652,85 @@ public class TerminalUI
         {
             WriteColored($"Import failed: {ex.Message}\n", Colors.Error);
         }
+    }
+
+    /// <summary>/rewind lists your messages; /rewind N [chat|code|both] goes back to just before message N.</summary>
+    private async Task RewindCommandAsync(string args)
+    {
+        if (_rewinder == null)
+        {
+            WriteColored("Rewind is not available.\n", Colors.Error);
+            return;
+        }
+
+        var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+        {
+            var points = await _rewinder.ListPointsAsync(_sessionId);
+            if (points.Count == 0)
+            {
+                WriteColored("Nothing to rewind to yet.\n", Colors.Info);
+                return;
+            }
+            WriteColored("\nYour messages (rewind goes back to just before the one you pick):\n", Colors.Info);
+            foreach (var p in points)
+                WriteColored($"  {p.Number,3}. {p.Preview}  ({p.FilesChanged} file(s) changed since)\n", ConsoleColor.DarkGray);
+            WriteColored("Usage: /rewind N [chat|code|both]   (default: both)   or  /fork N\n", ConsoleColor.DarkGray);
+            return;
+        }
+
+        if (!int.TryParse(parts[0], out var number))
+        {
+            WriteColored("Usage: /rewind N [chat|code|both]\n", Colors.Error);
+            return;
+        }
+
+        var mode = (parts.Length > 1 ? parts[1].ToLowerInvariant() : "both") switch
+        {
+            "chat" or "conversation" => RewindMode.Conversation,
+            "code" or "files" => RewindMode.Code,
+            "both" => RewindMode.Both,
+            _ => (RewindMode?)null
+        };
+        if (mode == null)
+        {
+            WriteColored("Mode must be chat, code or both.\n", Colors.Error);
+            return;
+        }
+
+        var result = await _rewinder.RewindAsync(_sessionId, number, mode.Value);
+        WriteColored(result.Message + "\n", result.Success ? Colors.Success : Colors.Error);
+        if (result.Success && !string.IsNullOrEmpty(result.RestoredUserText))
+            WriteColored($"Your message was: {result.RestoredUserText}\n", ConsoleColor.DarkGray);
+        if (result.SkippedFiles is { Count: > 0 })
+            WriteColored($"Skipped (symlink/hard-link or unreadable): {string.Join(", ", result.SkippedFiles)}\n", Colors.Error);
+    }
+
+    /// <summary>/fork N starts a new session containing the conversation before message N (files are not touched).</summary>
+    private async Task ForkCommandAsync(string args)
+    {
+        if (_rewinder == null)
+        {
+            WriteColored("Fork is not available.\n", Colors.Error);
+            return;
+        }
+        if (!int.TryParse(args, out var number))
+        {
+            WriteColored("Usage: /fork N   (see /rewind for message numbers)\n", Colors.Error);
+            return;
+        }
+
+        var (newId, message) = await _rewinder.ForkAsync(_sessionId, number);
+        if (newId == null)
+        {
+            WriteColored(message + "\n", Colors.Error);
+            return;
+        }
+
+        _recorder.Stop();
+        _sessionId = newId;
+        _recorder.Start(_sessionId);
+        WriteColored($"{message}\nNow in session {newId}. The original session is unchanged.\n", Colors.Success);
     }
 
     private async Task UndoAsync()
@@ -1065,7 +1188,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /effort /rewind /fork /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Files:   /view path (print file with line numbers)  /edit path (open in external editor)");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();

@@ -85,6 +85,7 @@ public class AnthropicProvider : BaseHttpProvider
 
         var toolCallsBuffer = new Dictionary<int, AnthropicToolUseBuffer>();
         var currentToolIndex = -1;
+        var thinkingBuffer = new SortedDictionary<int, AnthropicThinkingBuffer>();
 
         // Anthropic streams usage in two places: message_start carries
         // input_tokens (and an initial output_tokens of 0), and message_delta
@@ -92,6 +93,8 @@ public class AnthropicProvider : BaseHttpProvider
         // both and attach them to the terminal finished chunk so the
         // orchestrator (which breaks on IsFinished) actually records usage.
         var inputTokens = 0;
+        var cacheReadTokens = 0;
+        var cacheWriteTokens = 0;
         var outputTokens = 0;
         var stopReason = "stop";
 
@@ -117,10 +120,20 @@ public class AnthropicProvider : BaseHttpProvider
                 case "message_start":
                     inputTokens = evt.Message?.Usage?.InputTokens ?? 0;
                     outputTokens = evt.Message?.Usage?.OutputTokens ?? 0;
+                    cacheReadTokens = evt.Message?.Usage?.CacheReadInputTokens ?? 0;
+                    cacheWriteTokens = evt.Message?.Usage?.CacheCreationInputTokens ?? 0;
                     break;
 
                 case "content_block_start":
-                    if (evt.ContentBlock?.Type == "tool_use")
+                    if (evt.ContentBlock?.Type is "thinking" or "redacted_thinking")
+                    {
+                        thinkingBuffer[evt.Index] = new AnthropicThinkingBuffer
+                        {
+                            Type = evt.ContentBlock.Type,
+                            Data = evt.ContentBlock.Data
+                        };
+                    }
+                    else if (evt.ContentBlock?.Type == "tool_use")
                     {
                         currentToolIndex = evt.Index;
                         toolCallsBuffer[currentToolIndex] = new AnthropicToolUseBuffer
@@ -136,6 +149,17 @@ public class AnthropicProvider : BaseHttpProvider
                     {
                         yield return new StreamChunk { Delta = evt.Delta.Text ?? string.Empty };
                     }
+                    else if (evt.Delta?.Type == "thinking_delta" && thinkingBuffer.TryGetValue(evt.Index, out var thinking))
+                    {
+                        var piece = evt.Delta.Thinking ?? string.Empty;
+                        thinking.Text.Append(piece);
+                        if (piece.Length > 0)
+                            yield return new StreamChunk { ThinkingDelta = piece };
+                    }
+                    else if (evt.Delta?.Type == "signature_delta" && thinkingBuffer.TryGetValue(evt.Index, out var signed))
+                    {
+                        signed.Signature = (signed.Signature ?? string.Empty) + (evt.Delta.Signature ?? string.Empty);
+                    }
                     else if (evt.Delta?.Type == "input_json_delta" && currentToolIndex >= 0)
                     {
                         toolCallsBuffer[currentToolIndex].InputJson += evt.Delta.PartialJson ?? string.Empty;
@@ -147,7 +171,11 @@ public class AnthropicProvider : BaseHttpProvider
                     // cumulative output_tokens count.
                     if (evt.Delta?.StopReason != null)
                         stopReason = evt.Delta.StopReason;
-                    if (evt.Delta?.Usage != null)
+                    // The real API sends usage next to "delta" (top level of the event), not inside it.
+                    // Read the top-level field first; keep the nested one as a fallback.
+                    if (evt.Usage != null)
+                        outputTokens = evt.Usage.OutputTokens;
+                    else if (evt.Delta?.Usage != null)
                         outputTokens = evt.Delta.Usage.OutputTokens;
                     break;
 
@@ -155,7 +183,9 @@ public class AnthropicProvider : BaseHttpProvider
                     var usage = new TokenUsage
                     {
                         PromptTokens = inputTokens,
-                        CompletionTokens = outputTokens
+                        CompletionTokens = outputTokens,
+                        CacheReadTokens = cacheReadTokens,
+                        CacheCreationTokens = cacheWriteTokens
                     };
 
                     if (toolCallsBuffer.Count > 0)
@@ -172,7 +202,8 @@ public class AnthropicProvider : BaseHttpProvider
                             IsFinished = true,
                             ToolCalls = toolCalls,
                             FinishReason = stopReason == "stop" ? "tool_use" : stopReason,
-                            Usage = usage
+                            Usage = usage,
+                            ThinkingBlocks = BuildThinkingBlocks(thinkingBuffer)
                         };
                     }
                     else
@@ -181,7 +212,8 @@ public class AnthropicProvider : BaseHttpProvider
                         {
                             IsFinished = true,
                             FinishReason = stopReason,
-                            Usage = usage
+                            Usage = usage,
+                            ThinkingBlocks = BuildThinkingBlocks(thinkingBuffer)
                         };
                     }
                     break;
@@ -227,11 +259,14 @@ public class AnthropicProvider : BaseHttpProvider
             .Select(BuildMessage)
             .ToList();
 
-        var tools = request.Tools.Select(t => new
+        // Prompt caching: a cache_control breakpoint on the last tool caches the whole tool list,
+        // and one on the system block caches tools + system. Both are stable across the turns of a
+        // run, so every iteration after the first reads them at a fraction of the input price.
+        var tools = request.Tools.Select(t => new Dictionary<string, object?>
         {
-            name = t.Name,
-            description = t.Description,
-            input_schema = new
+            ["name"] = t.Name,
+            ["description"] = t.Description,
+            ["input_schema"] = new
             {
                 type = t.Parameters.Type,
                 properties = t.Parameters.Properties.ToDictionary(
@@ -240,17 +275,57 @@ public class AnthropicProvider : BaseHttpProvider
                 required = t.Parameters.Required
             }
         }).ToList();
+        if (tools.Count > 0)
+            tools[^1]["cache_control"] = new { type = "ephemeral" };
 
-        return new
+        object? system = request.SystemPrompt;
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
         {
-            model = request.Options.Model ?? Config.DefaultModel,
-            system = request.SystemPrompt,
-            messages,
-            tools = tools.Count > 0 ? tools : null,
-            max_tokens = request.Options.MaxTokens,
-            temperature = request.Options.Temperature,
-            stream
+            system = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "text",
+                    ["text"] = request.SystemPrompt,
+                    ["cache_control"] = new { type = "ephemeral" }
+                }
+            };
+        }
+
+        var model = request.Options.Model ?? Config.DefaultModel;
+        var body = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["system"] = system,
+            ["messages"] = messages,
+            ["tools"] = tools.Count > 0 ? tools : null,
+            ["max_tokens"] = request.Options.MaxTokens,
+            ["temperature"] = request.Options.Temperature,
+            ["stream"] = stream
         };
+
+        // Extended thinking: only for models that support it. The API forbids a custom temperature while thinking is
+        // on and needs max_tokens above the thinking budget.
+        var budget = AnthropicThinking.Budget(request.Options.Reasoning);
+        if (budget is int thinkingBudget && AnthropicThinking.Supports(model))
+        {
+            body["thinking"] = new Dictionary<string, object?> { ["type"] = "enabled", ["budget_tokens"] = thinkingBudget };
+            body["max_tokens"] = AnthropicThinking.MaxTokensFor(request.Options.MaxTokens, thinkingBudget);
+            body.Remove("temperature");
+        }
+        return body;
+    }
+
+    private static IEnumerable<object> ReplayThinking(Message msg)
+    {
+        if (msg.ThinkingBlocks is not { Count: > 0 }) yield break;
+        foreach (var b in msg.ThinkingBlocks)
+        {
+            if (b.Type == "redacted_thinking")
+                yield return new Dictionary<string, object?> { ["type"] = "redacted_thinking", ["data"] = b.Data };
+            else if (!string.IsNullOrEmpty(b.Signature))   // an unsigned block would be rejected by the API
+                yield return new Dictionary<string, object?> { ["type"] = "thinking", ["thinking"] = b.Text, ["signature"] = b.Signature };
+        }
     }
 
     private static object BuildMessage(Message msg) => msg.Role switch
@@ -261,13 +336,14 @@ public class AnthropicProvider : BaseHttpProvider
         MessageRole.Assistant when msg.ToolCalls?.Count > 0 => new
         {
             role = "assistant",
-            content = msg.ToolCalls.Select(tc => (object)new
+            // Reasoning blocks of a tool-using turn must be replayed first, unmodified (signature included).
+            content = ReplayThinking(msg).Concat(msg.ToolCalls.Select(tc => (object)new
             {
                 type = "tool_use",
                 id = tc.Id,
                 name = tc.Name,
                 input = tc.Arguments
-            }).ToArray()
+            })).ToArray()
         },
         MessageRole.Tool => new
         {
@@ -335,7 +411,9 @@ public class AnthropicProvider : BaseHttpProvider
             Usage = new TokenUsage
             {
                 PromptTokens = result.Usage?.InputTokens ?? 0,
-                CompletionTokens = result.Usage?.OutputTokens ?? 0
+                CompletionTokens = result.Usage?.OutputTokens ?? 0,
+                CacheReadTokens = result.Usage?.CacheReadInputTokens ?? 0,
+                CacheCreationTokens = result.Usage?.CacheCreationInputTokens ?? 0
             },
             Model = result.Model ?? string.Empty,
             StopReason = result.StopReason ?? string.Empty
@@ -352,6 +430,25 @@ public class AnthropicProvider : BaseHttpProvider
         }
         catch { return new(); }
     }
+
+    private class AnthropicThinkingBuffer
+    {
+        public string Type { get; set; } = "thinking";
+        public System.Text.StringBuilder Text { get; } = new();
+        public string? Signature { get; set; }
+        public string? Data { get; set; }
+    }
+
+    private static List<ThinkingBlock>? BuildThinkingBlocks(SortedDictionary<int, AnthropicThinkingBuffer> buffer)
+        => buffer.Count == 0
+            ? null
+            : buffer.Values.Select(b => new ThinkingBlock
+            {
+                Type = b.Type,
+                Text = b.Text.ToString(),
+                Signature = b.Signature,
+                Data = b.Data
+            }).ToList();
 
     private class AnthropicToolUseBuffer
     {

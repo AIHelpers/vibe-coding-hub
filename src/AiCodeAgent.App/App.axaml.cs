@@ -251,6 +251,7 @@ public partial class App : Application
         services.AddSingleton<ICheckpointManager, CheckpointManager>();
         
         // Agent Orchestrator
+        services.AddSingleton<AiCodeAgent.Core.Usage.SessionCostTracker>();
         services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
 
         // Autonomous multi-file agent (Feature 4): planner + step-by-step runner.
@@ -265,6 +266,7 @@ public partial class App : Application
         services.AddSingleton<RolePresetLoader>();
         
         // Agent Session Coordinator (multi-agent orchestration)
+        services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
         services.AddSingleton<AgentSessionCoordinator>();
         services.AddSingleton<SdlcPipelineLoader>();
         services.AddSingleton<SdlcPipelineRunner>();
@@ -336,6 +338,17 @@ public partial class App : Application
                 sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
         services.AddSingleton<ITool, ListDirectoryTool>();
         services.AddSingleton<ITool, GrepTool>();
+        services.AddSingleton<ITool, GlobTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.MultiEditTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.ApplyPatchTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.TodoWriteTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AskUserTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Verification.VerifyChangesTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Browser.BrowserCheckTool>();
+        services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox, AiCodeAgent.Tools.Shell.DockerCommandSandbox>();
+        services.AddSingleton<AiCodeAgent.Core.Agent.IUserQuestionHandler, AiCodeAgent.App.Services.AvaloniaUserQuestionHandler>();
+        services.AddSingleton<AiCodeAgent.Core.Sessions.ConversationRewinder>();
+        services.AddSingleton<AiCodeAgent.App.Services.IRewindPrompt, AiCodeAgent.App.Services.AvaloniaRewindPrompt>();
         services.AddSingleton<ITool, ExecuteCommandTool>();
         services.AddSingleton<ITool, GitTool>();
         services.AddSingleton<ITool, WebFetchTool>();

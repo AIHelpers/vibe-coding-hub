@@ -229,10 +229,10 @@
                             <Setter Property="FontSize" Value="12"/>
                         </Style>
                     </ComboBox.Styles>
-                    <ComboBoxItem Content="Ask" />
-                    <ComboBoxItem Content="AutoEdit" />
-                    <ComboBoxItem Content="FullAuto" />
-                    <ComboBoxItem Content="Plan" />
+                    <x:String>Ask</x:String>
+                    <x:String>AutoEdit</x:String>
+                    <x:String>FullAuto</x:String>
+                    <x:String>Plan</x:String>
                 </ComboBox>
 
                 <!-- Granular rights toggles (independent of PermissionMode) -->
@@ -261,10 +261,13 @@
         </Border>
 
         <!-- Main Content Area -->
-        <Grid Grid.Row="1" Name="ContentArea" ClipToBounds="True">
-            <!-- Settings Content - shown when IsSettingsMode is true -->
+        <Grid Grid.Row="1" Name="ContentArea" RowDefinitions="*" ClipToBounds="True">
+            <!-- Settings Content - shown when IsSettingsMode is true.
+                 No MaxHeight binding: the star-sized row bounds the control,
+                 and a self-referencing #ContentArea.Bounds.Height binding
+                 evaluated before layout (height 0) used to leave the page
+                 unbounded so its ScrollViewer could never reach the bottom. -->
             <ContentControl Grid.Row="0"
-                            MaxHeight="{Binding #ContentArea.Bounds.Height}"
                             ClipToBounds="True"
                             Content="{Binding CurrentViewModel}"
                             IsVisible="{Binding IsSettingsMode}"
@@ -833,6 +836,17 @@
                                     <Button Content="🚀 Pipeline"
                                             Command="{Binding ChatViewModel.RunPipelineCommand}"
                                             ToolTip.Tip="Run the selected SDLC pipeline against this task"
+                                            Padding="12,8"
+                                            MinHeight="36"/>
+                                    <ComboBox ItemsSource="{Binding ChatViewModel.EffortOptions}"
+                                              SelectedItem="{Binding ChatViewModel.ReasoningEffortName}"
+                                              ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"
+                                              MinHeight="36" MinWidth="100"
+                                              Margin="12,0,0,0"/>
+                                    <Button Content="⏪ Rewind"
+                                            Command="{Binding ChatViewModel.OpenRewindCommand}"
+                                            IsEnabled="{Binding !ChatViewModel.IsProcessing}"
+                                            ToolTip.Tip="Rewind or fork the conversation (/rewind)"
                                             Padding="12,8"
                                             MinHeight="36"/>
                                 </StackPanel>

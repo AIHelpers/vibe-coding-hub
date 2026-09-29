@@ -47,7 +47,7 @@ public partial class ChatViewModel : ObservableObject
     /// checkpoints and other session-scoped state be looked up reliably
     /// (see MainViewModel, which forwards this to CheckpointBrowser).
     /// </summary>
-    public string SessionId { get; } = Guid.NewGuid().ToString("N");
+    public string SessionId { get; private set; } = Guid.NewGuid().ToString("N");
     /// <summary>
     /// The working directory the agent operates in. Falls back to the
     /// configured <see cref="AgentConfiguration.WorkingDirectory"/>, then to
@@ -206,7 +206,8 @@ public partial class ChatViewModel : ObservableObject
     {
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help",
         // Feature 6: In-Chat Branch / PR Workflow
-        "/branch", "/commit", "/pr"
+        "/branch", "/commit", "/pr",
+        "/rewind", "/fork", "/effort"
     };
     public ChatViewModel(
         AgentService agentService,
@@ -221,8 +222,11 @@ public partial class ChatViewModel : ObservableObject
         IPlanGenerator? planGenerator = null,
         IAutonomousAgentRunner? autonomousRunner = null,
         GitService? gitService = null,
-        IRequirementsClarifier? requirementsClarifier = null)
+        IRequirementsClarifier? requirementsClarifier = null,
+        AiCodeAgent.Core.Sessions.ConversationRewinder? rewinder = null,
+        IRewindPrompt? rewindPrompt = null)
     {
+        InitializeRewind(rewinder, rewindPrompt);
         _agentService = agentService;
         _eventBus = agentService.EventBus;
         _editorPane = editorPane;
@@ -355,6 +359,7 @@ public partial class ChatViewModel : ObservableObject
                 new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
+                    Reasoning = ReasoningEffortValue,
                     WorkingDirectory = WorkingDirectory,
                     Images = annotationImages,
                     Rights = new GranularRights
@@ -450,6 +455,9 @@ public partial class ChatViewModel : ObservableObject
             await HandleEditCommandAsync(userMessage).ConfigureAwait(true);
             return;
         }
+        // Rewind / fork / reasoning effort.
+        if (await TryHandleSessionCommandAsync(userMessage).ConfigureAwait(true))
+            return;
         // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
         if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
             return;
@@ -512,6 +520,7 @@ public partial class ChatViewModel : ObservableObject
                 new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
+                    Reasoning = ReasoningEffortValue,
                     WorkingDirectory = WorkingDirectory,
                     Rights = new GranularRights
                     {
@@ -803,7 +812,7 @@ public partial class ChatViewModel : ObservableObject
                         break;
                     case TokenUsageEvent usage:
                         await Task.Factory.StartNew(
-                            () => TokenUsage = $"Tokens: {usage.Usage.TotalTokens}",
+                            () => TokenUsage = usage.Format(),
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
@@ -1118,7 +1127,7 @@ public partial class ChatViewModel : ObservableObject
                 StatusText = $"[{tagged.AgentId}] {status.Status}";
                 break;
             case TokenUsageEvent usage:
-                TokenUsage = $"Tokens: {usage.Usage.TotalTokens}";
+                TokenUsage = usage.Format();
                 break;
             case AgentFinishedEvent finished:
                 if (finished.Response.WasCancelled)
@@ -1322,6 +1331,9 @@ public partial class ChatViewModel : ObservableObject
                 "/fix" => "Fix issues in code",
                 "/refactor" => "Refactor code",
                 "/help" => "Show available commands",
+                "/rewind" => "Go back to an earlier message (chat, code or both)",
+                "/fork" => "Continue from an earlier message in a new session",
+                "/effort" => "Set reasoning effort (off/low/medium/high)",
                 _ => ""
             };
             var icon = cmd switch
@@ -1352,6 +1364,9 @@ public partial class ChatViewModel : ObservableObject
                 "/fix" => "Fix issues in code",
                 "/refactor" => "Refactor code",
                 "/help" => "Show available commands",
+                "/rewind" => "Go back to an earlier message (chat, code or both)",
+                "/fork" => "Continue from an earlier message in a new session",
+                "/effort" => "Set reasoning effort (off/low/medium/high)",
                 _ => ""
             };
             var icon = cmd switch
@@ -1523,6 +1538,7 @@ public partial class ChatViewModel : ObservableObject
                     new AgentOptions
                     {
                         PermissionMode = ParsePermissionMode(PermissionMode),
+                        Reasoning = ReasoningEffortValue,
                         WorkingDirectory = WorkingDirectory,
                         Rights = new GranularRights
                         {
@@ -1648,6 +1664,7 @@ public partial class ChatViewModel : ObservableObject
             var options = new AgentOptions
             {
                 PermissionMode = ParsePermissionMode(PermissionMode),
+                Reasoning = ReasoningEffortValue,
                 WorkingDirectory = WorkingDirectory,
                 Rights = new GranularRights
                 {

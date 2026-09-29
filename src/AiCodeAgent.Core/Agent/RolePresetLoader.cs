@@ -57,7 +57,7 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.Plan,
             AllowedTools = new List<string>
             {
-                "read_file", "list_directory", "grep",
+                "read_file", "list_directory", "grep", "glob", "todo_write", "ask_user",
                 "get_diagnostics", "go_to_definition", "find_references"
             }
         };
@@ -83,8 +83,9 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.AutoEdit,
             AllowedTools = new List<string>
             {
-                "read_file", "write_file", "edit_file", "list_directory", "grep",
-                "execute_command", "run_diagnostics", "git", "go_to_definition", "find_references"
+                "read_file", "write_file", "edit_file", "multi_edit", "apply_patch", "list_directory", "grep", "glob",
+                "execute_command", "run_diagnostics", "verify_changes", "browser_check", "todo_write", "ask_user",
+                "git", "go_to_definition", "find_references"
             }
         };
 
@@ -109,7 +110,7 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.Plan,
             AllowedTools = new List<string>
             {
-                "read_file", "list_directory", "grep", "run_diagnostics",
+                "read_file", "list_directory", "grep", "glob", "run_diagnostics",
                 "get_diagnostics", "go_to_definition", "find_references"
             }
         };
@@ -135,8 +136,8 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.AutoEdit,
             AllowedTools = new List<string>
             {
-                "read_file", "write_file", "edit_file", "list_directory", "grep",
-                "execute_command", "run_diagnostics", "git", "get_diagnostics"
+                "read_file", "write_file", "edit_file", "multi_edit", "apply_patch", "list_directory", "grep", "glob",
+                "execute_command", "run_diagnostics", "verify_changes", "browser_check", "git", "get_diagnostics"
             }
         };
 

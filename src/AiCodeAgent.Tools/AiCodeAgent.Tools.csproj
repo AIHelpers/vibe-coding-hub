@@ -13,4 +13,7 @@
     <ProjectReference Include="..\AiCodeAgent.LanguageServices\AiCodeAgent.LanguageServices.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AiCodeAgent.Tools.Tests" />
+  </ItemGroup>
 </Project>

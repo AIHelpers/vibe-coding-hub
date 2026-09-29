@@ -27,6 +27,11 @@ public partial class MainWindow : Window
         KeyDown += OnWindowKeyDown;
         PropertyChanged += OnWindowPropertyChanged;
         Opened += (_, _) => FitToScreen();
+        // Run again once the first layout pass has completed: at Opened time the
+        // platform may still be applying CenterScreen, which could re-place the
+        // window after our clamp and leave its bottom (and any page footer)
+        // below the visible screen area.
+        Opened += (_, _) => Dispatcher.UIThread.Post(FitToScreen, DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -50,6 +55,11 @@ public partial class MainWindow : Window
             var clientMaxHeight = Math.Max(300, maxHeight - 48);
             var clientMaxWidth = Math.Max(400, maxWidth - 16);
 
+            // Hard ceiling for later: no resize can now push the window beyond
+            // the visible work area, so the bottom of any scrollable page
+            // (e.g. the settings footer with its Save button) stays reachable.
+            MaxHeight = clientMaxHeight;
+            MaxWidth = clientMaxWidth;
             MinHeight = Math.Min(MinHeight, clientMaxHeight);
             MinWidth = Math.Min(MinWidth, clientMaxWidth);
             if (Height > clientMaxHeight) Height = clientMaxHeight;

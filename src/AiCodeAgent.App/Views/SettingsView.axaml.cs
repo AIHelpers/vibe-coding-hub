@@ -9,6 +9,15 @@ public partial class SettingsView : UserControl
     public SettingsView()
     {
         InitializeComponent();
+        // Esc leaves the settings page (unsaved edits are discarded; press Save first).
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && DataContext is SettingsViewModel vm && vm.CloseCommand.CanExecute(null))
+            {
+                vm.CloseCommand.Execute(null);
+                e.Handled = true;
+            }
+        };
     }
 
     private void InitializeComponent()

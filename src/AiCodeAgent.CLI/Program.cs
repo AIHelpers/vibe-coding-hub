@@ -416,9 +416,11 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // See App.axaml.cs for why this registration matters (issue 3).
     services.AddSingleton<IPermissionManager, PermissionManager>();
     services.AddSingleton<ICheckpointManager, CheckpointManager>();
+    services.AddSingleton<AiCodeAgent.Core.Usage.SessionCostTracker>();
     services.AddSingleton<IAgentOrchestrator, AgentOrchestrator>();
     services.AddSingleton<AgentConfiguration>(configSvc.Config.Agent);
     services.AddSingleton<RolePresetLoader>();
+    services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
     services.AddSingleton<AgentSessionCoordinator>();
     services.AddSingleton<SdlcPipelineLoader>();
     services.AddSingleton<SdlcPipelineRunner>();
@@ -467,6 +469,15 @@ static async Task<ServiceProvider> BuildServiceProvider(
             sp.GetRequiredService<AfterEditDiagnosticsReporter>()));
     services.AddSingleton<ITool, ListDirectoryTool>();
     services.AddSingleton<ITool, GrepTool>();
+    services.AddSingleton<ITool, GlobTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.MultiEditTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.ApplyPatchTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.TodoWriteTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AskUserTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.Verification.VerifyChangesTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.Browser.BrowserCheckTool>();
+    services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox, AiCodeAgent.Tools.Shell.DockerCommandSandbox>();
+    services.AddSingleton<AiCodeAgent.Core.Agent.IUserQuestionHandler, ConsoleUserQuestionHandler>();
     services.AddSingleton<ITool, ExecuteCommandTool>();
     services.AddSingleton<ITool, GitTool>();
     services.AddSingleton<ITool, WebFetchTool>();
@@ -558,6 +569,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ModelRegistry>();
 
     // UI
+    services.AddSingleton<AiCodeAgent.Core.Sessions.ConversationRewinder>();
     services.AddSingleton<TerminalUI>();
     services.AddSingleton<SingleRunMode>();
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
@@ -39,7 +40,10 @@ public class ExecuteCommandTool : BaseTool
         new(@"\bsudo\s+(rm|dd|shutdown|reboot|halt|mkfs\S*|fdisk\S*|format\S*|kill\S*|pkill\S*|taskkill\S*|chmod\S*|chown\S*|passwd)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)
     ];
 
-    public ExecuteCommandTool(ILogger<ExecuteCommandTool> logger) : base(logger) { }
+    private readonly ICommandSandbox? _sandbox;
+
+    public ExecuteCommandTool(ILogger<ExecuteCommandTool> logger, ICommandSandbox? sandbox = null) : base(logger)
+        => _sandbox = sandbox;
 
     public override string Name => "execute_command";
     public override string Description =>
@@ -95,6 +99,17 @@ public class ExecuteCommandTool : BaseTool
         try
         {
             var (executable, arguments) = ParseCommand(command);
+
+            // Sandbox on = fail closed: never fall back to running the command on the host.
+            if (_sandbox is { Enabled: true })
+            {
+                var unavailable = await _sandbox.CheckAvailabilityAsync(context.CancellationToken);
+                if (unavailable != null)
+                    return Error($"Sandbox is enabled ({_sandbox.Description}) but unavailable: {unavailable} The command was NOT run.");
+                var launch = _sandbox.Wrap(command, string.IsNullOrEmpty(context.WorkingDirectory) ? resolvedDir : context.WorkingDirectory, resolvedDir);
+                executable = launch.Executable;
+                arguments = launch.Arguments.ToArray();
+            }
 
             using var process = new Process
             {

@@ -433,3 +433,6 @@ FodyWeavers.xsd
 # folders that were previously committed by accident).
 *.tar.gz
 ce65d5e0cdc2/
+
+# Agent browser screenshots
+.aiagent/screenshots/

@@ -132,6 +132,12 @@ public partial class SettingsViewModel : ObservableObject
     /// loaded yet. Intended to be invoked when the user opens the model
     /// dropdown to choose a model — avoids reloading on every Settings open.
     /// </summary>
+    /// <summary>Raised when the user asks to leave the settings page (Close button or Esc).</summary>
+    public event System.EventHandler? CloseRequested;
+
+    [RelayCommand]
+    private void Close() => CloseRequested?.Invoke(this, System.EventArgs.Empty);
+
     [RelayCommand]
     public Task EnsureModelsLoaded()
     {
