@@ -7,7 +7,7 @@
 
     <Grid RowDefinitions="Auto,Auto,*">
         <!-- Header -->
-        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10" CornerRadius="4,4,0,0">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                     <TextBlock Text="Project Knowledge" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0"/>
@@ -20,7 +20,7 @@
         </Border>
 
         <!-- Sub-toolbar per tab -->
-        <Border Grid.Row="1" Background="#22222E" Padding="8,4">
+        <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8,4">
             <Grid>
                 <!-- Memory toolbar -->
                 <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsMemoryTabActive}">
@@ -52,7 +52,7 @@
                      FontSize="12"
                      BorderThickness="0"
                      VerticalContentAlignment="Top"/>
-            <Border Grid.Row="1" Background="#1A1A24" MaxHeight="160" Padding="8">
+            <Border Grid.Row="1" Background="{DynamicResource AppDeepBrush}" MaxHeight="160" Padding="8">
                 <ScrollViewer>
                     <ItemsControl ItemsSource="{Binding DoctorChecks}">
                         <ItemsControl.ItemTemplate>
@@ -106,7 +106,7 @@
                          VerticalContentAlignment="Top"/>
 
                 <Border IsVisible="{Binding IsCreatingSkill}"
-                        Background="#22222E"
+                        Background="{DynamicResource AppSubBrush}"
                         CornerRadius="6"
                         Padding="16"
                         MaxWidth="420"

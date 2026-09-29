@@ -49,6 +49,15 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _autoApprove;
 
+    /// <summary>Theme choices shown in Settings: "System", "Light" or "Dark".</summary>
+    public string[] ThemeOptions { get; } = { "System", "Light", "Dark" };
+
+    [ObservableProperty]
+    private string _selectedTheme = "Dark";
+
+    // Preview the theme immediately; it is persisted by Save.
+    partial void OnSelectedThemeChanged(string value) => AiCodeAgent.App.Services.ThemeService.Apply(value);
+
     [ObservableProperty]
     private bool _verifySsl = true;
 
@@ -73,6 +82,13 @@ public partial class SettingsViewModel : ObservableObject
         LoadSettings();
     }
 
+    private static string ThemeLabel(string? mode) => AiCodeAgent.App.Services.ThemeService.Normalize(mode) switch
+    {
+        "light" => "Light",
+        "system" => "System",
+        _ => "Dark"
+    };
+
     private void LoadSettings()
     {
         var config = _configurationService.Config;
@@ -89,6 +105,8 @@ public partial class SettingsViewModel : ObservableObject
             ? config.Agent.WorkingDirectory
             : Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
+        _selectedTheme = ThemeLabel(config.Ui?.Theme);
+        OnPropertyChanged(nameof(SelectedTheme));
 
         // Models are loaded lazily — only when the user opens the model
         // dropdown to choose a model (see EnsureModelsLoaded command).
@@ -299,6 +317,8 @@ public partial class SettingsViewModel : ObservableObject
         config.Agent ??= new AgentConfiguration();
         config.Agent.AutoApprove = AutoApprove;
         config.Agent.WorkingDirectory = WorkingDirectory;
+        config.Ui ??= new UiConfiguration();
+        config.Ui.Theme = AiCodeAgent.App.Services.ThemeService.Normalize(SelectedTheme);
 
         // Update provider config with model, URL, and API key
         var providerKey = SelectedProvider.ToLowerInvariant();

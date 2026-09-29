@@ -98,7 +98,7 @@ public partial class ChatViewModel : ObservableObject
     private string _approvalRisk = "Write";
     // Agent session sidebar
     [ObservableProperty]
-    private bool _isAgentSidebarOpen = true;
+    private bool _isAgentSidebarOpen;
     // Autonomous plan panel (Feature 4)
     public PlanViewModel PlanVM { get; } = new();
     // @-mention system
@@ -1019,6 +1019,7 @@ public partial class ChatViewModel : ObservableObject
                 Status = "Active"
             };
             AgentSessions.Add(existing);
+            IsAgentSidebarOpen = true; // reveal the sidebar only once an agent actually appears
         }
         else
         {

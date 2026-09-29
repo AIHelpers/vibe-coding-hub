@@ -8,7 +8,7 @@
 
     <Grid RowDefinitions="Auto,*">
         <!-- Tab strip -->
-        <Border Grid.Row="0" Background="#2A2A3A" Padding="4">
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="4">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                 <StackPanel Orientation="Horizontal" Spacing="2">
                     <ItemsControl ItemsSource="{Binding Tabs}">
@@ -31,7 +31,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <TextBlock Text="{Binding Title}"
                                                        FontSize="12"
-                                                       Foreground="#E8E8F0"
+                                                       Foreground="{DynamicResource SystemControlForegroundBaseHighBrush}"
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Text="●"
                                                        FontSize="8"
@@ -58,7 +58,7 @@
 
         <!-- Editor content -->
         <Grid Grid.Row="1">
-            <Border Background="#F5F5F5"
+            <Border Background="{DynamicResource EditorFrameBrush}"
                     CornerRadius="4"
                     Margin="4"
                     IsVisible="{Binding HasActiveTab}">
@@ -66,12 +66,13 @@
                                         HorizontalAlignment="Stretch"
                                         VerticalAlignment="Stretch"
                                         FontFamily="Consolas"
-                                        FontSize="14"
+                                        FontSize="13"
                                         ShowLineNumbers="True"
-                                        HorizontalScrollBarVisibility="Auto"
+                                        WordWrap="True"
+                                        HorizontalScrollBarVisibility="Disabled"
                                         VerticalScrollBarVisibility="Auto"
-                                        Background="#FFFFFF"
-                                        Foreground="#1E1E2E">
+                                        Background="{DynamicResource EditorBackgroundBrush}"
+                                        Foreground="{DynamicResource EditorForegroundBrush}">
                     <textEditor:TextEditor.ContextFlyout>
                         <MenuFlyout>
                             <MenuItem Header="Accept Hunk" Command="{Binding AcceptHunkCommand}"/>
@@ -88,8 +89,8 @@
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="8">
-                <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center" Foreground="#1E1E2E"/>
-                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center" Foreground="#1E1E2E"/>
+                <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center"/>
+                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center"/>
             </StackPanel>
         </Grid>
     </Grid>

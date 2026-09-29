@@ -6,7 +6,7 @@
 
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Header -->
-        <Border Grid.Row="0" Background="#2A2A3A" Padding="8" CornerRadius="4,4,0,0">
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="8" CornerRadius="4,4,0,0">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Text="🕐 Checkpoints" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 <Button Grid.Column="1"
@@ -31,7 +31,7 @@
                 <ItemsControl ItemsSource="{Binding Groups}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:CheckpointGroupViewModel">
-                            <Border Background="#2A2A3A" CornerRadius="6" Padding="8" Margin="0,2">
+                            <Border Background="{DynamicResource AppHeaderBrush}" CornerRadius="6" Padding="8" Margin="0,2">
                                 <StackPanel Spacing="4">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <TextBlock Text="{Binding TurnId, StringFormat='Turn: {}{0}'}"
@@ -82,7 +82,7 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <Border Grid.Row="2" Background="#1A1A2A" CornerRadius="0,0,4,4" Padding="6">
+        <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="0,0,4,4" Padding="6">
             <TextBlock Text="Checkpoints are created automatically before each file write"
                        FontSize="9" Opacity="0.4"/>
         </Border>

@@ -67,6 +67,9 @@ public partial class App : Application
                 System.Diagnostics.Debug.WriteLine($"Failed to load config: {ex.Message}");
             }
 
+            // Apply the saved light/dark/system theme
+            AiCodeAgent.App.Services.ThemeService.Apply(configSvc.Config.Ui?.Theme);
+
             // Initialize tool registry
             var registry = Services.GetRequiredService<IToolRegistry>();
             foreach (var tool in Services.GetServices<ITool>())

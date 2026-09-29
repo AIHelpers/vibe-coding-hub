@@ -12,7 +12,7 @@ namespace AiCodeAgent.App.Converters;
 /// </summary>
 public class BoolToActiveTabBrushConverter : IValueConverter
 {
-    private static readonly SolidColorBrush ActiveBrush = new(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+    private static readonly SolidColorBrush ActiveBrush = new(Color.FromArgb(0x40, 0x80, 0x80, 0x80));
     private static readonly SolidColorBrush InactiveBrush = new(Colors.Transparent);
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

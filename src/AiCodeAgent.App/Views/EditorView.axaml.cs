@@ -62,12 +62,29 @@ public partial class EditorView : UserControl
                 _codeEditor.PointerPressed += OnEditorPointerPressed;
             }
 
+            // Re-colour syntax highlighting when the app theme flips light/dark
+            if (Application.Current != null)
+            {
+                Application.Current.ActualThemeVariantChanged += OnThemeVariantChanged;
+            }
+
             // If a tab was already active before we attached, update the editor now
             if (_codeEditor != null && _activeTab != null)
             {
                 UpdateEditorDocument();
             }
         }
+    }
+
+    private void OnThemeVariantChanged(object? sender, EventArgs e)
+    {
+        // Setting the same definition instance again is a no-op, so clear it first
+        // to force AvaloniaEdit to re-read the recoloured highlighting.
+        if (_codeEditor != null)
+        {
+            _codeEditor.SyntaxHighlighting = null;
+        }
+        UpdateEditorDocument();
     }
 
     private void InitializeComponent()

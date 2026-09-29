@@ -82,6 +82,16 @@
                           FontSize="13"/>
             </StackPanel>
 
+            <!-- Theme -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="Theme" FontSize="13" FontWeight="SemiBold"/>
+                <ComboBox ItemsSource="{Binding ThemeOptions}"
+                          SelectedItem="{Binding SelectedTheme}"
+                          MinWidth="160"/>
+                <TextBlock Text="System follows your Windows light/dark setting. Press Save to keep the choice."
+                           FontSize="11" Opacity="0.6"/>
+            </StackPanel>
+
             <!-- Working Directory -->
             <StackPanel Spacing="4">
                 <TextBlock Text="Working Directory" FontSize="13" FontWeight="SemiBold"/>

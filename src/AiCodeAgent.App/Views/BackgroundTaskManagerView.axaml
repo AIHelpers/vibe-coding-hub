@@ -6,7 +6,7 @@
 
     <Grid RowDefinitions="Auto,Auto,*">
         <!-- Header -->
-        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10" CornerRadius="4,4,0,0">
             <Grid ColumnDefinitions="*,Auto,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
                     <TextBlock Text="Background Tasks" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -21,7 +21,7 @@
         </Border>
 
         <!-- New task input -->
-        <Border Grid.Row="1" Background="#22222E" Padding="8">
+        <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0"
                          Text="{Binding NewTaskPrompt}"
@@ -38,7 +38,7 @@
             <ItemsControl ItemsSource="{Binding Tasks}" Margin="8">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:BackgroundTaskItemViewModel">
-                        <Border Background="#22222E" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                        <Border Background="{DynamicResource AppSubBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
                             <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="{Binding Prompt}" FontSize="12"
@@ -55,7 +55,7 @@
                                     <TextBlock Text="{Binding StartedAt, StringFormat='started {0:t}'}" FontSize="10" Opacity="0.5"/>
                                     <TextBlock Text="{Binding ToolCallCount, StringFormat='{}{0} tool call(s)'}" FontSize="10" Opacity="0.5"/>
                                 </StackPanel>
-                                <Border Background="#1A1A24" CornerRadius="4" Padding="8" MaxHeight="140"
+                                <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" MaxHeight="140"
                                         IsVisible="{Binding HasOutput}">
                                     <ScrollViewer>
                                         <TextBlock Text="{Binding Output}" FontSize="11" FontFamily="Consolas,Menlo,monospace"

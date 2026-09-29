@@ -86,6 +86,38 @@ public class SyntaxHighlightingResolver
 
     private static readonly Dictionary<string, IHighlightingDefinition> Cache = new(StringComparer.OrdinalIgnoreCase);
 
+    // Dark-theme palette (VS Code "Dark+"-like), used when the app theme is dark.
+    // Built lazily: it derives from LightThemeColors, which is declared further down.
+    private static Dictionary<string, string>? _darkThemeColors;
+    private static Dictionary<string, string> DarkThemeColors => _darkThemeColors ??= BuildDarkColors();
+
+    private static Dictionary<string, string> BuildDarkColors()
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, hex) in LightThemeColors)
+        {
+            d[name] = hex switch
+            {
+                "#1E1E2E" => "#E8E8F0",   // base text / punctuation
+                "#A31515" => "#CE9178",   // strings, links
+                "#0000FF" => "#569CD6",   // keywords, tags, headers
+                "#FF0000" => "#9CDCFE",   // attributes, CSS properties
+                "#098658" => "#B5CEA8",   // numbers
+                "#267F99" => "#4EC9B0",   // types
+                "#795E26" => "#DCDCAA",   // methods
+                "#0451A5" => "#9CDCFE",   // JSON keys
+                "#800000" => "#D7BA7D",   // CSS selectors
+                "#808080" => "#9B9B9B",   // preprocessor / rules
+                "#AF00DB" => "#C586C0",   // directives
+                _ => hex
+            };
+        }
+        return d;
+    }
+
+    // The theme the shared highlighting definitions currently carry colours for.
+    private static bool? _appliedDark;
+
     // Light-theme color overrides for the built-in (dark) highlighting definitions.
     // Keyed by the named color as used inside AvaloniaEdit's .xshd definitions.
     private static readonly Dictionary<string, string> LightThemeColors = new(StringComparer.OrdinalIgnoreCase)
@@ -193,7 +225,18 @@ public class SyntaxHighlightingResolver
         if (!ExtensionMap.TryGetValue(ext, out var languageName))
             return null;
 
-        return GetOrLoad(languageName);
+        var definition = GetOrLoad(languageName);
+
+        // The definitions are shared, so when the app theme flips, recolour the cached ones.
+        var dark = AiCodeAgent.App.Services.ThemeService.IsDark;
+        if (_appliedDark != dark)
+        {
+            foreach (var cached in Cache.Values)
+                ApplyTheme(cached, dark);
+            _appliedDark = dark;
+        }
+
+        return definition;
     }
 
     private static IHighlightingDefinition? GetOrLoad(string languageName)
@@ -206,7 +249,7 @@ public class SyntaxHighlightingResolver
             var definition = HighlightingManager.Instance.GetDefinition(languageName);
             if (definition != null)
             {
-                ApplyLightTheme(definition);
+                ApplyTheme(definition, AiCodeAgent.App.Services.ThemeService.IsDark);
                 Cache[languageName] = definition;
             }
             return definition;
@@ -218,12 +261,13 @@ public class SyntaxHighlightingResolver
     }
 
     /// <summary>
-    /// Overrides the named highlighting colors with light-theme equivalents.
+    /// Overrides the named highlighting colors with the light or dark palette.
     /// This ensures the editor text is readable on a white background even
     /// though the built-in definitions target dark themes.
     /// </summary>
-    private static void ApplyLightTheme(IHighlightingDefinition definition)
+    private static void ApplyTheme(IHighlightingDefinition definition, bool dark)
     {
+        var palette = dark ? DarkThemeColors : LightThemeColors;
         if (definition.NamedHighlightingColors == null)
             return;
 
@@ -232,7 +276,7 @@ public class SyntaxHighlightingResolver
             if (color == null || string.IsNullOrEmpty(color.Name))
                 continue;
 
-            if (LightThemeColors.TryGetValue(color.Name, out var hex))
+            if (palette.TryGetValue(color.Name, out var hex))
             {
                 color.Foreground = new SimpleHighlightingBrush(Color.Parse(hex));
                 // Clear any background so we don't get colored blocks on white

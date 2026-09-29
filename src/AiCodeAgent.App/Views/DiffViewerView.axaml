@@ -7,7 +7,7 @@
 
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- Header -->
-        <Border Grid.Row="0" Background="#2A2A3A" Padding="10" CornerRadius="4,4,0,0">
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10" CornerRadius="4,4,0,0">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
                 <StackPanel Grid.Column="0" Spacing="1">
                     <TextBlock Text="{Binding FilePath}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
@@ -37,7 +37,7 @@
         <Grid Grid.Row="1" ColumnDefinitions="*,*,220" Margin="0">
             <!-- Baseline / "before" -->
             <Grid Grid.Column="0" RowDefinitions="Auto,*">
-                <Border Grid.Row="0" Background="#241A1A" Padding="6,3">
+                <Border Grid.Row="0" Background="{DynamicResource AppDiffRemovedHeaderBrush}" Padding="6,3">
                     <TextBlock Text="{Binding BaselineLabel}" FontSize="10" Opacity="0.7"/>
                 </Border>
                 <TextBox Grid.Row="1"
@@ -47,14 +47,14 @@
                          TextWrapping="NoWrap"
                          FontFamily="Consolas,Menlo,monospace"
                          FontSize="12"
-                         Background="#1A1414"
+                         Background="{DynamicResource AppDiffRemovedBrush}"
                          BorderThickness="0"
                          VerticalContentAlignment="Top"/>
             </Grid>
 
             <!-- Current / "after" (editable) -->
             <Grid Grid.Column="1" RowDefinitions="Auto,*">
-                <Border Grid.Row="0" Background="#1A241A" Padding="6,3">
+                <Border Grid.Row="0" Background="{DynamicResource AppDiffAddedHeaderBrush}" Padding="6,3">
                     <TextBlock Text="Current (editable)" FontSize="10" Opacity="0.7"/>
                 </Border>
                 <TextBox Grid.Row="1"
@@ -63,14 +63,14 @@
                          TextWrapping="NoWrap"
                          FontFamily="Consolas,Menlo,monospace"
                          FontSize="12"
-                         Background="#141A14"
+                         Background="{DynamicResource AppDiffAddedBrush}"
                          BorderThickness="0"
                          VerticalContentAlignment="Top"/>
             </Grid>
 
             <!-- Hunk list -->
             <Grid Grid.Column="2" RowDefinitions="Auto,*" Margin="6,0,0,0">
-                <Border Grid.Row="0" Background="#2A2A3A" Padding="6,3">
+                <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="6,3">
                     <StackPanel Spacing="2">
                         <TextBlock Text="{Binding Hunks.Count, StringFormat='{}{0} hunk(s)'}"
                                    FontSize="10" Opacity="0.7"/>
@@ -86,7 +86,7 @@
                     <ItemsControl ItemsSource="{Binding Hunks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="diffing:DiffHunk">
-                                <Border Background="#22222E" CornerRadius="4" Padding="6" Margin="0,2">
+                                <Border Background="{DynamicResource AppSubBrush}" CornerRadius="4" Padding="6" Margin="0,2">
                                     <StackPanel Spacing="3">
                                         <StackPanel Orientation="Horizontal" Spacing="2">
                                             <TextBlock Text="@@ -" FontSize="10" Opacity="0.6"/>
@@ -110,7 +110,7 @@
         </Grid>
 
         <!-- Footer -->
-        <Border Grid.Row="2" Background="#1A1A2A" CornerRadius="0,0,4,4" Padding="6">
+        <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="0,0,4,4" Padding="6">
             <TextBlock Text="Edit the right pane directly, revert individual hunks, or save to write changes back to disk (a checkpoint is taken first)."
                        FontSize="9" Opacity="0.4"/>
         </Border>

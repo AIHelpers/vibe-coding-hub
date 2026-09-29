@@ -116,6 +116,9 @@ public partial class MainViewModel : ObservableObject
         // Default to Chat view (reuse the same instance, don't create a new one)
         _currentViewModel ??= GetOrCreateChatViewModel();
 
+        // Screens mode (animated one-panel-at-a-time layout): track panel availability
+        InitializeScreens();
+
         // Register command palette entries (navigation + slash commands + editor actions)
         RegisterPaletteEntries();
 
@@ -190,9 +193,14 @@ public partial class MainViewModel : ObservableObject
         if (item == null || !item.CanOpen)
             return;
 
-        IsCheckpointBrowserOpen = false;
-        IsSessionHistoryOpen = false;
+        CloseOverlays();
         await EditorPane.OpenFileAsync(item.FullPath, isPreview: isPreview);
+
+        // Screens mode: picking a file in the Explorer slides over to the editor.
+        if (IsSlideMode && EditorPane.HasOpenTabs)
+        {
+            GoToScreen(AppScreen.Editor);
+        }
     }
 
     [RelayCommand]
@@ -249,7 +257,31 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ToggleFileExplorer()
     {
+        if (IsSlideMode)
+        {
+            // In Screens mode Ctrl+B slides to the Explorer, or back to Chat.
+            GoToScreen(ActiveScreen == AppScreen.Explorer ? AppScreen.Chat : AppScreen.Explorer);
+            return;
+        }
+
         IsFileExplorerOpen = !IsFileExplorerOpen;
+    }
+
+    /// <summary>Quick light/dark switch from the toolbar; the choice is saved to configuration.</summary>
+    [RelayCommand]
+    private async Task ToggleTheme()
+    {
+        var next = AiCodeAgent.App.Services.ThemeService.IsDark
+            ? AiCodeAgent.App.Services.ThemeService.Light
+            : AiCodeAgent.App.Services.ThemeService.Dark;
+        AiCodeAgent.App.Services.ThemeService.Apply(next);
+
+        if (_configurationService != null)
+        {
+            _configurationService.Config.Ui ??= new UiConfiguration();
+            _configurationService.Config.Ui.Theme = next;
+            await _configurationService.SaveAsync();
+        }
     }
 
     [RelayCommand]
@@ -267,14 +299,31 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ToggleCheckpointBrowser()
     {
-        IsCheckpointBrowserOpen = !IsCheckpointBrowserOpen;
         if (IsCheckpointBrowserOpen)
         {
-            IsSettingsMode = false;
-            DiffViewer.Close();
-            ProjectKnowledge.Close();
-            CheckpointBrowser.RefreshCommand.Execute(null);
+            IsCheckpointBrowserOpen = false;
+            return;
         }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        IsCheckpointBrowserOpen = true;
+        CheckpointBrowser.RefreshCommand.Execute(null);
+    }
+
+    /// <summary>
+    /// Closes every toolbar-driven panel so opening one never stacks on top of another.
+    /// Each toolbar button is a toggle: click once to open its panel, click again to close it.
+    /// </summary>
+    private void CloseOverlays()
+    {
+        IsCheckpointBrowserOpen = false;
+        IsSessionHistoryOpen = false;
+        SessionManager.CloseSessionHistory();
+        IsSessionDashboardOpen = false;
+        DiffViewer.Close();
+        ProjectKnowledge.Close();
+        BackgroundTasks.Close();
     }
 
     [RelayCommand]
@@ -299,11 +348,8 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        CloseOverlays();
         IsSettingsMode = false;
-        IsCheckpointBrowserOpen = false;
-        IsSessionHistoryOpen = false;
-        IsSessionDashboardOpen = false;
-        DiffViewer.Close();
         await ProjectKnowledge.OpenAsync(WorkingDirectory);
     }
 
@@ -320,12 +366,8 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        CloseOverlays();
         IsSettingsMode = false;
-        IsCheckpointBrowserOpen = false;
-        IsSessionHistoryOpen = false;
-        IsSessionDashboardOpen = false;
-        DiffViewer.Close();
-        ProjectKnowledge.Close();
         BackgroundTasks.WorkingDirectory = WorkingDirectory;
         BackgroundTasks.IsVisible = true;
     }
@@ -350,11 +392,8 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Opens the diff viewer comparing a checkpointed file against its current on-disk content.</summary>
     private void OnCheckpointViewDiffRequested(CheckpointItemViewModel item)
     {
+        CloseOverlays();
         IsSettingsMode = false;
-        IsCheckpointBrowserOpen = false;
-        IsSessionHistoryOpen = false;
-        IsSessionDashboardOpen = false;
-        ProjectKnowledge.Close();
         DiffViewer.Load(
             item.FilePath,
             item.OriginalContent,
@@ -370,6 +409,13 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task ViewActiveFileDiffAsync()
     {
+        // Toggle: clicking the diff button again closes the diff viewer.
+        if (DiffViewer.IsVisible)
+        {
+            DiffViewer.Close();
+            return;
+        }
+
         var activeTab = EditorPane.ActiveTab;
         if (activeTab == null || string.IsNullOrEmpty(activeTab.FilePath))
         {
@@ -393,41 +439,39 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        CloseOverlays();
         IsSettingsMode = false;
-        IsCheckpointBrowserOpen = false;
-        IsSessionHistoryOpen = false;
-        IsSessionDashboardOpen = false;
-        ProjectKnowledge.Close();
         DiffViewer.Load(latest.FilePath, latest.OriginalContent, $"Checkpoint @ {latest.Timestamp:t}", latest.CheckpointId);
     }
 
     [RelayCommand]
     private void ToggleSessionHistory()
     {
-        IsSessionHistoryOpen = !IsSessionHistoryOpen;
         if (IsSessionHistoryOpen)
         {
-            IsSettingsMode = false;
-            IsCheckpointBrowserOpen = false;
-            SessionManager.RefreshSessionHistoryCommand.Execute(null);
+            CloseOverlays();
+            return;
         }
-        else
-        {
-            SessionManager.CloseSessionHistory();
-        }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        IsSessionHistoryOpen = true;
+        SessionManager.RefreshSessionHistoryCommand.Execute(null);
     }
 
     [RelayCommand]
     private void ToggleSessionDashboard()
     {
-        IsSessionDashboardOpen = !IsSessionDashboardOpen;
         if (IsSessionDashboardOpen)
         {
-            IsSettingsMode = false;
-            IsCheckpointBrowserOpen = false;
-            IsSessionHistoryOpen = false;
-            SessionDashboard.RefreshCommand.Execute(null);
+            IsSessionDashboardOpen = false;
+            return;
         }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        IsSessionDashboardOpen = true;
+        SessionDashboard.RefreshCommand.Execute(null);
     }
 
     [RelayCommand]
@@ -662,6 +706,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "background", "task", "delegate", "cowork", "async", "queue" },
                 KeybindingHint = "",
                 Action = ToggleBackgroundTasks
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.slideMode",
+                Title = "Toggle Screens Mode (animated panel switching)",
+                Category = "Navigation",
+                Keywords = new[] { "screens", "slide", "spaces", "panels", "fullscreen", "switch" },
+                KeybindingHint = "Ctrl+Shift+M",
+                Action = ToggleSlideMode
             },
             new CommandPaletteEntry
             {

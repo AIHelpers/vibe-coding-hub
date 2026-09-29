@@ -5,11 +5,14 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Avalonia.ReactiveUI;
 using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.App.ViewModels;
 using ReactiveUI;
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -22,6 +25,124 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         KeyDown += OnWindowKeyDown;
+        PropertyChanged += OnWindowPropertyChanged;
+    }
+
+    // ===== Screens mode: animated slide between panels =====
+
+    private MainViewModel? _screensVm;
+    private AppScreen _lastScreen = AppScreen.Chat;
+    private DispatcherTimer? _slideTimer;
+
+    private void AttachScreens(MainViewModel vm)
+    {
+        if (_screensVm != null)
+        {
+            _screensVm.PropertyChanged -= OnScreensPropertyChanged;
+        }
+
+        _screensVm = vm;
+        _lastScreen = vm.ActiveScreen;
+        vm.PropertyChanged += OnScreensPropertyChanged;
+        UpdateExplorerPaneLength();
+    }
+
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        // Keep the full-width Explorer screen in step with window resizes.
+        if (e.Property == BoundsProperty)
+        {
+            UpdateExplorerPaneLength();
+        }
+    }
+
+    /// <summary>The Explorer is a SplitView pane; on its own screen it must fill the window.</summary>
+    private void UpdateExplorerPaneLength()
+    {
+        if (MainSplitView == null || _screensVm == null)
+            return;
+
+        var fill = _screensVm.IsSlideMode && Bounds.Width > 0;
+        MainSplitView.OpenPaneLength = fill ? Bounds.Width : 280;
+    }
+
+    private void OnScreensPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_screensVm == null)
+            return;
+
+        if (e.PropertyName == nameof(MainViewModel.IsSlideMode))
+        {
+            UpdateExplorerPaneLength();
+            _lastScreen = _screensVm.ActiveScreen;
+            return;
+        }
+
+        if (e.PropertyName != nameof(MainViewModel.ActiveScreen))
+            return;
+
+        var previous = _lastScreen;
+        var current = _screensVm.ActiveScreen;
+        _lastScreen = current;
+
+        if (!_screensVm.IsSlideMode || previous == current)
+            return;
+
+        var direction = current > previous ? 1 : -1;
+
+        // Wait for the visibility/column bindings to apply, then slide the incoming panel in.
+        Dispatcher.UIThread.Post(() =>
+        {
+            Control? incoming = current switch
+            {
+                AppScreen.Explorer => ExplorerHost,
+                AppScreen.Editor => EditorHost,
+                AppScreen.Chat => ChatHost,
+                AppScreen.Agents => AgentsHost,
+                AppScreen.Preview => PreviewHost,
+                _ => null
+            };
+
+            if (incoming != null)
+            {
+                SlideIn(incoming, direction);
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Slides <paramref name="panel"/> in from the right (direction +1) or left (-1)
+    /// with a fade and cubic ease-out, like switching Spaces on macOS.
+    /// </summary>
+    private void SlideIn(Control panel, int direction)
+    {
+        _slideTimer?.Stop();
+
+        var distance = Math.Max(200, Bounds.Width * 0.6) * direction;
+        var transform = new TranslateTransform(distance, 0);
+        panel.RenderTransform = transform;
+        panel.Opacity = 0;
+
+        var duration = TimeSpan.FromMilliseconds(320);
+        var clock = Stopwatch.StartNew();
+        var timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
+        _slideTimer = timer;
+
+        timer.Tick += (_, _) =>
+        {
+            var t = Math.Min(1.0, clock.Elapsed.TotalMilliseconds / duration.TotalMilliseconds);
+            var eased = 1 - Math.Pow(1 - t, 3); // cubic ease-out
+            transform.X = distance * (1 - eased);
+            panel.Opacity = eased;
+
+            if (t >= 1.0)
+            {
+                timer.Stop();
+                panel.RenderTransform = null;
+                panel.Opacity = 1;
+            }
+        };
+        timer.Start();
     }
 
     /// <summary>
@@ -32,6 +153,7 @@ public partial class MainWindow : Window
     {
         if (DataContext is MainViewModel mainVm)
         {
+            AttachScreens(mainVm);
             var editor = mainVm.EditorPane;
 
             // Save As: open a file picker seeded with the tab's current path.
