@@ -23,6 +23,7 @@ public class AgentSessionCoordinator
     private readonly IAgentEventBus? _eventBus;
     private readonly ILogger<AgentSessionCoordinator> _logger;
     private readonly RolePresetLoader? _presetLoader;
+    private readonly IContextManager? _contextManager;
 
     public SharedChangeset Changeset => _changeset;
     public SharedContextStore Context => _context;
@@ -39,11 +40,13 @@ public class AgentSessionCoordinator
     public AgentSessionCoordinator(
         ILogger<AgentSessionCoordinator> logger,
         IAgentEventBus? eventBus = null,
-        RolePresetLoader? presetLoader = null)
+        RolePresetLoader? presetLoader = null,
+        IContextManager? contextManager = null)
     {
         _logger = logger;
         _eventBus = eventBus;
         _presetLoader = presetLoader;
+        _contextManager = contextManager;
     }
 
     /// <summary>
@@ -118,8 +121,58 @@ public class AgentSessionCoordinator
 
             if (string.IsNullOrEmpty(step.ParallelGroup))
             {
+                if (step.RequireConfirmation)
+                {
+                    var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var gateCall = new ToolCall
+                    {
+                        Id = Guid.NewGuid().ToString("N")[..12],
+                        Name = "pipeline_stage",
+                        Arguments = new Dictionary<string, object?>
+                        {
+                            ["stage"] = step.Role,
+                            ["agent"] = step.AgentId,
+                            ["prompt"] = step.Prompt.Length > 300 ? step.Prompt[..300] + "…" : step.Prompt
+                        }
+                    };
+                    var gateEvent = new ApprovalRequestEvent(gateCall, confirmation, RiskLevel.Execute);
+                    yield return new AgentTaggedEvent(gateEvent, step.AgentId, step.Role);
+                    _eventBus?.Publish(gateEvent);
+
+                    using var gateCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    gateCts.CancelAfter(TimeSpan.FromMinutes(10));
+                    await Task.WhenAny(confirmation.Task, Task.Delay(Timeout.InfiniteTimeSpan, gateCts.Token))
+                        .ContinueWith(_ => { }, TaskScheduler.Default).ConfigureAwait(false);
+
+                    var confirmed = confirmation.Task.IsCompletedSuccessfully && confirmation.Task.Result;
+                    if (!confirmed)
+                    {
+                        var declined = new StatusUpdateEvent("Halted",
+                            $"Stage '{step.Role}' was not confirmed. It and the stages after it were not run.");
+                        yield return new AgentTaggedEvent(declined, step.AgentId, step.Role);
+                        _eventBus?.Publish(declined);
+                        yield break;
+                    }
+                }
+
+                string? failure = null;
                 await foreach (var tagged in RunStepCore(step, plan.SessionId, cancellationToken))
+                {
+                    failure ??= DetectStepFailure(tagged);
                     yield return tagged;
+                }
+
+                // Gate: a stage that failed or ran out of steps must not silently hand over to
+                // the next one (e.g. "Deploy" after tests that never ran).
+                if (failure != null && index < plan.Steps.Count - 1)
+                {
+                    var halted = new StatusUpdateEvent("Halted",
+                        $"Stopped after '{step.Role ?? step.AgentId}': {failure}. Remaining stages were not run.");
+                    yield return new AgentTaggedEvent(halted, step.AgentId, step.Role);
+                    _eventBus?.Publish(halted);
+                    _logger.LogWarning("Halting session {SessionId} after step {AgentId}: {Failure}", plan.SessionId, step.AgentId, failure);
+                    yield break;
+                }
                 index++;
                 continue;
             }
@@ -140,6 +193,14 @@ public class AgentSessionCoordinator
 
         _logger.LogInformation("Multi-agent session {SessionId} completed", plan.SessionId);
     }
+
+    private static string? DetectStepFailure(AgentEvent evt) => (evt is AgentTaggedEvent t ? t.Inner : evt) switch
+    {
+        AgentErrorEvent err => err.Error.Message,
+        AgentFinishedEvent { Response.StopReason: "repeated_errors" } => "every tool call kept failing",
+        AgentFinishedEvent { Response.StopReason: "max_iterations" } => "it hit its step limit before finishing",
+        _ => null
+    };
 
     /// <summary>Run a single step of a session plan (for event-driven wake-ups).</summary>
     public async IAsyncEnumerable<AgentEvent> RunStepAsync(
@@ -217,6 +278,23 @@ public class AgentSessionCoordinator
             SingleWriter = false
         });
 
+        // Every parallel agent works on its own forked copy of the shared conversation: two agents
+        // appending assistant/tool messages to ONE history interleave them, which providers reject.
+        var branchIds = new Dictionary<SessionStep, string>();
+        var finalTexts = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+        if (_contextManager != null)
+        {
+            var baseMessages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
+            foreach (var step in steps)
+            {
+                var branchId = $"{sessionId}::{step.AgentId}";
+                branchIds[step] = branchId;
+                try { await _contextManager.ClearAsync(branchId).ConfigureAwait(false); } catch { /* fresh branch */ }
+                foreach (var m in baseMessages)
+                    await _contextManager.AddMessageAsync(branchId, m).ConfigureAwait(false);
+            }
+        }
+
         var tasks = new List<Task>(steps.Count);
         foreach (var step in steps)
         {
@@ -235,15 +313,21 @@ public class AgentSessionCoordinator
                     }
 
                     var prompt = BuildStepPrompt(step);
+                    var stepOptions = ResolveStepOptions(step);
+                    if (branchIds.TryGetValue(step, out var branch))
+                        stepOptions = stepOptions with { ContextSessionId = branch };
 
                     await foreach (var evt in orchestrator.StreamRunAsync(
                         prompt,
                         sessionId,
-                        ResolveStepOptions(step),
+                        stepOptions,
                         cancellationToken))
                     {
                         var tagged = new AgentTaggedEvent(evt, step.AgentId, step.Role);
                         await channel.Writer.WriteAsync(tagged, CancellationToken.None);
+
+                        if (evt is AgentFinishedEvent fin)
+                            finalTexts[step.AgentId] = fin.Response.Content;
 
                         if (evt is DiffProducedEvent diffEvent)
                             CaptureDiff(diffEvent, step.AgentId);
@@ -285,6 +369,35 @@ public class AgentSessionCoordinator
         }
 
         await completion;
+
+        // Fold the branches back: the shared history gets one summary message with each agent's
+        // final answer, and the throw-away branch histories are dropped.
+        if (_contextManager != null && branchIds.Count > 0)
+        {
+            try
+            {
+                var summary = new StringBuilder($"Parallel group '{groupName}' finished. Results per agent:\n");
+                foreach (var step in steps)
+                {
+                    finalTexts.TryGetValue(step.AgentId, out var text);
+                    summary.AppendLine($"\n## {step.Role ?? step.AgentId} ({step.AgentId})");
+                    summary.AppendLine(string.IsNullOrWhiteSpace(text) ? "(no final answer)" : text.Trim());
+                }
+                await _contextManager.AddMessageAsync(sessionId, new Message
+                {
+                    Role = MessageRole.User,
+                    Content = summary.ToString()
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to merge parallel group '{Group}' results into the shared context", groupName);
+            }
+            foreach (var branchId in branchIds.Values)
+            {
+                try { await _contextManager.ClearAsync(branchId).ConfigureAwait(false); } catch { /* best effort */ }
+            }
+        }
 
         var finished = new ParallelGroupFinishedEvent(groupName, agentIds);
         yield return finished;

@@ -489,6 +489,25 @@ static async Task<ServiceProvider> BuildServiceProvider(
         var workdir = sp.GetRequiredService<AgentOptions>().WorkingDirectory;
         var registry = new HookRegistry(sp.GetService<ILogger<HookRegistry>>());
         try { registry.LoadAsync(workdir).GetAwaiter().GetResult(); } catch { /* best-effort */ }
+
+        // Project hooks are arbitrary shell commands; require an explicit OK.
+        if (registry.UntrustedProjectHooks.Count > 0)
+        {
+            Console.Error.WriteLine($"This project defines {registry.UntrustedProjectHooks.Count} hook(s) that run shell commands:");
+            foreach (var h in registry.UntrustedProjectHooks)
+                Console.Error.WriteLine($"  - {h.Name} [{h.Event}]: {h.Command}");
+            if (!Console.IsInputRedirected)
+            {
+                Console.Error.Write("Trust and run them? [y/N] ");
+                var answer = Console.ReadLine();
+                if (string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+                    registry.TrustProjectAsync(workdir).GetAwaiter().GetResult();
+            }
+            else
+            {
+                Console.Error.WriteLine("Skipping them (non-interactive). Run once interactively to trust this project.");
+            }
+        }
         return registry;
     });
     services.AddSingleton<IHookRunner>(sp =>
@@ -548,6 +567,18 @@ static async Task<ServiceProvider> BuildServiceProvider(
     var registry = sp.GetRequiredService<IToolRegistry>();
     foreach (var tool in sp.GetServices<ITool>())
         registry.Register(tool);
+
+    // Persisted permission settings + the repo's restrict-only permission profile.
+    try
+    {
+        var permissionManager = sp.GetRequiredService<IPermissionManager>();
+        await permissionManager.LoadScopedSettingsAsync();
+        await permissionManager.LoadProjectProfileAsync(dir ?? Directory.GetCurrentDirectory());
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Warning: could not load permission settings: {ex.Message}");
+    }
 
     // Initialize MCP connections and register their tools (Feature 08)
     try

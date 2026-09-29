@@ -261,9 +261,11 @@
         </Border>
 
         <!-- Main Content Area -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" Name="ContentArea" ClipToBounds="True">
             <!-- Settings Content - shown when IsSettingsMode is true -->
             <ContentControl Grid.Row="0"
+                            MaxHeight="{Binding #ContentArea.Bounds.Height}"
+                            ClipToBounds="True"
                             Content="{Binding CurrentViewModel}"
                             IsVisible="{Binding IsSettingsMode}"
                             HorizontalAlignment="Stretch"

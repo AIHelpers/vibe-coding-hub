@@ -50,6 +50,15 @@ public record SubagentContext
     /// <summary>Optional allow-list of tool names the subagent may use; null = all.</summary>
     public List<string>? EnabledTools { get; init; }
 
+    /// <summary>Permission mode inherited from the parent run. Subagents are non-interactive, so anything that would need approval is denied.</summary>
+    public PermissionMode PermissionMode { get; init; } = PermissionMode.Plan;
+
+    /// <summary>Inherited read-only flag.</summary>
+    public bool IsReadOnly { get; init; }
+
+    /// <summary>Extra directories the subagent may touch besides <see cref="WorkingDirectory"/>.</summary>
+    public List<string> AllowedPaths { get; init; } = new();
+
     /// <summary>Overall hard timeout for the subagent session.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(10);
 }

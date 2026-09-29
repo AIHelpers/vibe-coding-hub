@@ -68,7 +68,16 @@ public class EditFileTool : BaseTool
             if (!File.Exists(resolvedPath))
                 return Error($"File not found: {path}");
 
-            var content = await File.ReadAllTextAsync(resolvedPath, Encoding.UTF8);
+            // Read raw bytes so a UTF-8 BOM the file already had is preserved on write.
+            var originalBytes = await File.ReadAllBytesAsync(resolvedPath);
+            var hadBom = originalBytes.Length >= 3 && originalBytes[0] == 0xEF && originalBytes[1] == 0xBB && originalBytes[2] == 0xBF;
+            var content = new UTF8Encoding(false).GetString(originalBytes, hadBom ? 3 : 0, originalBytes.Length - (hadBom ? 3 : 0));
+
+            // Models almost always emit "\n"; match the file's own line-ending style
+            // so edits neither fail on CRLF files nor introduce mixed endings.
+            var fileUsesCrlf = content.Contains("\r\n", StringComparison.Ordinal);
+            oldString = MatchLineEndings(oldString, fileUsesCrlf);
+            newString = MatchLineEndings(newString, fileUsesCrlf);
 
             // Validate content size to prevent resource exhaustion
             if (content.Length > 1_000_000)
@@ -96,14 +105,17 @@ public class EditFileTool : BaseTool
             // CheckpointManager already captured the pre-edit content, so Undo
             // works without one, and a stray .bak next to the user's file was
             // triggering file watchers and getting left behind on crashes.
-            await File.WriteAllTextAsync(resolvedPath, newContent, NoBomUtf8);
+            await File.WriteAllTextAsync(resolvedPath, newContent, hadBom ? new UTF8Encoding(true) : NoBomUtf8);
 
             var diff = UnifiedDiffBuilder.Build(content, newContent, path);
 
             // Surface live LSP diagnostics (type errors/warnings) after the edit.
             var diagnostics = await ReportDiagnosticsAsync(resolvedPath, newContent, context);
+            var ambiguityNote = occurrence == 1 && count > 1
+                ? $"\nNote: the text matched {count} places; only the first was changed. Pass 'occurrence' (or a longer old_string) to target another, or 0 for all.\n"
+                : string.Empty;
             return Success(
-                $"Successfully edited {path}.\n\n{diff}{diagnostics}",
+                $"Successfully edited {path}.{ambiguityNote}\n{diff}{diagnostics}",
                 new FileWriteResult(content, newContent, FileExistedBefore: true));
         }
         catch (Exception ex)
@@ -111,6 +123,13 @@ public class EditFileTool : BaseTool
             Logger.LogError(ex, "Error editing file {Path}", path);
             return Error($"Error editing file: {ex.Message}");
         }
+    }
+
+    private static string MatchLineEndings(string text, bool crlf)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? string.Empty;
+        var lf = text.Replace("\r\n", "\n", StringComparison.Ordinal);
+        return crlf ? lf.Replace("\n", "\r\n", StringComparison.Ordinal) : lf;
     }
 
     private static int CountOccurrences(string text, string pattern)

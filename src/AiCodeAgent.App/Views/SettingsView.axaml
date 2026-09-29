@@ -7,13 +7,21 @@
                 x:Class="AiCodeAgent.App.Views.SettingsView"
                 x:DataType="vm:SettingsViewModel">
 
-    <ScrollViewer Padding="24">
+    <ScrollViewer Padding="24,24,24,48" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False" VerticalAlignment="Stretch">
         <StackPanel Spacing="16" MaxWidth="600">
             <!-- Header -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
-                <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
+                    <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
+                </StackPanel>
+                <!-- Save lives in the header so it is always reachable, however tall the window is. -->
+                <Button Grid.Column="1"
+                        Content="💾 Save"
+                        Command="{Binding SaveCommand}"
+                        VerticalAlignment="Center"
+                        Padding="16,8"/>
+            </Grid>
 
             <!-- Provider Selection -->
             <StackPanel Spacing="4">

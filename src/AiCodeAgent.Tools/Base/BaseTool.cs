@@ -75,16 +75,74 @@ public abstract class BaseTool : ITool
         return resolvedPath;
     }
 
+    /// <summary>Resolves symlinks/junctions on the deepest existing part of the path.</summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        try
+        {
+            var current = full;
+            var tail = new Stack<string>();
+            while (!File.Exists(current) && !Directory.Exists(current))
+            {
+                var parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(parent)) return full;
+                tail.Push(Path.GetFileName(current));
+                current = parent;
+            }
+
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            var real = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? current;
+            while (tail.Count > 0)
+                real = Path.Combine(real, tail.Pop());
+            return Path.GetFullPath(real);
+        }
+        catch
+        {
+            return full;
+        }
+    }
+
+    private static readonly string[] SensitiveNames =
+        { ".env", ".netrc", ".npmrc", ".pgpass", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials", "secrets.json" };
+    private static readonly string[] SensitiveExtensions = { ".pem", ".key", ".pfx", ".p12", ".kdbx" };
+
+    /// <summary>Credential-style files the agent has no business reading or writing (only enforced when file access is confined).</summary>
+    internal static bool IsSensitiveFile(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (string.IsNullOrEmpty(name)) return false;
+        if (name.Equals(".env", StringComparison.OrdinalIgnoreCase) ||
+            (name.StartsWith(".env.", StringComparison.OrdinalIgnoreCase) &&
+             !name.EndsWith(".example", StringComparison.OrdinalIgnoreCase) &&
+             !name.EndsWith(".sample", StringComparison.OrdinalIgnoreCase) &&
+             !name.EndsWith(".template", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        if (SensitiveNames.Contains(name, StringComparer.OrdinalIgnoreCase) && !name.Equals(".env", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (SensitiveExtensions.Contains(Path.GetExtension(name), StringComparer.OrdinalIgnoreCase))
+            return true;
+        var dirs = path.Replace('\\', '/');
+        return dirs.Contains("/.ssh/", StringComparison.OrdinalIgnoreCase) ||
+               dirs.Contains("/.aws/", StringComparison.OrdinalIgnoreCase) ||
+               dirs.Contains("/.git/hooks/", StringComparison.OrdinalIgnoreCase) ||
+               dirs.EndsWith("/.git/config", StringComparison.OrdinalIgnoreCase);
+    }
+
     protected void ValidatePath(string resolvedPath, AgentExecutionContext context)
     {
         if (context.AllowedPaths.Count == 0) return;
 
-        // Normalize path separators and ensure trailing separator for prefix matching
-        resolvedPath = Path.GetFullPath(resolvedPath);
-        
+        // Judge the REAL location: a symlink inside the workspace that points outside
+        // it must not be a way out.
+        resolvedPath = RealPath(resolvedPath);
+
+        if (IsSensitiveFile(resolvedPath))
+            throw new UnauthorizedAccessException($"Access denied to sensitive file: {Path.GetFileName(resolvedPath)}");
+
         var isAllowed = context.AllowedPaths.Any(allowed =>
         {
-            var normalizedAllowed = Path.GetFullPath(allowed);
+            var normalizedAllowed = RealPath(allowed);
             // Ensure trailing separator to prevent prefix matching partial directory names
             if (!normalizedAllowed.EndsWith(Path.DirectorySeparatorChar))
                 normalizedAllowed += Path.DirectorySeparatorChar;

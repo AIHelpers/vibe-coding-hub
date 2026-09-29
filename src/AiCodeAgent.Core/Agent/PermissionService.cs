@@ -19,6 +19,7 @@ public class PermissionService : IPermissionService
     private readonly ConcurrentDictionary<string, PermissionMode> _agentModes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, GranularRights> _agentRights = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _allowlistPath;
+    private readonly PermissionClassifier _classifier = new();
 
     private PermissionMode _currentMode = PermissionMode.Ask;
     private GranularRights _currentRights = new();
@@ -33,7 +34,7 @@ public class PermissionService : IPermissionService
             ".aiagent");
         Directory.CreateDirectory(configDir);
         _allowlistPath = Path.Combine(configDir, "allowlist.json");
-        LoadAllowlistAsync().GetAwaiter().GetResult();
+        LoadAllowlist();
     }
 
     public void SetMode(PermissionMode mode, string? agentId = null)
@@ -107,12 +108,24 @@ public class PermissionService : IPermissionService
             return true; // Read operations are always allowed in Plan mode
         }
 
-        // FullAuto mode: always approve
-        if (mode == PermissionMode.FullAuto || options.AutoApprove)
+        // Explicit blanket approval (tests / trusted automation).
+        if (options.AutoApprove)
             return true;
 
+        // FullAuto: reads and edits go through; shell commands are approved
+        // only when the classifier deems them safe — risky ones fall back to
+        // a normal approval prompt rather than being waved through.
+        if (mode == PermissionMode.FullAuto)
+        {
+            if (risk != RiskLevel.Execute)
+                return true;
+            if (_classifier.Classify(call, risk) == PermissionDecision.Allow)
+                return true;
+            // fall through to allowlist / prompt
+        }
+
         // Check persistent allowlist
-        var allowKey = $"{call.Name}:{GetCommandSignature(call)}";
+        var allowKey = AllowKey(options.WorkingDirectory, call.Name, GetCommandSignature(call));
         if (_persistentAllowlist.TryGetValue(allowKey, out var allowed) && allowed)
             return true;
 
@@ -151,9 +164,19 @@ public class PermissionService : IPermissionService
         return false; // Will be handled by ApprovalRequestEvent
     }
 
-    public void AddToAllowlist(string toolName, string commandSignature)
+    /// <summary>
+    /// Allow-list entries are scoped to a project: approving "npm test" in one repository must not
+    /// silently approve it in every other one.
+    /// </summary>
+    private static string AllowKey(string? workingDirectory, string toolName, string signature)
     {
-        var key = $"{toolName}:{commandSignature}";
+        var dir = string.IsNullOrWhiteSpace(workingDirectory) ? string.Empty : Path.GetFullPath(workingDirectory);
+        return $"{dir}|{toolName}:{signature}";
+    }
+
+    public void AddToAllowlist(string toolName, string commandSignature, string? workingDirectory = null)
+    {
+        var key = AllowKey(workingDirectory ?? Directory.GetCurrentDirectory(), toolName, commandSignature);
         _persistentAllowlist[key] = true;
         _ = SaveAllowlistAsync();
     }
@@ -172,12 +195,12 @@ public class PermissionService : IPermissionService
         return call.Name;
     }
 
-    private async Task LoadAllowlistAsync()
+    private void LoadAllowlist()
     {
         try
         {
             if (!File.Exists(_allowlistPath)) return;
-            var json = await File.ReadAllTextAsync(_allowlistPath);
+            var json = File.ReadAllText(_allowlistPath);
             var entries = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, bool>>(json);
             if (entries != null)
             {

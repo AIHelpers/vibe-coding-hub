@@ -38,7 +38,6 @@ public class PermissionClassifierTests
     [InlineData("find . -name *.cs")]
     [InlineData("echo hello")]
     [InlineData("pwd")]
-    [InlineData("make")]
     [InlineData("node --version")]
     public void Classify_SafeCommand_Allows(string command)
     {
@@ -52,6 +51,21 @@ public class PermissionClassifierTests
     [InlineData("shutdown /s")]
     [InlineData("format c:")]
     public void Classify_DangerousCommand_Denies(string command)
+    {
+        Assert.Equal(PermissionDecision.Deny, _classifier.Classify(Call("execute_command", command), RiskLevel.Execute));
+    }
+
+    [Theory]
+    [InlineData("make")]
+    [InlineData("find . -name x -delete")]
+    [InlineData("find . -exec rm {} +")]
+    [InlineData("git branch -D main")]
+    [InlineData("cat ../secrets.txt")]
+    [InlineData("cat /etc/passwd")]
+    [InlineData("cp a.txt /tmp/b.txt")]
+    [InlineData("mv a.txt ~/b.txt")]
+    [InlineData("cat $HOME/.ssh/id_rsa")]
+    public void Classify_EscapingOrDestructiveVariants_Denies(string command)
     {
         Assert.Equal(PermissionDecision.Deny, _classifier.Classify(Call("execute_command", command), RiskLevel.Execute));
     }

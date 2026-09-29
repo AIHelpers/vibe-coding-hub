@@ -30,6 +30,8 @@ public class PermissionManager : IPermissionManager
     private readonly List<PermissionRule> _rules = new();
     private readonly object _rulesLock = new();
     private readonly ConcurrentDictionary<string, PermissionMode> _agentModes = new();
+    private PermissionMode? _projectCeiling;
+    private string[] _projectDenyCommands = Array.Empty<string>();
 
     public PermissionManager(ILogger<PermissionManager> logger)
     {
@@ -84,6 +86,44 @@ public class PermissionManager : IPermissionManager
     }
 
     /// <inheritdoc />
+    public Task LoadProjectProfileAsync(string? workingDirectory, CancellationToken ct = default)
+    {
+        _projectCeiling = null;
+        _projectDenyCommands = Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            return Task.CompletedTask;
+
+        var path = Path.Combine(workingDirectory, ".aiagent", "permissions.json");
+        if (!File.Exists(path))
+            return Task.CompletedTask;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            if (root.TryGetProperty("mode", out var m) && Enum.TryParse<PermissionMode>(m.GetString(), true, out var ceiling))
+                _projectCeiling = ceiling;
+            if (root.TryGetProperty("deny", out var deny) && deny.ValueKind == JsonValueKind.Array)
+                _projectDenyCommands = deny.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read project permission profile {Path}", path);
+        }
+        return Task.CompletedTask;
+    }
+
+    private bool MatchesProjectDeny(ToolCall call)
+    {
+        if (_projectDenyCommands.Length == 0) return false;
+        if (!call.Arguments.TryGetValue("command", out var cmd) || cmd == null) return false;
+        var command = (cmd.ToString() ?? string.Empty).Trim();
+        return _projectDenyCommands.Any(d =>
+            command.StartsWith(d, StringComparison.OrdinalIgnoreCase) &&
+            (command.Length == d.Length || char.IsWhiteSpace(command[d.Length]) || PermissionClassifier.ContainsShellControlOperator(command)));
+    }
+
+    /// <inheritdoc />
     public Task LoadScopedSettingsAsync(string? settingsPath = null, CancellationToken ct = default)
     {
         var path = settingsPath ?? DefaultSettingsPath();
@@ -115,6 +155,10 @@ public class PermissionManager : IPermissionManager
     /// <inheritdoc />
     public Task<PermissionDecision> CanExecuteAsync(ToolCall call, RiskLevel risk, AgentOptions options, string? agentId = null, CancellationToken ct = default)
     {
+        // 0. The project's own deny-list beats everything, including allow-rules.
+        if (risk != RiskLevel.Read && MatchesProjectDeny(call))
+            return Task.FromResult(PermissionDecision.Deny);
+
         // 1. Allow-rules (explicit per-command allow) always win.
         if (MatchesAllowRule(call))
             return Task.FromResult(PermissionDecision.Allow);
@@ -124,6 +168,14 @@ public class PermissionManager : IPermissionManager
         // someone ticking "Edit" in the granular-rights checkboxes
         // (issue 5: the checkboxes used to be checked first).
         if (options.IsReadOnly && risk != RiskLevel.Read)
+            return Task.FromResult(PermissionDecision.Deny);
+
+        // 2b. Plan mode (requested by the run itself or configured) is
+        // strictly read-only and is checked BEFORE granular rights, so ticking
+        // "Edit"/"Execute" can't punch through it.
+        if (risk != RiskLevel.Read &&
+            (options.PermissionMode == PermissionMode.Plan ||
+             GetModeAsync(agentId, ct).GetAwaiter().GetResult() == PermissionMode.Plan))
             return Task.FromResult(PermissionDecision.Deny);
 
         // 3. Granular rights override the coarse mode when set.
@@ -136,6 +188,8 @@ public class PermissionManager : IPermissionManager
 
         // 4. Mode-based decision.
         var mode = GetModeAsync(agentId, ct).GetAwaiter().GetResult();
+        if (_projectCeiling is { } ceiling && PermissivenessRank(mode) > PermissivenessRank(ceiling))
+            mode = ceiling;
         var decision = mode switch
         {
             PermissionMode.Plan => risk == RiskLevel.Read ? PermissionDecision.Allow : PermissionDecision.Deny,
@@ -195,8 +249,13 @@ public class PermissionManager : IPermissionManager
                     return true;
                 if (call.Arguments.TryGetValue("command", out var cmd) && cmd != null)
                 {
-                    var command = cmd.ToString() ?? string.Empty;
-                    if (command.StartsWith(rule.CommandPattern, System.StringComparison.OrdinalIgnoreCase))
+                    var command = (cmd.ToString() ?? string.Empty).Trim();
+                    // Whole-word prefix only ("git status" must not allow
+                    // "git status; rm -rf ." or "git statusx"), and never a
+                    // command that chains further shell commands.
+                    if (command.StartsWith(rule.CommandPattern, System.StringComparison.OrdinalIgnoreCase) &&
+                        (command.Length == rule.CommandPattern.Length || char.IsWhiteSpace(command[rule.CommandPattern.Length])) &&
+                        !PermissionClassifier.ContainsShellControlOperator(command))
                         return true;
                 }
             }

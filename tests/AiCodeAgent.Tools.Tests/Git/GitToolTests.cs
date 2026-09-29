@@ -151,7 +151,7 @@ public class GitToolTests : TestHelpers.TempDirTestBase
         
         var result = method?.Invoke(null, new object?[] { "status", "" });
         
-        Assert.Equal("status ", result);
+        Assert.Equal(new[] { "status" }, (string[])result!);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public class GitToolTests : TestHelpers.TempDirTestBase
         
         var result = method?.Invoke(null, new object?[] { "commit", "test message" });
         
-        Assert.Equal("commit -m \"test message\"", result);
+        Assert.Equal(new[] { "commit", "-m", "test message" }, (string[])result!);
     }
 
     [Fact]
@@ -175,6 +175,6 @@ public class GitToolTests : TestHelpers.TempDirTestBase
         
         var result = method?.Invoke(null, new object?[] { "branch", "-a" });
         
-        Assert.Equal("branch -a", result);
+        Assert.Equal(new[] { "branch", "-a" }, (string[])result!);
     }
 }

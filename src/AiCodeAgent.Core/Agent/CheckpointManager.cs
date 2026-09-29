@@ -23,6 +23,95 @@ public class CheckpointManager : ICheckpointManager
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".aiagent", "checkpoints");
         Directory.CreateDirectory(_checkpointDir);
+        LoadPersisted();
+    }
+
+    private static readonly TimeSpan Retention = TimeSpan.FromDays(30);
+
+    private sealed record PersistedCheckpoint(
+        string CheckpointId, string FilePath, string BackupPath, DateTime Timestamp,
+        string TurnId, string SessionId, bool ExistedBeforeCheckpoint);
+
+    private string MetaPath(string checkpointId) => Path.Combine(_checkpointDir, $"{checkpointId}.json");
+
+    private void PersistMeta(CheckpointEntry e)
+    {
+        try
+        {
+            var meta = new PersistedCheckpoint(e.CheckpointId, e.FilePath, e.BackupPath, e.Timestamp, e.TurnId, e.SessionId, e.ExistedBeforeCheckpoint);
+            File.WriteAllText(MetaPath(e.CheckpointId), System.Text.Json.JsonSerializer.Serialize(meta));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to persist checkpoint metadata {Id}", e.CheckpointId);
+        }
+    }
+
+    private void DeleteEntryFiles(CheckpointEntry e)
+    {
+        try { File.Delete(e.BackupPath); } catch { /* Best effort */ }
+        try { File.Delete(MetaPath(e.CheckpointId)); } catch { /* Best effort */ }
+    }
+
+    /// <summary>
+    /// Reload checkpoints saved by earlier runs (so Undo still works after a
+    /// restart) and drop the ones past the retention window, so the backup
+    /// folder doesn't grow without bound.
+    /// </summary>
+    private void LoadPersisted()
+    {
+        try
+        {
+            foreach (var metaFile in Directory.EnumerateFiles(_checkpointDir, "*.json"))
+            {
+                try
+                {
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<PersistedCheckpoint>(File.ReadAllText(metaFile));
+                    if (meta is null) continue;
+
+                    if (DateTime.UtcNow - meta.Timestamp > Retention || !File.Exists(meta.BackupPath))
+                    {
+                        try { File.Delete(meta.BackupPath); } catch { }
+                        try { File.Delete(metaFile); } catch { }
+                        continue;
+                    }
+
+                    _checkpoints[meta.CheckpointId] = new CheckpointEntry
+                    {
+                        CheckpointId = meta.CheckpointId,
+                        FilePath = meta.FilePath,
+                        BackupPath = meta.BackupPath,
+                        OriginalContent = File.ReadAllText(meta.BackupPath),
+                        Timestamp = meta.Timestamp,
+                        TurnId = meta.TurnId,
+                        SessionId = meta.SessionId,
+                        ExistedBeforeCheckpoint = meta.ExistedBeforeCheckpoint
+                    };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Skipping unreadable checkpoint metadata {File}", metaFile);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to load persisted checkpoints");
+        }
+    }
+
+    /// <summary>Write the checkpoint's original bytes back (binary-safe, keeps BOM/encoding), else fall back to the text copy.</summary>
+    private static async Task WriteOriginalAsync(CheckpointEntry entry)
+    {
+        if (!string.IsNullOrEmpty(entry.BackupPath) && File.Exists(entry.BackupPath))
+        {
+            var bytes = await File.ReadAllBytesAsync(entry.BackupPath);
+            await File.WriteAllBytesAsync(entry.FilePath, bytes);
+        }
+        else
+        {
+            await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent, new System.Text.UTF8Encoding(false));
+        }
     }
 
     public async Task<CheckpointEntry> CreateCheckpointAsync(string filePath, string turnId, string? sessionId = null)
@@ -31,6 +120,9 @@ public class CheckpointManager : ICheckpointManager
         // upcoming tool call is about to create it, and Undo needs to be able
         // to remove it again (see CheckpointEntry.ExistedBeforeCheckpoint).
         var existed = File.Exists(filePath);
+        // Keep the raw bytes for the backup: text round-tripping would drop a BOM
+        // and corrupt binary or non-UTF-8 files on Undo.
+        var rawBytes = existed ? await File.ReadAllBytesAsync(filePath) : Array.Empty<byte>();
         var content = existed ? await File.ReadAllTextAsync(filePath) : string.Empty;
 
         var fileHash = Convert.ToHexString(
@@ -46,7 +138,7 @@ public class CheckpointManager : ICheckpointManager
         var checkpointId = $"{turnId}_{pathHash[..8]}_{fileHash[..12]}";
         var backupPath = Path.Combine(_checkpointDir, $"{checkpointId}.bak");
 
-        await File.WriteAllTextAsync(backupPath, content, new System.Text.UTF8Encoding(false));
+        await File.WriteAllBytesAsync(backupPath, rawBytes);
 
         var entry = new CheckpointEntry
         {
@@ -61,6 +153,7 @@ public class CheckpointManager : ICheckpointManager
         };
 
         _checkpoints[checkpointId] = entry;
+        PersistMeta(entry);
         _logger.LogDebug("Created checkpoint {CheckpointId} for {FilePath} (existed={Existed})", checkpointId, filePath, existed);
 
         return entry;
@@ -84,7 +177,7 @@ public class CheckpointManager : ICheckpointManager
                 return true;
             }
 
-            await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent, new System.Text.UTF8Encoding(false));
+            await WriteOriginalAsync(entry);
             _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath}", checkpointId, entry.FilePath);
             return true;
         }
@@ -135,6 +228,7 @@ public class CheckpointManager : ICheckpointManager
         };
 
         _checkpoints[checkpointId] = entry;
+        PersistMeta(entry);
         _logger.LogInformation("Imported checkpoint {CheckpointId} for {FilePath}", checkpointId, filePath);
 
         return Task.FromResult(entry);
@@ -151,7 +245,7 @@ public class CheckpointManager : ICheckpointManager
         {
             if (_checkpoints.TryRemove(key, out var entry))
             {
-                try { File.Delete(entry.BackupPath); } catch { /* Best effort */ }
+                DeleteEntryFiles(entry);
             }
         }
 
@@ -200,7 +294,7 @@ public class CheckpointManager : ICheckpointManager
             }
             else
             {
-                await File.WriteAllTextAsync(entry.FilePath, entry.OriginalContent, new System.Text.UTF8Encoding(false));
+                await WriteOriginalAsync(entry);
                 restoredContent = entry.OriginalContent;
                 _logger.LogInformation("Restored checkpoint {CheckpointId} for {FilePath}", checkpointId, entry.FilePath);
             }
@@ -255,7 +349,7 @@ public class CheckpointManager : ICheckpointManager
         {
             if (_checkpoints.TryRemove(entry.CheckpointId, out _))
             {
-                try { File.Delete(entry.BackupPath); } catch { /* Best effort */ }
+                DeleteEntryFiles(entry);
                 removed++;
             }
         }

@@ -124,6 +124,53 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPipelineRunning;
     private TaskCompletionSource<bool>? _pendingApproval;
+
+    /// <summary>
+    /// Approval requests waiting for the user. Parallel agents (and background
+    /// tasks) can each ask at the same time; a single slot used to be overwritten
+    /// by the newest request so the earlier agent hung until its timeout.
+    /// </summary>
+    private readonly Queue<PendingApprovalRequest> _approvalQueue = new();
+    private sealed record PendingApprovalRequest(
+        TaskCompletionSource<bool> Completion, string Risk, string ToolName, string Args, string Agent, string Role);
+
+    private void EnqueueApproval(TaskCompletionSource<bool> completion, string risk, string toolName, string args, string agent = "", string role = "")
+    {
+        _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role));
+        if (_pendingApproval is null)
+            ShowNextApproval();
+    }
+
+    private void ShowNextApproval()
+    {
+        while (_approvalQueue.Count > 0)
+        {
+            var next = _approvalQueue.Dequeue();
+            if (next.Completion.Task.IsCompleted)
+                continue; // already answered / timed out while waiting
+
+            ApprovalRisk = next.Risk;
+            ApprovalToolName = next.ToolName;
+            ApprovalArgs = next.Args;
+            ApprovalAgent = next.Agent;
+            ApprovalRole = next.Role;
+            _pendingApproval = next.Completion;
+            ShowApprovalDialog = true;
+            return;
+        }
+
+        _pendingApproval = null;
+        ShowApprovalDialog = false;
+    }
+
+    private void DenyAllApprovals()
+    {
+        _pendingApproval?.TrySetResult(false);
+        _pendingApproval = null;
+        while (_approvalQueue.Count > 0)
+            _approvalQueue.Dequeue().Completion.TrySetResult(false);
+        ShowApprovalDialog = false;
+    }
     // Feature 8: Conversational Requirements Clarification
     private readonly IRequirementsClarifier? _requirementsClarifier;
     private TaskCompletionSource<string?>? _pendingClarificationAnswer;
@@ -706,11 +753,8 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
-                                ApprovalRisk = approval.Risk.ToString();
-                                ShowApprovalDialog = true;
-                                ApprovalToolName = approval.Call.Name;
-                                ApprovalArgs = FormatArguments(approval.Call.Arguments);
-                                _pendingApproval = approval.Approval;
+                                EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
+                                    FormatArguments(approval.Call.Arguments));
                                 // Show an explicit, user-visible approval request in the
                                 // chat transcript so the user knows a decision is needed
                                 // and where to approve/decline — previously the agent
@@ -970,21 +1014,24 @@ public partial class ChatViewModel : ObservableObject
     {
         _cancellationTokenSource?.Cancel();
         _agentService.Cancel();
+        DenyAllApprovals();
         IsCancellable = false;
         StatusText = "Cancelling...";
     }
     [RelayCommand]
     private void ApproveTool()
     {
+        var approvedTool = ApprovalToolName;
+        var approvedArgs = ApprovalArgs;
         _pendingApproval?.TrySetResult(true);
         _pendingApproval = null;
-        ShowApprovalDialog = false;
-        if (!string.IsNullOrEmpty(ApprovalToolName))
+        ShowNextApproval();
+        if (!string.IsNullOrEmpty(approvedTool))
         {
             ToolCallCards.Add(new ToolCallCardViewModel
             {
-                ToolName = ApprovalToolName,
-                Arguments = ApprovalArgs,
+                ToolName = approvedTool,
+                Arguments = approvedArgs,
                 IsExpanded = true
             });
         }
@@ -994,7 +1041,7 @@ public partial class ChatViewModel : ObservableObject
     {
         _pendingApproval?.TrySetResult(false);
         _pendingApproval = null;
-        ShowApprovalDialog = false;
+        ShowNextApproval();
     }
     [RelayCommand]
     private void SetPermissionMode(string mode)
@@ -1053,13 +1100,8 @@ public partial class ChatViewModel : ObservableObject
                 }
                 break;
             case ApprovalRequestEvent approval:
-                ApprovalRisk = approval.Risk.ToString();
-                ShowApprovalDialog = true;
-                ApprovalToolName = approval.Call.Name;
-                ApprovalArgs = FormatArguments(approval.Call.Arguments);
-                ApprovalAgent = tagged.AgentId;
-                ApprovalRole = tagged.Role ?? "";
-                _pendingApproval = approval.Approval;
+                EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
+                    FormatArguments(approval.Call.Arguments), tagged.AgentId ?? "", tagged.Role ?? "");
                 // Show an explicit, user-visible approval request in the
                 // chat transcript for multi-agent sessions too.
                 Messages.Add(new ChatMessage
@@ -2067,21 +2109,10 @@ public partial class ChatViewModel : ObservableObject
             Timestamp = DateTime.Now
         });
 
-        ApprovalRisk = "Write";
-        ApprovalToolName = "git";
-        ApprovalArgs = message;
-        ShowApprovalDialog = true;
-
-        _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        try
-        {
-            return await _pendingApproval.Task.ConfigureAwait(true);
-        }
-        finally
-        {
-            ShowApprovalDialog = false;
-            _pendingApproval = null;
-        }
+        var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        EnqueueApproval(confirmation, "Write", "git", message);
+        // Approve/Deny (and DenyAllApprovals on cancel) resolve the task and advance the queue.
+        return await confirmation.Task.ConfigureAwait(true);
     }
 }
 

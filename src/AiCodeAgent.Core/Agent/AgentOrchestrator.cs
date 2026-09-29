@@ -98,8 +98,13 @@ public class AgentOrchestrator : IAgentOrchestrator
             WorkingDirectory = options.WorkingDirectory,
             Permissions = new PermissionSettings { Mode = options.PermissionMode },
             AgentId = options.AgentId,
-            Role = options.Role
+            Role = options.Role,
+            IsReadOnly = options.IsReadOnly,
+            AllowedPaths = BuildAllowedPaths(options),
+            CancellationToken = cancellationToken
         };
+
+        var contextId = string.IsNullOrEmpty(options.ContextSessionId) ? sessionId : options.ContextSessionId;
 
         // NOTE: we deliberately do NOT call _permissionService.SetMode() here.
         // PermissionService used to be a singleton with one global
@@ -134,7 +139,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         // Add user message to context (with any attached images — see
         // AgentOptions.Images — so vision-capable providers can see
         // screenshots/annotations alongside the text instruction).
-        await _contextManager.AddMessageAsync(sessionId, new Message
+        await _contextManager.AddMessageAsync(contextId, new Message
         {
             Role = MessageRole.User,
             Content = userMessage,
@@ -149,6 +154,20 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             tools = tools.Where(t => t.Risk == RiskLevel.Read).ToList();
         }
+        if (options.DisabledTools.Count > 0)
+        {
+            tools = tools.Where(t => !options.DisabledTools.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        }
+
+        // The registry's GetTool() is global, so the model could call any
+        // registered tool by name even if it was never offered. When the
+        // offered set was narrowed (enabled list, Plan mode, disabled list)
+        // execution is restricted to exactly that set.
+        HashSet<string>? offeredToolNames = null;
+        if (options.EnabledTools.Count > 0 || options.DisabledTools.Count > 0 || options.PermissionMode == PermissionMode.Plan)
+        {
+            offeredToolNames = new HashSet<string>(tools.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
+        }
         var totalUsage = new TokenUsage();
         var toolExecutions = new List<ToolExecution>();
         var fullContent = new StringBuilder();
@@ -157,21 +176,23 @@ public class AgentOrchestrator : IAgentOrchestrator
         var turnId = Guid.NewGuid().ToString("N")[..12];
         var consecutiveAllErrorIterations = 0;
         const int MaxConsecutiveAllErrorIterations = 3;
+        var finishedNaturally = false;
+        string? stopReason = null;
 
         while (iteration < options.MaxIterations && !cancellationToken.IsCancellationRequested)
         {
             iteration++;
 
-            await _contextManager.TrimContextAsync(sessionId, options.MaxTokens).ConfigureAwait(false);
-            var messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
+            await _contextManager.TrimContextAsync(contextId, options.MaxTokens).ConfigureAwait(false);
+            var messages = await _contextManager.GetContextAsync(contextId).ConfigureAwait(false) ?? new List<Message>();
 
             // Auto-compaction: when the usage tracker reports we've crossed
             // the soft limit, compact older messages before sending the next
             // request so we don't overflow the model's context window.
             if (_usageTracker is not null && _compactor is not null)
             {
-                await _usageTracker.RefreshAsync(sessionId).ConfigureAwait(false);
-                if (_usageTracker.ShouldCompact(sessionId))
+                await _usageTracker.RefreshAsync(contextId).ConfigureAwait(false);
+                if (_usageTracker.ShouldCompact(contextId))
                 {
                     var autoCompactOptions = new CompactionOptions
                     {
@@ -183,7 +204,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     CompactionResult? autoResult = null;
                     try
                     {
-                        autoResult = await _compactor.CompactAsync(sessionId, autoCompactOptions, cancellationToken)
+                        autoResult = await _compactor.CompactAsync(contextId, autoCompactOptions, cancellationToken)
                             .ConfigureAwait(false);
                     }
                     catch (Exception ex)
@@ -202,7 +223,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         PublishScoped(sessionId, compactedEvent);
 
                         // Refresh messages after compaction
-                        messages = await _contextManager.GetContextAsync(sessionId).ConfigureAwait(false) ?? new List<Message>();
+                        messages = await _contextManager.GetContextAsync(contextId).ConfigureAwait(false) ?? new List<Message>();
                     }
                 }
             }
@@ -211,12 +232,12 @@ public class AgentOrchestrator : IAgentOrchestrator
             {
                 Messages = messages,
                 Tools = tools.Select(t => t.Definition).ToList(),
-                SystemPrompt = BuildSystemPrompt(options),
+                SystemPrompt = await BuildSystemPromptAsync(options).ConfigureAwait(false),
                 Options = new CompletionOptions
                 {
                     Model = options.Model,
                     Stream = true,
-                    MaxTokens = options.MaxTokens > 0 ? Math.Min(options.MaxTokens, 8192) : 8192
+                    MaxTokens = options.MaxCompletionTokens > 0 ? options.MaxCompletionTokens : 8192
                 }
             };
 
@@ -298,11 +319,14 @@ public class AgentOrchestrator : IAgentOrchestrator
                 Content = currentContent.ToString(),
                 ToolCalls = pendingToolCalls
             };
-            await _contextManager.AddMessageAsync(sessionId, assistantMessage).ConfigureAwait(false);
+            await _contextManager.AddMessageAsync(contextId, assistantMessage).ConfigureAwait(false);
 
             // If no tool calls, we're done
             if (pendingToolCalls == null || pendingToolCalls.Count == 0)
+            {
+                finishedNaturally = true;
                 break;
+            }
 
             // Execute tool calls
             foreach (var toolCall in pendingToolCalls)
@@ -325,7 +349,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     yield return emptyNameEndEvent;
                     PublishScoped(sessionId, emptyNameEndEvent);
 
-                    await _contextManager.AddMessageAsync(sessionId, new Message
+                    await _contextManager.AddMessageAsync(contextId, new Message
                     {
                         Role = MessageRole.Tool,
                         Content = FormatToolResultForModel(toolCall, emptyNameResult),
@@ -336,14 +360,17 @@ public class AgentOrchestrator : IAgentOrchestrator
                 }
 
                 var tool = _toolRegistry.GetTool(toolCall.Name);
-                if (tool == null)
+                var notOffered = tool != null && offeredToolNames != null && !offeredToolNames.Contains(tool.Name);
+                if (tool == null || notOffered)
                 {
-                    _logger.LogWarning("Unknown tool requested: {ToolName}", toolCall.Name);
+                    _logger.LogWarning("Unknown or unavailable tool requested: {ToolName}", toolCall.Name);
                     var result = new ToolResult
                     {
                         ToolCallId = toolCall.Id,
                         ToolName = toolCall.Name,
-                        Content = $"Unknown tool: {toolCall.Name}",
+                        Content = notOffered
+                            ? $"Unknown tool: {toolCall.Name} (not available in this session)"
+                            : $"Unknown tool: {toolCall.Name}",
                         IsError = true
                     };
                     var duration = TimeSpan.Zero;
@@ -352,7 +379,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     yield return endEvent;
                     PublishScoped(sessionId, endEvent);
 
-                    await _contextManager.AddMessageAsync(sessionId, new Message
+                    await _contextManager.AddMessageAsync(contextId, new Message
                     {
                         Role = MessageRole.Tool,
                         Content = FormatToolResultForModel(toolCall, result),
@@ -374,7 +401,20 @@ public class AgentOrchestrator : IAgentOrchestrator
                     // returns Allow we skip the approval dialog entirely; when
                     // Deny we short-circuit with a tool error; when Ask we fall
                     // back to the existing approval flow.
-                    var managerDecision = _permissionManager?.CanExecuteAsync(toolCall, tool.Risk, options, options.AgentId, cancellationToken).GetAwaiter().GetResult();
+                    PermissionDecision? managerDecision = null;
+                    if (options.IsReadOnly)
+                    {
+                        // A read-only session can never write or execute, whatever
+                        // the mode, rights or allow-rules say (and even when no
+                        // permission manager is registered).
+                        managerDecision = PermissionDecision.Deny;
+                    }
+                    else if (_permissionManager is not null)
+                    {
+                        managerDecision = await _permissionManager
+                            .CanExecuteAsync(toolCall, tool.Risk, options, options.AgentId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
                     bool isApproved;
                     if (managerDecision == PermissionDecision.Allow)
                     {
@@ -395,7 +435,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         yield return mgrDeniedEndEvent;
                         PublishScoped(sessionId, mgrDeniedEndEvent);
 
-                        await _contextManager.AddMessageAsync(sessionId, new Message
+                        await _contextManager.AddMessageAsync(contextId, new Message
                         {
                             Role = MessageRole.Tool,
                             Content = FormatToolResultForModel(toolCall, mgrDeniedResult),
@@ -431,10 +471,36 @@ public class AgentOrchestrator : IAgentOrchestrator
                             yield return planDeniedEndEvent;
                             PublishScoped(sessionId, planDeniedEndEvent);
 
-                            await _contextManager.AddMessageAsync(sessionId, new Message
+                            await _contextManager.AddMessageAsync(contextId, new Message
                             {
                                 Role = MessageRole.Tool,
                                 Content = FormatToolResultForModel(toolCall, planDeniedResult),
+                                ToolCallId = toolCall.Id,
+                                Name = toolCall.Name
+                            }).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        // Nobody can answer a prompt (subagents, unattended runs):
+                        // deny right away instead of hanging until the timeout.
+                        if (options.NonInteractive)
+                        {
+                            var niDeniedResult = new ToolResult
+                            {
+                                ToolCallId = toolCall.Id,
+                                ToolName = toolCall.Name,
+                                Content = $"{toolCall.Name} requires approval, but this run is non-interactive. Not executed.",
+                                IsError = true
+                            };
+                            toolExecutions.Add(new ToolExecution { Call = toolCall, Result = niDeniedResult, Duration = TimeSpan.Zero });
+                            var niDeniedEndEvent = new ToolCallEndEvent(toolCall, niDeniedResult, TimeSpan.Zero);
+                            yield return niDeniedEndEvent;
+                            PublishScoped(sessionId, niDeniedEndEvent);
+
+                            await _contextManager.AddMessageAsync(contextId, new Message
+                            {
+                                Role = MessageRole.Tool,
+                                Content = FormatToolResultForModel(toolCall, niDeniedResult),
                                 ToolCallId = toolCall.Id,
                                 Name = toolCall.Name
                             }).ConfigureAwait(false);
@@ -493,7 +559,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                             yield return deniedEndEvent;
                             PublishScoped(sessionId, deniedEndEvent);
 
-                            await _contextManager.AddMessageAsync(sessionId, new Message
+                            await _contextManager.AddMessageAsync(contextId, new Message
                             {
                                 Role = MessageRole.Tool,
                                 Content = FormatToolResultForModel(toolCall, deniedResult),
@@ -667,7 +733,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 }
 
                 // Add tool result to context
-                await _contextManager.AddMessageAsync(sessionId, new Message
+                await _contextManager.AddMessageAsync(contextId, new Message
                 {
                     Role = MessageRole.Tool,
                     Content = FormatToolResultForModel(toolCall, toolResult),
@@ -675,6 +741,33 @@ public class AgentOrchestrator : IAgentOrchestrator
                     Name = toolCall.Name
                 }).ConfigureAwait(false);
             }
+
+            // A cancel (or approval abort) can leave tool calls from this reply
+            // without a tool_result. Providers reject a history with dangling
+            // tool_calls on the next request, so answer every one of them.
+            {
+                var answeredIds = new HashSet<string>(toolExecutions.Select(te => te.Call.Id));
+                foreach (var orphan in pendingToolCalls.Where(tc => !answeredIds.Contains(tc.Id)))
+                {
+                    var cancelledResult = new ToolResult
+                    {
+                        ToolCallId = orphan.Id,
+                        ToolName = orphan.Name ?? string.Empty,
+                        Content = "Cancelled before execution.",
+                        IsError = true
+                    };
+                    await _contextManager.AddMessageAsync(contextId, new Message
+                    {
+                        Role = MessageRole.Tool,
+                        Content = FormatToolResultForModel(orphan, cancelledResult),
+                        ToolCallId = orphan.Id,
+                        Name = orphan.Name
+                    }).ConfigureAwait(false);
+                }
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+                break;
 
             // If every tool result in this iteration is an error, count it toward a
             // consecutive-all-error streak; only break once that streak reaches a
@@ -694,6 +787,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 {
                     _logger.LogWarning("{Streak} consecutive all-error iterations — breaking to prevent infinite loop",
                         consecutiveAllErrorIterations);
+                    stopReason = "repeated_errors";
                     break;
                 }
             }
@@ -703,13 +797,29 @@ public class AgentOrchestrator : IAgentOrchestrator
             }
         }
 
+        if (stopReason == null && !finishedNaturally && !cancellationToken.IsCancellationRequested)
+            stopReason = "max_iterations";
+
+        // Never end a run silently: tell the user (and the transcript) why it stopped early.
+        if (stopReason != null)
+        {
+            var reasonText = stopReason == "repeated_errors"
+                ? "Stopped: every tool call failed several rounds in a row. Check the errors above, then send a follow-up to continue."
+                : $"Stopped: reached the limit of {options.MaxIterations} steps before the task was complete. Send a follow-up to continue.";
+            fullContent.AppendLine().AppendLine().Append(reasonText);
+            var limitEvent = new StatusUpdateEvent("Limit", reasonText);
+            yield return limitEvent;
+            PublishScoped(sessionId, limitEvent);
+        }
+
         var response = new AgentResponse
         {
             Content = fullContent.ToString(),
             ToolExecutions = toolExecutions,
             TotalUsage = totalUsage,
             Duration = DateTime.UtcNow - startTime,
-            WasCancelled = cancellationToken.IsCancellationRequested
+            WasCancelled = cancellationToken.IsCancellationRequested,
+            StopReason = stopReason
         };
 
         var finished = new AgentFinishedEvent(response);
@@ -732,7 +842,20 @@ public class AgentOrchestrator : IAgentOrchestrator
         PublishScoped(sessionId, doneEvent);
     }
 
-    private string BuildSystemPrompt(AgentOptions options)
+    private static List<string> BuildAllowedPaths(AgentOptions options)
+    {
+        var paths = new List<string>();
+        if (!string.IsNullOrWhiteSpace(options.WorkingDirectory))
+            paths.Add(options.WorkingDirectory);
+        foreach (var extra in options.AllowedPaths)
+        {
+            if (!string.IsNullOrWhiteSpace(extra))
+                paths.Add(extra);
+        }
+        return paths;
+    }
+
+    private async Task<string> BuildSystemPromptAsync(AgentOptions options)
     {
         var environmentBlock = $"""
             Working directory: {options.WorkingDirectory}
@@ -749,7 +872,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var autoMemoryBlock = string.IsNullOrWhiteSpace(options.AutoMemory)
             ? string.Empty
             : $"Learned from earlier turns in this project — apply unless the user says otherwise:\n{options.AutoMemory.Trim()}";
-        var skillsBlock = BuildSkillsBlock();
+        var skillsBlock = await BuildSkillsBlockAsync().ConfigureAwait(false);
         var planModeBlock = options.PermissionMode == PermissionMode.Plan
             ? """
               Plan mode is ACTIVE:
@@ -850,7 +973,11 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         var name = string.IsNullOrEmpty(result.ToolName) ? call.Name : result.ToolName;
         var statusAttr = result.IsError ? " status=\"error\"" : string.Empty;
-        return $"<tool_result name=\"{EscapeXmlAttribute(name)}\"{statusAttr}>\n{result.Content}\n</tool_result>";
+        // Keep untrusted tool output from closing the wrapper early and
+        // masquerading as text outside the tool_result frame.
+        var body = (result.Content ?? string.Empty)
+            .Replace("</tool_result>", "&lt;/tool_result>", StringComparison.OrdinalIgnoreCase);
+        return $"<tool_result name=\"{EscapeXmlAttribute(name)}\"{statusAttr}>\n{body}\n</tool_result>";
     }
 
     private static string EscapeXmlAttribute(string value) =>
@@ -860,12 +987,12 @@ public class AgentOrchestrator : IAgentOrchestrator
     /// Builds the skills list for the &lt;available_skills&gt; section. Returns
     /// just the inner content — BuildSystemPrompt applies the wrapping tag.
     /// </summary>
-    private string BuildSkillsBlock()
+    private async Task<string> BuildSkillsBlockAsync()
     {
         if (_skillRegistry is null) return string.Empty;
         try
         {
-            var skills = _skillRegistry.ListAsync(default).GetAwaiter().GetResult();
+            var skills = await _skillRegistry.ListAsync(default).ConfigureAwait(false);
             if (skills.Count == 0) return string.Empty;
             var sb = new StringBuilder("Skills are reusable prompt expansions. Invoke a skill by name when relevant.\n");
             foreach (var s in skills)

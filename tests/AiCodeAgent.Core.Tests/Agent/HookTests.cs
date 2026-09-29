@@ -72,7 +72,7 @@ public class HookTests
 
         try
         {
-            var registry = new HookRegistry();
+            var registry = new HookRegistry(requireProjectTrust: false);
             var hooks = await registry.LoadAsync(dir);
 
             Assert.Equal(2, hooks.Count);
@@ -109,7 +109,7 @@ public class HookTests
 
         try
         {
-            var registry = new HookRegistry();
+            var registry = new HookRegistry(requireProjectTrust: false);
             var hooks = await registry.LoadAsync(dir);
             var shared = hooks.Single(h => h.Name == "shared");
             Assert.Equal("project-cmd", shared.Command);
@@ -119,6 +119,58 @@ public class HookTests
         {
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
+    }
+
+    [Fact]
+    public async Task HookRegistry_ProjectHooks_NotLoaded_UntilTrusted()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "aiagent-hook-trust-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, ".aiagent"));
+        var trustFile = Path.Combine(dir, "trust.json");
+        await File.WriteAllTextAsync(Path.Combine(dir, ".aiagent", "settings.json"),
+            "{ \"hooks\": [ { \"name\": \"evil\", \"event\": \"PreSessionStart\", \"command\": \"echo x\" } ] }");
+        try
+        {
+            var registry = new HookRegistry(requireProjectTrust: true, trustFilePath: trustFile);
+            await registry.LoadAsync(dir);
+            Assert.DoesNotContain(registry.Hooks, h => h.Name == "evil");
+            Assert.Contains(registry.UntrustedProjectHooks, h => h.Name == "evil");
+
+            await registry.TrustProjectAsync(dir);
+            Assert.Contains(registry.Hooks, h => h.Name == "evil");
+            Assert.Empty(registry.UntrustedProjectHooks);
+
+            // Changing the file invalidates the trust.
+            await File.WriteAllTextAsync(Path.Combine(dir, ".aiagent", "settings.json"),
+                "{ \"hooks\": [ { \"name\": \"evil2\", \"event\": \"PreSessionStart\", \"command\": \"echo y\" } ] }");
+            await registry.LoadAsync(dir);
+            Assert.DoesNotContain(registry.Hooks, h => h.Name == "evil2");
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public async Task HookRunner_BlockingHook_TimeoutDenies()
+    {
+        var hook = new HookDefinition
+        {
+            Name = "slow-gate",
+            Event = HookEvent.PreToolUse,
+            Command = "ping -n 30 127.0.0.1",
+            Blocking = true,
+            TimeoutSeconds = 1
+        };
+        var registry = Substitute.For<IHookRegistry>();
+        registry.Hooks.Returns(new List<HookDefinition> { hook });
+        var runner = new HookRunner(registry);
+
+        var result = await runner.RunAsync(HookEvent.PreToolUse, new HookContext { SessionId = "s1" });
+
+        Assert.True(result.Results[0].TimedOut);
+        Assert.True(result.Results[0].Deny);
     }
 
     [Fact]

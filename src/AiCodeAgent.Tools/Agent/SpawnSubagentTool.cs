@@ -71,6 +71,9 @@ public class SpawnSubagentTool : BaseTool
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
             EnabledTools = enabledTools.Length == 0 ? null : enabledTools.ToList(),
             Role = string.IsNullOrWhiteSpace(role) ? null : role,
+            PermissionMode = context.Permissions?.Mode ?? AiCodeAgent.Core.Models.PermissionMode.Plan,
+            IsReadOnly = context.IsReadOnly,
+            AllowedPaths = context.AllowedPaths.ToList(),
         };
 
         try

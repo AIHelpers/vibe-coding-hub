@@ -68,6 +68,15 @@ public class InMemoryContextManager : IContextManager
                 }
             }
 
+            // The first user message is the task itself. Dropping it once the
+            // history grows leaves the model with no idea what it is doing, so
+            // it is pinned alongside the system message.
+            var pinnedTaskIndex = -1;
+            for (int i = 0; i < messages.Count; i++)
+            {
+                if (messages[i].Role == MessageRole.User) { pinnedTaskIndex = i; break; }
+            }
+
             // Build removable groups in oldest-first order (index 1 upward).
             // An assistant message that made tool calls is grouped together
             // with its immediately-following tool_result messages so we never
@@ -77,7 +86,7 @@ public class InMemoryContextManager : IContextManager
             var groups = new List<List<int>>();
             for (int i = 0; i < messages.Count; i++)
             {
-                if (i == systemMessageIndex) continue;
+                if (i == systemMessageIndex || i == pinnedTaskIndex) continue;
 
                 var msg = messages[i];
                 if (msg.Role == MessageRole.Assistant && msg.ToolCalls is { Count: > 0 })

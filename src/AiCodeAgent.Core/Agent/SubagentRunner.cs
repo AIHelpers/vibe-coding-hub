@@ -168,7 +168,15 @@ public class SubagentRunner : ISubagentRunner
             WorkingDirectory = context.WorkingDirectory,
             MaxIterations = context.MaxIterations,
             MaxTokens = context.MaxTokens,
-            AutoApprove = true, // subagents run autonomously; permission inheritance handled at tool layer
+            // Subagents never self-approve: they inherit the parent's permission
+            // mode, cannot prompt (NonInteractive → would-ask becomes deny) and
+            // cannot spawn further subagents.
+            AutoApprove = false,
+            PermissionMode = context.PermissionMode,
+            IsReadOnly = context.IsReadOnly,
+            AllowedPaths = context.AllowedPaths,
+            NonInteractive = true,
+            DisabledTools = new() { "spawn_subagent" },
             EnabledTools = context.EnabledTools ?? new(),
             SessionId = subagentId,
             AgentId = subagentId,

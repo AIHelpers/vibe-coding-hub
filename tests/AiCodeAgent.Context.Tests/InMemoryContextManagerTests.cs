@@ -130,6 +130,21 @@ public class InMemoryContextManagerTests
     }
 
     [Fact]
+    public async Task TrimContextAsync_KeepsFirstUserMessage_TheTask()
+    {
+        var manager = CreateManager();
+        await manager.AddMessageAsync("s1", new Message { Role = MessageRole.System, Content = "sys" });
+        await manager.AddMessageAsync("s1", new Message { Role = MessageRole.User, Content = "THE-TASK" });
+        for (int i = 0; i < 25; i++)
+            await manager.AddMessageAsync("s1", new Message { Role = MessageRole.Assistant, Content = new string('x', 100) });
+
+        await manager.TrimContextAsync("s1", maxTokens: 100);
+        var context = await manager.GetContextAsync("s1");
+
+        Assert.Contains(context, m => m.Content == "THE-TASK");
+    }
+
+    [Fact]
     public async Task TrimContextAsync_DoesNothing_ForUnknownSession()
     {
         var manager = CreateManager();

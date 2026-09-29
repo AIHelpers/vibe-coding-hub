@@ -19,6 +19,8 @@ public record SdlcStageDefinition
     public string PromptTemplate { get; init; } = string.Empty;
     /// <summary>Whether this stage runs. Set false to skip a stage without deleting it from the pipeline.</summary>
     public bool Enabled { get; init; } = true;
+    /// <summary>Ask the user to confirm before this stage starts. Built-in "Deploy" stages set this.</summary>
+    public bool RequireConfirmation { get; init; }
 }
 
 /// <summary>
@@ -110,6 +112,7 @@ public class SdlcPipelineLoader
                 {
                     Role = "deployer",
                     Name = "Deploy",
+                    RequireConfirmation = true,
                     PromptTemplate =
                         "Prepare deployment for the task:\n\n{task}\n\n" +
                         "Verify the build is green and tests passed, then run or describe the deploy steps " +
@@ -253,6 +256,7 @@ public class SdlcPipelineRunner
                 AgentId = stage.Role,
                 Role = stage.Role,
                 Prompt = prompt,
+                RequireConfirmation = stage.RequireConfirmation,
                 Options = new AgentOptions
                 {
                     Model = model,

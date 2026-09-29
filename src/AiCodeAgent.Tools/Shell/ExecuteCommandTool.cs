@@ -172,13 +172,19 @@ public class ExecuteCommandTool : BaseTool
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(timeout));
             try
             {
                 await process.WaitForExitAsync(cts.Token);
             }
             catch (OperationCanceledException)
             {
+                if (context.CancellationToken.IsCancellationRequested)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                    return Error($"Command cancelled: {command}");
+                }
                 // Kill the WHOLE process tree — a bare process.Kill() only
                 // killed the shell wrapper (cmd.exe/bash -c), leaving
                 // whatever it had spawned running in the background forever.

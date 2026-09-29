@@ -300,6 +300,54 @@ public class PermissionManagerTests
     }
 
     [Fact]
+    public async Task CanExecute_PlanMode_BeatsGranularEditRight()
+    {
+        var svc = CreateService();
+        var rights = new GranularRights { AllowRead = true, AllowEdit = true, AllowExecute = true };
+        Assert.Equal(PermissionDecision.Deny, await svc.CanExecuteAsync(
+            CreateToolCall("write_file"), RiskLevel.Write, Options(PermissionMode.Plan, rights)));
+    }
+
+    [Fact]
+    public async Task CanExecute_AllowRule_DoesNotMatchChainedOrLongerCommands()
+    {
+        var svc = CreateService();
+        await svc.AllowAsync(new PermissionRule { ToolName = "execute_command", CommandPattern = "git status" });
+
+        Assert.Equal(PermissionDecision.Allow, await svc.CanExecuteAsync(
+            CreateToolCall("execute_command", "git status -s"), RiskLevel.Execute, Options()));
+        Assert.Equal(PermissionDecision.Ask, await svc.CanExecuteAsync(
+            CreateToolCall("execute_command", "git status; rm -rf ."), RiskLevel.Execute, Options()));
+        Assert.Equal(PermissionDecision.Ask, await svc.CanExecuteAsync(
+            CreateToolCall("execute_command", "git statusx"), RiskLevel.Execute, Options()));
+    }
+
+    [Fact]
+    public async Task CanExecute_ProjectProfile_DenyListAndCeiling()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "aiagent-perm-" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, ".aiagent"));
+        await File.WriteAllTextAsync(Path.Combine(dir, ".aiagent", "permissions.json"),
+            "{ \"mode\": \"Ask\", \"deny\": [\"curl\"] }");
+        try
+        {
+            var svc = CreateService();
+            await svc.SetModeAsync(PermissionMode.FullAuto);
+            await svc.LoadProjectProfileAsync(dir);
+
+            Assert.Equal(PermissionDecision.Deny, await svc.CanExecuteAsync(
+                CreateToolCall("execute_command", "curl http://x"), RiskLevel.Execute, Options()));
+            // FullAuto is capped to Ask by the project ceiling.
+            Assert.Equal(PermissionDecision.Ask, await svc.CanExecuteAsync(
+                CreateToolCall("execute_command", "dotnet test"), RiskLevel.Execute, Options()));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public async Task CanExecute_GranularRights_DenyExecute_AsksEvenInFullAuto()
     {
         var svc = CreateService();

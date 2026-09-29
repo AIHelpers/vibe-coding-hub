@@ -26,6 +26,45 @@ public partial class MainWindow : Window
         DataContextChanged += OnDataContextChanged;
         KeyDown += OnWindowKeyDown;
         PropertyChanged += OnWindowPropertyChanged;
+        Opened += (_, _) => FitToScreen();
+    }
+
+    /// <summary>
+    /// The window is declared 1200x800; on a smaller (or highly scaled) display that pushes the bottom
+    /// of the window — and the bottom of every scrolling page inside it — below the visible screen.
+    /// Clamp the size to the usable desktop area and pull the window back on-screen.
+    /// </summary>
+    private void FitToScreen()
+    {
+        try
+        {
+            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+            if (screen is null) return;
+
+            var scale = screen.Scaling > 0 ? screen.Scaling : 1.0;
+            var work = screen.WorkingArea;
+            var maxWidth = work.Width / scale;
+            var maxHeight = work.Height / scale;
+
+            // Leave room for the title bar and window border, which are not part of Height.
+            var clientMaxHeight = Math.Max(300, maxHeight - 48);
+            var clientMaxWidth = Math.Max(400, maxWidth - 16);
+
+            MinHeight = Math.Min(MinHeight, clientMaxHeight);
+            MinWidth = Math.Min(MinWidth, clientMaxWidth);
+            if (Height > clientMaxHeight) Height = clientMaxHeight;
+            if (Width > clientMaxWidth) Width = clientMaxWidth;
+
+            var widthPx = (int)((Width + 16) * scale);
+            var heightPx = (int)((Height + 48) * scale);
+            var x = Math.Clamp(Position.X, work.X, Math.Max(work.X, work.Right - widthPx));
+            var y = Math.Clamp(Position.Y, work.Y, Math.Max(work.Y, work.Bottom - heightPx));
+            Position = new PixelPoint(x, y);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"FitToScreen failed: {ex.Message}");
+        }
     }
 
     // ===== Screens mode: animated slide between panels =====

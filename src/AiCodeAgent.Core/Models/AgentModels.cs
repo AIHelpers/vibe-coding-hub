@@ -172,6 +172,8 @@ public record AgentExecutionContext
     public bool IsReadOnly { get; init; }
     public List<string> AllowedPaths { get; init; } = new();
     public PermissionSettings? Permissions { get; init; }
+    /// <summary>Cancelled when the run is cancelled; long-running tools (shell, git, web) must honor it.</summary>
+    public CancellationToken CancellationToken { get; init; }
     /// <summary>Agent instance key for multi-agent sessions.</summary>
     public string? AgentId { get; init; }
     /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
@@ -187,6 +189,19 @@ public record AgentOptions
     public bool AutoApprove { get; init; } = false;
     public bool Verbose { get; init; } = false;
     public List<string> EnabledTools { get; init; } = new();
+    /// <summary>Tools that must never be offered to (or executed for) this run, e.g. spawn_subagent inside a subagent.</summary>
+    public List<string> DisabledTools { get; init; } = new();
+    /// <summary>Extra directories (besides <see cref="WorkingDirectory"/>) file tools may touch.</summary>
+    public List<string> AllowedPaths { get; init; } = new();
+    /// <summary>When true nobody is there to answer approval prompts: anything that would ask is denied immediately.</summary>
+    public bool NonInteractive { get; init; } = false;
+    /// <summary>
+    /// Conversation-history key. Null = the run's session id. Parallel agents in one session each get
+    /// their own history (forked from the shared one) so their messages/tool calls can't interleave.
+    /// </summary>
+    public string? ContextSessionId { get; init; }
+    /// <summary>Max tokens the model may generate per reply (independent of the context budget <see cref="MaxTokens"/>).</summary>
+    public int MaxCompletionTokens { get; init; } = 8192;
     public bool IsReadOnly { get; init; } = false;
     public PermissionMode PermissionMode { get; init; } = PermissionMode.Ask;
     /// <summary>Granular per-risk-category rights (read/edit/execute). When set, these override the coarse PermissionMode for the corresponding risk levels.</summary>
@@ -236,6 +251,8 @@ public record AgentResponse
     public TokenUsage TotalUsage { get; init; } = new();
     public TimeSpan Duration { get; init; }
     public bool WasCancelled { get; init; }
+    /// <summary>Why the run ended early instead of finishing normally: "max_iterations", "repeated_errors", or null.</summary>
+    public string? StopReason { get; init; }
 }
 
 public record ToolExecution
@@ -407,6 +424,9 @@ public record SessionStep
     /// without a group (or in different groups) still run sequentially.
     /// </summary>
     public string? ParallelGroup { get; init; }
+
+    /// <summary>When true the coordinator asks the user to confirm before this step starts (e.g. Deploy).</summary>
+    public bool RequireConfirmation { get; init; }
 }
 
 /// <summary>Plan for a multi-agent session (sequential turn-taking).</summary>

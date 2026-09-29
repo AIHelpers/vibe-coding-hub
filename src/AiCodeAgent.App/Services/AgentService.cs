@@ -159,19 +159,30 @@ public class AgentService
             _logger.LogInformation("Streaming message: {Message}", message);
 
             var effectiveOptions = await EnsureProjectMemoryAsync(options ?? new AgentOptions());
+            var runReport = new RunReportBuilder(sessionId, message);
 
+            try
+            {
             await foreach (var evt in _orchestrator.StreamRunAsync(
                 message,
                 sessionId,
                 effectiveOptions,
                 token))
             {
+                runReport.Add(evt);
                 // The orchestrator already publishes each event to the
                 // shared event bus. Publishing again here would duplicate
                 // every event (doubled text, duplicate tool cards, double
                 // finished/error signals), so we only consume the stream
                 // to drive it to completion.
                 _ = evt;
+            }
+            }
+            finally
+            {
+                // Always leave an audit trail, even when the run was cancelled or failed midway.
+                if (runReport.HasContent)
+                    _ = runReport.WriteAsync();
             }
         }
         catch (OperationCanceledException)

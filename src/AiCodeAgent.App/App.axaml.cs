@@ -93,6 +93,21 @@ public partial class App : Application
                 System.Diagnostics.Debug.WriteLine($"MCP initialization failed: {ex.Message}");
             }
 
+            // Load persisted permission settings (user-level file + the repo's restrict-only profile).
+            try
+            {
+                var permissionManager = Services.GetService<IPermissionManager>();
+                if (permissionManager is not null)
+                {
+                    permissionManager.LoadScopedSettingsAsync().GetAwaiter().GetResult();
+                    permissionManager.LoadProjectProfileAsync(Directory.GetCurrentDirectory()).GetAwaiter().GetResult();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load permission settings: {ex.Message}");
+            }
+
             // Start background workspace indexing (fire-and-forget full scan)
             try
             {
@@ -133,6 +148,21 @@ public partial class App : Application
             desktop.MainWindow = mainWindow;
             mainWindow.Show();
             mainWindow.Activate();
+
+            // Project-defined hooks are shell commands: never run them without the user's OK.
+            try
+            {
+                var hookRegistry = Services.GetService<AiCodeAgent.Core.Interfaces.IHookRegistry>();
+                if (hookRegistry is not null)
+                {
+                    _ = AiCodeAgent.App.Services.HookTrustPrompt.ConfirmIfNeededAsync(
+                        mainWindow, hookRegistry, Directory.GetCurrentDirectory());
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Hook trust prompt failed: {ex.Message}");
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

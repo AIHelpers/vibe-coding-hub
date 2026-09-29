@@ -21,7 +21,7 @@ public class PermissionClassifier
     {
         "ls", "dir", "cat", "head", "tail", "grep", "find", "which", "where",
         "echo", "pwd", "git status", "git log", "git diff", "git branch",
-        "npm test", "npm run test", "dotnet test", "dotnet build", "make",
+        "npm test", "npm run test", "dotnet test", "dotnet build",
         "node --version", "npm --version", "python --version"
     };
 
@@ -64,6 +64,15 @@ public class PermissionClassifier
             if (tokens.Count == 0)
                 return PermissionDecision.Deny;
 
+            // Arguments that leave the workspace or expand at the shell
+            // level (absolute paths, "..", "~", $VARS, %VARS%) need a human.
+            if (!ArgumentsStayInWorkspace(tokens))
+                return PermissionDecision.Deny;
+
+            // Verbs that turn an otherwise read-only program destructive.
+            if (HasDangerousFlags(tokens))
+                return PermissionDecision.Deny;
+
             foreach (var safe in SafeCommands)
             {
                 if (MatchesSafeCommand(tokens, safe))
@@ -84,7 +93,52 @@ public class PermissionClassifier
         return PermissionDecision.Deny;
     }
 
-    private static bool ContainsShellControlOperator(string command)
+    private static readonly HashSet<string> FindDangerousFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"
+    };
+
+    private static readonly HashSet<string> GitBranchMutatingFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force",
+        "--set-upstream-to", "-u", "--unset-upstream", "--edit-description"
+    };
+
+    private static bool HasDangerousFlags(List<string> tokens)
+    {
+        var program = StripPathAndExtension(tokens[0]);
+        if (program.Equals("find", StringComparison.OrdinalIgnoreCase))
+            return tokens.Skip(1).Any(t => FindDangerousFlags.Contains(t));
+
+        if (program.Equals("git", StringComparison.OrdinalIgnoreCase) && tokens.Count > 1 &&
+            tokens[1].Equals("branch", StringComparison.OrdinalIgnoreCase))
+            return tokens.Skip(2).Any(t => GitBranchMutatingFlags.Contains(t));
+
+        // "git diff --output=file" and "git log --output=file" write files.
+        if (program.Equals("git", StringComparison.OrdinalIgnoreCase))
+            return tokens.Skip(1).Any(t => t.StartsWith("--output", StringComparison.OrdinalIgnoreCase));
+
+        return false;
+    }
+
+    private static bool ArgumentsStayInWorkspace(List<string> tokens)
+    {
+        foreach (var token in tokens.Skip(1))
+        {
+            if (token.StartsWith('-') && !token.Contains('/') && !token.Contains('\\'))
+                continue; // plain option flag
+            if (token.Contains("..", StringComparison.Ordinal) ||
+                token.StartsWith('~') ||
+                token.Contains('$') || token.Contains('%') ||
+                Path.IsPathRooted(token) ||
+                token.StartsWith('/') || token.StartsWith('\\') ||
+                (token.Length >= 2 && char.IsLetter(token[0]) && token[1] == ':'))
+                return false;
+        }
+        return true;
+    }
+
+    internal static bool ContainsShellControlOperator(string command)
     {
         if (command.IndexOfAny(ShellControlChars) >= 0)
             return true;

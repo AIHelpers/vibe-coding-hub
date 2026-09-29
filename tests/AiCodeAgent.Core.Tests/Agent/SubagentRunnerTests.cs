@@ -108,7 +108,9 @@ public class SubagentRunnerTests
         Assert.Equal(ctx.WorkingDirectory, captured.WorkingDirectory);
         Assert.Equal(ctx.MaxIterations, captured.MaxIterations);
         Assert.Equal(ctx.MaxTokens, captured.MaxTokens);
-        Assert.True(captured.AutoApprove);
+        Assert.False(captured.AutoApprove);
+        Assert.True(captured.NonInteractive);
+        Assert.Contains("spawn_subagent", captured.DisabledTools);
         Assert.Equal(ctx.EnabledTools, captured.EnabledTools);
         Assert.Equal(ctx.Role, captured.Role);
     }

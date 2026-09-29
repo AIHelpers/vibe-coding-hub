@@ -144,4 +144,10 @@ public interface IPermissionManager
     Task AllowAsync(PermissionRule rule, CancellationToken ct = default);
     /// <summary>Load scoped settings from a settings file (e.g. ~/.aiagent/settings.json).</summary>
     Task LoadScopedSettingsAsync(string? settingsPath = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Load the repo-checked-in permission profile (<c>.aiagent/permissions.json</c>). A project file can
+    /// only make the agent MORE restricted (a mode ceiling and command deny-list) — never grant more.
+    /// </summary>
+    Task LoadProjectProfileAsync(string? workingDirectory, CancellationToken ct = default);
 }
