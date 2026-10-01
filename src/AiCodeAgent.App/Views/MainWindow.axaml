@@ -1,0 +1,1246 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:svc="using:AiCodeAgent.App.Services"
+        xmlns:views="using:AiCodeAgent.App.Views"
+        xmlns:cmd="using:AiCodeAgent.App.CommandPalette"
+        xmlns:core="using:AiCodeAgent.Core.Agent"
+        xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
+        xmlns:mdtight="https://github.com/whistyun/Markdown.Avalonia.Tight"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+        x:Class="AiCodeAgent.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Vibe Coding Hub - AI Code Agent"
+        Width="1200"
+        Height="800"
+        MinWidth="800"
+        MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        DragDrop.AllowDrop="True"
+        DragDrop.DragOver="OnDragOver"
+        DragDrop.Drop="OnDropAsync">
+
+    <Design.DataContext>
+        <vm:MainViewModel/>
+    </Design.DataContext>
+
+    <Window.KeyBindings>
+        <!-- Ctrl+L: Clear Chat -->
+        <KeyBinding Gesture="Ctrl+L" Command="{Binding ChatViewModel.ClearChatCommand}"/>
+        <!-- Ctrl+Enter: Send -->
+        <KeyBinding Gesture="Ctrl+Enter" Command="{Binding ChatViewModel.SendCommand}"/>
+        <!-- Escape: Cancel/Stop -->
+        <KeyBinding Gesture="Escape" Command="{Binding ChatViewModel.CancelCommand}"/>
+        <!-- Screens mode: Ctrl+Shift+M toggles, Alt+Left/Right or Alt+1..4 switch panels -->
+        <KeyBinding Gesture="Ctrl+Shift+M" Command="{Binding ToggleSlideModeCommand}"/>
+        <KeyBinding Gesture="Alt+Left" Command="{Binding PreviousScreenCommand}"/>
+        <KeyBinding Gesture="Alt+Right" Command="{Binding NextScreenCommand}"/>
+        <KeyBinding Gesture="Alt+1" Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Explorer}"/>
+        <KeyBinding Gesture="Alt+2" Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Editor}"/>
+        <KeyBinding Gesture="Alt+3" Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Chat}"/>
+        <KeyBinding Gesture="Alt+4" Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Agents}"/>
+        <!-- Ctrl+B: Toggle File Explorer -->
+        <KeyBinding Gesture="Ctrl+B" Command="{Binding ToggleFileExplorerCommand}"/>
+        <!-- Ctrl+`: Toggle Terminal -->
+        <KeyBinding Gesture="Ctrl+Oem3" Command="{Binding ToggleTerminalCommand}"/>
+        <!-- Ctrl+Shift+G: Source Control (stage, diff, commit) -->
+        <KeyBinding Gesture="Ctrl+Shift+G" Command="{Binding ToggleSourceControlCommand}"/>
+        <!-- Ctrl+Shift+P: Command Palette -->
+        <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding ToggleCommandPaletteCommand}"/>
+        <!-- Ctrl+Shift+O: Change Working Directory -->
+        <KeyBinding Gesture="Ctrl+Shift+O" Command="{Binding ChangeWorkingDirectoryCommand}"/>
+        <!-- Ctrl+P: Quick Open (fuzzy file search) -->
+        <KeyBinding Gesture="Ctrl+P" Command="{Binding QuickOpenFilesCommand}"/>
+        <!-- Ctrl+T: Go to Symbol in Workspace -->
+        <KeyBinding Gesture="Ctrl+T" Command="{Binding QuickOpenSymbolsCommand}"/>
+        <!-- Ctrl+O: Open File in Editor -->
+        <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenFilePickerCommand}"/>
+        <!-- Ctrl+,: Open Settings -->
+        <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding NavigateToSettingsCommand}"/>
+        <!-- Ctrl+S: Save Active File -->
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveActiveFileCommand}"/>
+        <!-- Ctrl+Shift+S: Save As -->
+        <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding SaveActiveFileAsCommand}"/>
+        <!-- Ctrl+W: Close Active Tab -->
+        <KeyBinding Gesture="Ctrl+W" Command="{Binding CloseActiveTabCommand}"/>
+        <!-- Ctrl+Tab: Next Tab -->
+        <KeyBinding Gesture="Ctrl+Tab" Command="{Binding NextTabCommand}"/>
+        <!-- Ctrl+Shift+Tab: Previous Tab -->
+        <KeyBinding Gesture="Ctrl+Shift+Tab" Command="{Binding PreviousTabCommand}"/>
+    </Window.KeyBindings>
+
+    <Grid RowDefinitions="Auto,*,Auto" Name="RootGrid">
+        <!-- Header / Toolbar -->
+        <Border Grid.Row="0" Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}" Padding="8">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
+                <!-- App Logo/Title -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="⚡" FontSize="18" VerticalAlignment="Center"/>
+                    <TextBlock Text="Vibe Coding Hub" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Toolbar Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <Button Content="⌘" Command="{Binding ToggleCommandPaletteCommand}" 
+                            ToolTip.Tip="Command Palette (Ctrl+Shift+P)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="🔎" Command="{Binding QuickOpenFilesCommand}" 
+                            ToolTip.Tip="Quick Open — go to file (Ctrl+P) or #symbol (Ctrl+T)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="📁" Command="{Binding ToggleFileExplorerCommand}" 
+                            ToolTip.Tip="Toggle File Explorer (Ctrl+B)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="💻" Command="{Binding ToggleTerminalCommand}" 
+                            ToolTip.Tip="Toggle Terminal (Ctrl+`)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Border Width="1" Height="20" Margin="6,0" Background="#55808080" VerticalAlignment="Center"/>
+                    <Button Content="📄" Command="{Binding ToggleCheckpointBrowserCommand}" 
+                            ToolTip.Tip="Toggle Checkpoint Browser" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="🔀" Command="{Binding ViewActiveFileDiffCommand}" 
+                            ToolTip.Tip="View Diff (active file vs. last checkpoint)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Command="{Binding ToggleSourceControlCommand}"
+                            ToolTip.Tip="Source Control — stage, diff and commit (Ctrl+Shift+G)"
+                            Width="32" Height="28" Padding="0">
+                        <Grid>
+                            <TextBlock Text="🌿" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border IsVisible="{Binding FileExplorer.HasGitChanges}"
+                                    Background="#E5A100" CornerRadius="8" MinWidth="16" Height="16"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0">
+                                <TextBlock Text="{Binding FileExplorer.Changes.Count}" FontSize="9"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Button Content="🧠" Command="{Binding ToggleProjectKnowledgeCommand}" 
+                            ToolTip.Tip="Project Knowledge — AGENTS.md and Skills" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Command="{Binding ToggleBackgroundTasksCommand}" 
+                            ToolTip.Tip="Background Tasks — delegate work, keep chatting" 
+                            Width="32" Height="28" Padding="0">
+                        <Grid>
+                            <TextBlock Text="🧵" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border IsVisible="{Binding BackgroundTasks.HasRunningTasks}"
+                                    Background="#4A9EFF" CornerRadius="8" Width="16" Height="16"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0">
+                                <TextBlock Text="{Binding BackgroundTasks.RunningCount}" FontSize="9"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+                            </Border>
+                        </Grid>
+                    </Button>
+                    <Button Content="📦" Command="{Binding ToggleSessionHistoryCommand}" 
+                            ToolTip.Tip="Toggle Session History (export/import)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="🧭" Command="{Binding ToggleSessionDashboardCommand}" 
+                            ToolTip.Tip="Toggle Session Dashboard (multi-agent)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="👁️" Command="{Binding TogglePreviewPaneCommand}" 
+                            ToolTip.Tip="Toggle Preview Pane (click-to-edit)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Border Width="1" Height="20" Margin="6,0" Background="#55808080" VerticalAlignment="Center"/>
+                    <Button Content="📂" Command="{Binding OpenFilePickerCommand}" 
+                            ToolTip.Tip="Open File in Editor (Ctrl+O)" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Button Content="🔄" Command="{Binding RefreshFileExplorerCommand}" 
+                            ToolTip.Tip="Refresh File Explorer" 
+                            Width="32" Height="28" Padding="0"/>
+                    <Border Width="1" Height="20" Margin="6,0" Background="#55808080" VerticalAlignment="Center"/>
+                    <Button Content="🌓" Command="{Binding ToggleThemeCommand}"
+                            ToolTip.Tip="Switch light / dark theme"
+                            Width="32" Height="28" Padding="0"/>
+                    <ToggleButton Content="🎞️" IsChecked="{Binding IsSlideMode, Mode=TwoWay}"
+                                  ToolTip.Tip="Screens mode — one panel at a time with animated switching (Ctrl+Shift+M)"
+                                  Width="32" Height="28" Padding="0"/>
+                    <StackPanel Orientation="Horizontal" Spacing="2" IsVisible="{Binding IsSlideMode}">
+                        <ToggleButton Content="📁" IsChecked="{Binding IsExplorerScreen, Mode=OneWay}"
+                                      Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Explorer}"
+                                      ToolTip.Tip="Explorer screen (Alt+1)" Width="32" Height="28" Padding="0"/>
+                        <ToggleButton Content="📝" IsChecked="{Binding IsEditorScreen, Mode=OneWay}"
+                                      Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Editor}"
+                                      IsVisible="{Binding EditorPane.HasOpenTabs}"
+                                      ToolTip.Tip="Editor screen (Alt+2)" Width="32" Height="28" Padding="0"/>
+                        <ToggleButton Content="💬" IsChecked="{Binding IsChatScreen, Mode=OneWay}"
+                                      Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Chat}"
+                                      ToolTip.Tip="Chat screen (Alt+3)" Width="32" Height="28" Padding="0"/>
+                        <ToggleButton Content="🤖" IsChecked="{Binding IsAgentsScreen, Mode=OneWay}"
+                                      Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Agents}"
+                                      IsVisible="{Binding ChatViewModel.IsAgentSidebarOpen}"
+                                      ToolTip.Tip="Agents screen (Alt+4)" Width="32" Height="28" Padding="0"/>
+                        <ToggleButton Content="👁️" IsChecked="{Binding IsPreviewScreen, Mode=OneWay}"
+                                      Command="{Binding GoToScreenCommand}" CommandParameter="{x:Static vm:AppScreen.Preview}"
+                                      IsVisible="{Binding IsPreviewPaneOpen}"
+                                      ToolTip.Tip="Preview screen" Width="32" Height="28" Padding="0"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Working Directory -->
+                <Border Grid.Column="2" 
+                        Background="{DynamicResource AppDeepBrush}" 
+                        CornerRadius="4" 
+                        Padding="6,2" 
+                        Margin="0,0,8,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Cursor="Hand"
+                        PointerPressed="OnWorkingDirectoryPressedAsync">
+                    <Border.Styles>
+                        <Style Selector="Border:pointerover">
+                            <Setter Property="Background" Value="{DynamicResource AppHeaderBrush}"/>
+                        </Style>
+                    </Border.Styles>
+                    <ToolTip.Tip>
+                        <TextBlock Text="{Binding WorkingDirectory}" FontSize="11" MaxWidth="500" TextWrapping="Wrap"/>
+                    </ToolTip.Tip>
+                    <ToolTip.Placement>Bottom</ToolTip.Placement>
+                    <ToolTip.VerticalOffset>4</ToolTip.VerticalOffset>
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="📁" FontSize="12" VerticalAlignment="Center" Opacity="0.7" Margin="0,0,4,0"/>
+                        <TextBlock Grid.Column="1" 
+                                   Text="{Binding WorkingDirectory}" 
+                                   FontSize="11" 
+                                   VerticalAlignment="Center" 
+                                   Opacity="0.8" 
+                                   TextTrimming="CharacterEllipsis" 
+                                   MaxWidth="260"
+                                   FontFamily="Consolas"/>
+                        <Button Grid.Column="2" 
+                                Content="📂" 
+                                Command="{Binding ChangeWorkingDirectoryCommand}" 
+                                ToolTip.Tip="Change Working Directory" 
+                                Width="22" 
+                                Height="22" 
+                                Padding="0" 
+                                FontSize="11"
+                                Margin="6,0,0,0"
+                                Background="Transparent"
+                                BorderThickness="0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Model Selector -->
+                <ComboBox Grid.Column="3" 
+                          ItemsSource="{Binding ChatViewModel.AvailableModels}"
+                          SelectedItem="{Binding ChatViewModel.SelectedModel}"
+                          VerticalAlignment="Center"
+                          Width="80"
+                          Margin="4,0">
+                    <ComboBox.Styles>
+                        <Style Selector="ComboBox">
+                            <Setter Property="FontSize" Value="12"/>
+                        </Style>
+                    </ComboBox.Styles>
+                </ComboBox>
+
+                <!-- Permission Mode Selector -->
+                <ComboBox Grid.Column="4" 
+                          SelectedItem="{Binding ChatViewModel.PermissionMode}"
+                          VerticalAlignment="Center"
+                          MinWidth="100"
+                          Margin="4,0">
+                    <ComboBox.Styles>
+                        <Style Selector="ComboBox">
+                            <Setter Property="FontSize" Value="12"/>
+                        </Style>
+                    </ComboBox.Styles>
+                    <x:String>Ask</x:String>
+                    <x:String>AutoEdit</x:String>
+                    <x:String>FullAuto</x:String>
+                    <x:String>Plan</x:String>
+                </ComboBox>
+
+                <!-- Granular rights toggles (independent of PermissionMode) -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="4,0" Spacing="6">
+                    <CheckBox Content="Read" IsChecked="{Binding ChatViewModel.AllowRead}" ToolTip.Tip="Allow read/file-access tools without approval"/>
+                    <CheckBox Content="Edit" IsChecked="{Binding ChatViewModel.AllowEdit}" ToolTip.Tip="Allow file edit/write tools without approval"/>
+                    <CheckBox Content="Exec" IsChecked="{Binding ChatViewModel.AllowExecute}" ToolTip.Tip="Allow command execution tools without approval"/>
+                </StackPanel>
+
+                <!-- Navigation -->
+                <Button Grid.Column="6" Content="⚙️" 
+                        Command="{Binding NavigateToSettingsCommand}"
+                        ToolTip.Tip="Settings (Ctrl+,)"
+                        Width="32" Height="28" Padding="0" Margin="4,0"/>
+
+                <!-- Cancel Button -->
+                <Button Grid.Column="7" 
+                        Content="⏹" 
+                        IsVisible="{Binding ChatViewModel.IsCancellable}"
+                        Command="{Binding ChatViewModel.CancelCommand}"
+                        ToolTip.Tip="Stop generating (Esc)"
+                        Background="#FF4444" 
+                        Foreground="White"
+                        Width="32" Height="28" Padding="0" Margin="4,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1" Name="ContentArea" RowDefinitions="*" ClipToBounds="True">
+            <!-- Settings Content - shown when IsSettingsMode is true.
+                 No MaxHeight binding: the star-sized row bounds the control,
+                 and a self-referencing #ContentArea.Bounds.Height binding
+                 evaluated before layout (height 0) used to leave the page
+                 unbounded so its ScrollViewer could never reach the bottom. -->
+            <ContentControl Grid.Row="0"
+                            ClipToBounds="True"
+                            Content="{Binding CurrentViewModel}"
+                            IsVisible="{Binding IsSettingsMode}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            ZIndex="10">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                        <views:SettingsView/>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+
+        <!-- Session Dashboard Overlay (Feature 5 — multi-agent session dashboard) -->
+        <Border IsVisible="{Binding IsSessionDashboardOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="420"
+                ZIndex="50">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBlock Grid.Column="0" Text="🧭 Session Dashboard" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            Content="✕" 
+                            Command="{Binding ToggleSessionDashboardCommand}"
+                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                </Grid>
+                <views:SessionDashboardView Grid.Row="1" DataContext="{Binding SessionDashboard}"/>
+            </Grid>
+        </Border>
+
+        <!-- Checkpoint Browser Overlay -->
+        <Border IsVisible="{Binding IsCheckpointBrowserOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="8"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <views:CheckpointBrowserView DataContext="{Binding CheckpointBrowser}"/>
+        </Border>
+
+        <!-- Diff Viewer Overlay: view/edit the diff between a file's baseline
+             (checkpoint) and its current content. Wide centered modal since
+             it needs room for two side-by-side text panes. -->
+        <Border IsVisible="{Binding DiffViewer.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="{Binding DiffOverlayMargin}"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:DiffViewerView DataContext="{Binding DiffViewer}"/>
+        </Border>
+
+        <!-- Source Control Overlay: VS Code-style panel docked on the right so the diff viewer
+             (and the editor) stay usable next to it while staging and committing. -->
+        <Border IsVisible="{Binding SourceControl.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="380"
+                ZIndex="56">
+            <views:SourceControlView DataContext="{Binding SourceControl}"/>
+        </Border>
+
+        <!-- Project Knowledge Overlay: AGENTS.md editor + doctor checks, and
+             the skills browser/creator. Wide centered modal, same footprint
+             as the diff viewer. -->
+        <Border IsVisible="{Binding ProjectKnowledge.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="40"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:ProjectKnowledgeView DataContext="{Binding ProjectKnowledge}"/>
+        </Border>
+
+        <!-- Background Tasks Overlay: Cowork-style delegated tasks that run
+             independently of the main chat conversation. Right-docked panel
+             (like the checkpoint browser) rather than a wide modal, since
+             it's meant to stay glanceable alongside ongoing chat work. -->
+        <Border IsVisible="{Binding BackgroundTasks.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="420"
+                ZIndex="55">
+            <views:BackgroundTaskManagerView DataContext="{Binding BackgroundTasks}"/>
+        </Border>
+
+        <!-- Autonomous Plan Overlay -->
+        <Border IsVisible="{Binding ChatViewModel.PlanVM.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <views:PlanView DataContext="{Binding ChatViewModel.PlanVM}"/>
+        </Border>
+
+        <!-- Session History Overlay (Priority 5 — export/import session bundles) -->
+        <Border IsVisible="{Binding IsSessionHistoryOpen}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="8"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="360"
+                ZIndex="50">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <TextBlock Grid.Column="0" Text="📦 Sessions" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" 
+                            Content="✕" 
+                            Command="{Binding ToggleSessionHistoryCommand}"
+                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Session History"
+                                   FontSize="11"
+                                   Opacity="0.6"
+                                   Margin="2,0,0,4"/>
+                        <ItemsControl ItemsSource="{Binding SessionManager.SessionHistory}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2" Padding="8" Background="{DynamicResource AppHeaderBrush}" CornerRadius="6">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" 
+                                                       Text="{Binding}" 
+                                                       FontSize="12" 
+                                                       FontFamily="Consolas"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1"
+                                                    Content="⬇ Export"
+                                                    FontSize="10"
+                                                    Padding="8,3"
+                                                    Command="{Binding $parent[Window].DataContext.SessionManager.ExportSessionCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Recently Exported"
+                                   FontSize="11"
+                                   Opacity="0.6"
+                                   Margin="2,12,0,4"/>
+                        <ItemsControl ItemsSource="{Binding SessionManager.ExportedSessions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" 
+                                               FontSize="10"
+                                               FontFamily="Consolas"
+                                               TextWrapping="Wrap"
+                                               Opacity="0.7"
+                                               Margin="2,2"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding SessionManager.StatusText}"
+                           FontSize="10"
+                           Opacity="0.6"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,0"
+                           MaxHeight="48"/>
+            </Grid>
+        </Border>
+
+            <!-- SplitView for sidebar (visible in Chat mode) -->
+            <SplitView Name="MainSplitView"
+                       IsPaneOpen="{Binding IsExplorerPaneOpen, Mode=OneWay}"
+                       DisplayMode="CompactInline"
+                       OpenPaneLength="280"
+                       CompactPaneLength="{Binding ExplorerCompactLength, Mode=OneWay}"
+                       IsVisible="{Binding IsSettingsMode, Converter={StaticResource InverseBool}}">
+
+                <!-- File Explorer Pane (Left Sidebar) -->
+                <SplitView.Pane>
+                    <Border Name="ExplorerHost" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" Padding="8">
+                        <Grid RowDefinitions="Auto,*,Auto,Auto">
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                <TextBlock Grid.Column="0" Text="📁 Explorer" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <Button Content="➕"
+                                            Command="{Binding AddFolderToTaskCommand}"
+                                            ToolTip.Tip="Add a folder to this task (the agent can read and edit it too)"
+                                            Width="24" Height="24" Padding="0" FontSize="12"/>
+                                    <Button Content="🔄"
+                                            Command="{Binding RefreshFileExplorerCommand}"
+                                            Width="24" Height="24" Padding="0" FontSize="12"/>
+                                </StackPanel>
+                            </Grid>
+                            <ScrollViewer Grid.Row="1" Margin="0,0,0,8">
+                                <TreeView ItemsSource="{Binding FileExplorer.RootItems}"
+                                          SelectedItem="{Binding FileExplorer.SelectedItem, Mode=TwoWay}"
+                                          SelectionChanged="OnFileExplorerSelectionChanged"
+                                          DoubleTapped="OnFileExplorerItemDoubleTapped">
+                                    <TreeView.Styles>
+                                        <Style Selector="TreeViewItem">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                        </Style>
+                                    </TreeView.Styles>
+                                    <TreeView.ItemTemplate>
+                                        <TreeDataTemplate ItemsSource="{Binding Children}" DataType="vm:FileExplorerItem">
+                                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                                        IsVisible="{Binding IsPlaceholder, Converter={StaticResource InverseBool}}">
+                                                <StackPanel.ContextFlyout>
+                                                    <MenuFlyout>
+                                                        <MenuItem Header="Open"
+                                                                  Command="{Binding $parent[Window].DataContext.OpenExplorerFileCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding CanOpen}"/>
+                                                        <MenuItem Header="View changes (git diff)"
+                                                                  Command="{Binding $parent[Window].DataContext.ViewGitDiffCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding HasGitChange}"/>
+                                                        <MenuItem Header="Open Preview"
+                                                                  Command="{Binding $parent[Window].DataContext.OpenExplorerFilePreviewCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding CanOpen}"/>
+                                                        <MenuItem Header="Remove from task"
+                                                                  Command="{Binding $parent[Window].DataContext.RemoveFolderFromTaskCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding IsExtraRoot}"/>
+                                                    </MenuFlyout>
+                                                </StackPanel.ContextFlyout>
+                                                <TextBlock Text="{Binding Icon}" FontSize="14"/>
+                                                <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding GitBadge}" FontSize="11" FontWeight="Bold"
+                                                           Foreground="{Binding GitColor}"
+                                                           ToolTip.Tip="{Binding GitTooltip}"
+                                                           IsVisible="{Binding HasGitChange}"/>
+                                                <TextBlock Text="●" FontSize="8" Foreground="#E5A100"
+                                                           VerticalAlignment="Center"
+                                                           ToolTip.Tip="Contains uncommitted changes"
+                                                           IsVisible="{Binding ShowGitFolderDot}"/>
+                                                <TextBlock Text="⏳" 
+                                                           IsVisible="{Binding IsLoading}" 
+                                                           FontSize="10" 
+                                                           Foreground="#888"/>
+                                                <Button Content="✕"
+                                                        IsVisible="{Binding IsExtraRoot}"
+                                                        Command="{Binding $parent[Window].DataContext.RemoveFolderFromTaskCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Remove this folder from the task"
+                                                        Width="18" Height="18" Padding="0" FontSize="9"
+                                                        Background="Transparent" BorderThickness="0"/>
+                                            </StackPanel>
+                                        </TreeDataTemplate>
+                                    </TreeView.ItemTemplate>
+                                </TreeView>
+                            </ScrollViewer>
+                            <!-- Git changes: shown only when an open folder is a git repository with uncommitted changes. -->
+                            <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6" Margin="0,0,0,8"
+                                    IsVisible="{Binding FileExplorer.HasGitChanges}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding FileExplorer.ChangesHeader}" FontSize="11" FontWeight="SemiBold"/>
+                                    <ScrollViewer MaxHeight="160">
+                                        <ItemsControl ItemsSource="{Binding FileExplorer.Changes}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="svc:GitFileChange">
+                                                    <Button Command="{Binding $parent[Window].DataContext.ViewGitChangeCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="{Binding Description}"
+                                                            HorizontalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Left"
+                                                            Background="Transparent" BorderThickness="0" Padding="2,2">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <TextBlock Text="{Binding Badge}" FontSize="11" FontWeight="Bold"
+                                                                       Foreground="{Binding Color}" Width="12"/>
+                                                            <TextBlock Text="{Binding RelativePath}" FontSize="11"
+                                                                       TextTrimming="CharacterEllipsis"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Row="3" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding FileExplorer.RootPath}"
+                                               FontSize="10"
+                                               Opacity="0.5"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding FileExplorer.ExtraFoldersSummary}"
+                                               FontSize="10"
+                                               Opacity="0.7"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </SplitView.Pane>
+
+                <!-- Main Content (Editor + Chat + Terminal) -->
+                <SplitView.Content>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="{Binding EditorColumnWidth}"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="{Binding ChatColumnWidth}"/>
+                            <ColumnDefinition Width="{Binding PreviewColumnWidth}"/>
+                            <ColumnDefinition Width="{Binding AgentsColumnWidth}"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Editor next to Explorer when a file is open -->
+                        <Border Name="EditorHost" Grid.Column="0"
+                                IsVisible="{Binding ShowEditorPanel}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Padding="0"
+                                Margin="0,0,0,8"
+                                MinWidth="300">
+                            <views:EditorView Name="EditorViewControl" DataContext="{Binding EditorPane}"/>
+                        </Border>
+
+                        <!-- Draggable splitter between Editor and Chat -->
+                        <GridSplitter Grid.Column="1"
+                                      Width="8"
+                                      Background="Transparent"
+                                      ResizeDirection="Columns"
+                                      ResizeBehavior="PreviousAndNext"
+                                      Cursor="SizeWestEast"
+                                      ToolTip.Tip="Drag to resize"
+                                      IsVisible="{Binding ShowEditorChatSplitter}"/>
+
+                        <!-- Chat + Terminal stacked -->
+                        <Grid Name="ChatHost" Grid.Column="2" MinWidth="360" IsVisible="{Binding ShowChatPanel}" RowDefinitions="*,Auto,Auto,Auto,Auto">
+                            <!-- Chat Messages -->
+                            <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
+                                <StackPanel Spacing="8" Margin="16,0">
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.Messages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:ChatMessage">
+                                                <Border Margin="0,4" Padding="12" 
+                                                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" 
+                                                        CornerRadius="8">
+                                                    <StackPanel Spacing="4">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                            <TextBlock Grid.Column="0" 
+                                                                       Text="{Binding Role}" 
+                                                                       FontWeight="SemiBold" 
+                                                                       FontSize="12" 
+                                                                       Opacity="0.7"
+                                                                       Padding="0,0,8,0"/>
+                                                            <TextBlock Grid.Column="2" 
+                                                                       Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}" 
+                                                                       FontSize="10" 
+                                                                       Opacity="0.4"/>
+                                                            <Button Grid.Column="3" 
+                                                                    Content="📋"
+                                                                    ToolTip.Tip="Copy message"
+                                                                    FontSize="11"
+                                                                    Padding="4,2"
+                                                                    Margin="8,0,0,0"
+                                                                    Cursor="Hand"
+                         Click="CopyMessageButton_ClickAsync"
+                                                                    Background="Transparent"
+                                                                    BorderThickness="0"/>
+                                                        </Grid>
+                                                        <md:MarkdownScrollViewer Markdown="{Binding Content}">
+                                                            <md:MarkdownScrollViewer.Plugins>
+                                                                <md:MdAvPlugins>
+                                                                    <mdtight:ChatAISetup/>
+                                                                </md:MdAvPlugins>
+                                                            </md:MarkdownScrollViewer.Plugins>
+                                                        </md:MarkdownScrollViewer>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.ToolCallCards}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:ToolCallCardViewModel">
+                                                <Border Margin="0,4" Padding="10" 
+                                                        Background="{DynamicResource AppHeaderBrush}" 
+                                                        CornerRadius="8" 
+                                                        BorderThickness="1">
+                                                    <StackPanel Spacing="4">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding ToolName, StringFormat='🔧 {}{0}'}" 
+                                                                           FontWeight="Bold" 
+                                                                           FontSize="13"/>
+                                                                <Border CornerRadius="3" Padding="3,1" 
+                                                                        Background="{DynamicResource AppBadgeBrush}">
+                                                                    <TextBlock Text="{Binding IsError}" 
+                                                                               FontSize="10"/>
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="2" 
+                                                                       Text="{Binding Duration}" 
+                                                                       FontSize="11" 
+                                                                       Opacity="0.6"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="8,0"/>
+                                                            <Button Grid.Column="3" 
+                                                                    Content="▶" 
+                                                                    PointerPressed="OnToolCardExpandToggle"
+                                                                    Width="20" Height="20" Padding="0" FontSize="10"/>
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding Arguments}" 
+                                                                   FontSize="11" 
+                                                                   Opacity="0.5" 
+                                                                   TextWrapping="Wrap"/>
+                                                        <Border Background="{DynamicResource AppDeepBrush}" 
+                                                                CornerRadius="4" 
+                                                                Padding="8" 
+                                                                IsVisible="{Binding IsExpanded}">
+                                                            <TextBlock Text="{Binding Output}" 
+                                                                       FontSize="11" 
+                                                                       FontFamily="Consolas" 
+                                                                       TextWrapping="Wrap"/>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Terminal Pane -->
+                            <Border Grid.Row="1" 
+                                    IsVisible="{Binding Terminal.IsVisible}" 
+                                    Background="{DynamicResource AppInsetBrush}" 
+                                    CornerRadius="4" 
+                                    Margin="16,0,16,4"
+                                    MinHeight="100"
+                                    MaxHeight="400">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="8,4" CornerRadius="4,4,0,0">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                            <TextBlock Grid.Column="0" Text="💻 Terminal" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" 
+                                                       Text="{Binding Terminal.IsRunning}" 
+                                                       FontSize="11" 
+                                                       Opacity="0.5" 
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,8,0"/>
+                                            <Button Grid.Column="3" 
+                                                    Content="🗑️" 
+                                                    Command="{Binding Terminal.ClearCommand}"
+                                                    Width="20" Height="20" Padding="0" FontSize="10"/>
+                                        </Grid>
+                                    </Border>
+                                    <ScrollViewer Grid.Row="1" Margin="4">
+                                        <ItemsControl ItemsSource="{Binding Terminal.Entries}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="vm:TerminalEntry">
+                                                    <TextBlock Text="{Binding Text}" 
+                                                               FontSize="11" 
+                                                               FontFamily="Consolas" 
+                                                               TextWrapping="Wrap"
+                                                               Foreground="{Binding IsError, Converter={StaticResource BoolToErrorBrush}}"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+
+                            <!-- Feature 8: Requirements Clarification Panel -->
+                            <Border Grid.Row="3"
+                                    IsVisible="{Binding ChatViewModel.IsAwaitingClarification}"
+                                    Background="{DynamicResource AppInfoBrush}"
+                                    BorderBrush="{DynamicResource AppInfoBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10"
+                                    Margin="16,4,16,4">
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="📝" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ChatViewModel.CurrentClarificationDimension, StringFormat='Requirements clarification — {}'}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <Button Grid.Column="2"
+                                                Content="🚀 Just Build It"
+                                                Command="{Binding ChatViewModel.SkipClarificationCommand}"
+                                                FontSize="11"
+                                                Padding="8,4"
+                                                Background="#2A4A6A"
+                                                Foreground="White"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.ClarificationQuestions}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="core:RequirementGap">
+                                                <Border Background="{DynamicResource AppHeaderBrush}" CornerRadius="4" Padding="8" Margin="0,2">
+                                                    <StackPanel Spacing="2">
+                                                        <TextBlock Text="{Binding Dimension, StringFormat='Dimension: {}'}"
+                                                                   FontSize="10"
+                                                                   Opacity="0.6"/>
+                                                        <TextBlock Text="{Binding Question}"
+                                                                   FontSize="12"
+                                                                   TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="Type your answer in the input box below and press Enter, or click Just Build It to skip."
+                                               FontSize="10"
+                                               Opacity="0.5"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Feature 8: Requirements Summary Card (shown when CurrentRequirements is set and not awaiting) -->
+                            <Border Grid.Row="3"
+                                    IsVisible="{Binding ChatViewModel.CurrentRequirements, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Background="{DynamicResource AppSuccessBrush}"
+                                    BorderBrush="{DynamicResource AppSuccessBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="8"
+                                    Margin="16,4,16,4"
+                                    IsEnabled="False">
+                                <TextBlock Text="{Binding ChatViewModel.CurrentRequirements}"
+                                           FontSize="11"
+                                           FontFamily="Consolas"
+                                           TextWrapping="Wrap"/>
+                            </Border>
+
+                            <!-- Live activity: what the agent is doing right now + elapsed time -->
+                            <Border Grid.Row="2"
+                                    IsVisible="{Binding ChatViewModel.Activity.IsActive}"
+                                    Background="{DynamicResource AppInfoBrush}"
+                                    BorderBrush="{DynamicResource AppInfoBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10,8"
+                                    Margin="16,4,16,0">
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <ProgressBar Grid.Column="0" IsIndeterminate="True" Width="40" Height="4" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ChatViewModel.Activity.CurrentActivity}"
+                                                   FontSize="12" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ChatViewModel.Activity.StepElapsedText, StringFormat='step {0}'}" FontSize="11" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding ChatViewModel.Activity.ElapsedText, StringFormat='⏱ {0}'}" FontSize="12" FontFamily="Consolas" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.Activity.RecentSteps}"
+                                                  IsVisible="{Binding ChatViewModel.Activity.HasRecentSteps}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Input Area -->
+                            <Grid Grid.Row="4" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
+                                <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="4" RowDefinitions="*,Auto">
+                                    <Popup Grid.Row="0" 
+                                           IsOpen="{Binding ChatViewModel.ShowMentionPopup}"
+                                           Placement="Top"
+                                           PlacementTarget="{Binding #InputBox}">
+                                        <Border Background="{DynamicResource AppPopupBrush}" 
+                                                CornerRadius="8" 
+                                                Padding="4" 
+                                                MinWidth="200" 
+                                                MaxWidth="350"
+                                                MaxHeight="200">
+                                            <ScrollViewer>
+                                                <ItemsControl ItemsSource="{Binding ChatViewModel.MentionItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="vm:MentionItem">
+                                                            <Border Padding="6,4" CornerRadius="4" PointerPressed="OnMentionSelected">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                    <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" Margin="0,0,8,0"/>
+                                                                    <TextBlock Grid.Column="1" Text="{Binding FileName}" FontSize="12" FontWeight="SemiBold"/>
+                                                                    <TextBlock Grid.Column="2" Text="{Binding FilePath}" FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Border>
+                                    </Popup>
+
+                                    <Popup Grid.Row="0" 
+                                           IsOpen="{Binding ChatViewModel.ShowSlashCommands}"
+                                           Placement="Top"
+                                           PlacementTarget="{Binding #InputBox}">
+                                        <Border Background="{DynamicResource AppPopupBrush}" 
+                                                CornerRadius="8" 
+                                                Padding="4" 
+                                                MinWidth="250" 
+                                                MaxHeight="250">
+                                            <ScrollViewer>
+                                                <ItemsControl ItemsSource="{Binding ChatViewModel.SlashCommandItems}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate DataType="vm:SlashCommandItem">
+                                                            <Border Padding="8,6" CornerRadius="4" PointerPressed="OnSlashCommandSelected">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                    <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" Margin="0,0,8,0"/>
+                                                                    <StackPanel Grid.Column="1" Orientation="Vertical">
+                                                                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Bold"/>
+                                                                        <TextBlock Text="{Binding Description}" FontSize="10" Opacity="0.6"/>
+                                                                    </StackPanel>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Border>
+                                    </Popup>
+
+                                    <TextBox Name="InputBox" 
+                                             Grid.Row="0"
+                                             Text="{Binding ChatViewModel.InputText}"
+                                             Watermark="Type a message or / for commands... (@ to mention files)"
+                                             AcceptsReturn="False"
+                                             TextWrapping="Wrap"
+                                             KeyDown="OnInputKeyDown"
+                                             TextChanged="OnInputTextChanged"
+                                             MinHeight="44"
+                                             MaxHeight="140"
+                                             Padding="12,10"/>
+                                    <TextBlock Grid.Row="1" 
+                                               Text="{Binding ChatViewModel.TokenCount}" 
+                                               FontSize="10" 
+                                               Opacity="0.4" 
+                                               HorizontalAlignment="Right"
+                                               Margin="0,2,4,0"/>
+                                </Grid>
+
+                                <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,8,0,0">
+                                    <ComboBox ItemsSource="{Binding ChatViewModel.AvailablePipelines}"
+                                              SelectedItem="{Binding ChatViewModel.SelectedPipeline}"
+                                              ToolTip.Tip="SDLC pipeline to run (analyze / implement / review / test / deploy)"
+                                              MinHeight="36" MinWidth="110"/>
+                                    <Button Content="🚀 Pipeline"
+                                            Command="{Binding ChatViewModel.RunPipelineCommand}"
+                                            ToolTip.Tip="Run the selected SDLC pipeline against this task"
+                                            Padding="12,8"
+                                            MinHeight="36"/>
+                                    <ComboBox ItemsSource="{Binding ChatViewModel.EffortOptions}"
+                                              SelectedItem="{Binding ChatViewModel.ReasoningEffortName}"
+                                              ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"
+                                              MinHeight="36" MinWidth="100"
+                                              Margin="12,0,0,0"/>
+                                    <Button Content="⏪ Rewind"
+                                            Command="{Binding ChatViewModel.OpenRewindCommand}"
+                                            IsEnabled="{Binding !ChatViewModel.IsProcessing}"
+                                            ToolTip.Tip="Rewind or fork the conversation (/rewind)"
+                                            Padding="12,8"
+                                            MinHeight="36"/>
+                                </StackPanel>
+
+                                <Button Grid.Row="1" Grid.Column="2" 
+                                        Content="➤ Send" 
+                                        Command="{Binding ChatViewModel.SendCommand}" 
+                                        ToolTip.Tip="Send (Enter)"
+                                        Margin="8,8,0,0" 
+                                        Padding="16,8"
+                                        MinHeight="36"/>
+                                <Button Grid.Row="1" Grid.Column="3" 
+                                        Content="🗑️" 
+                                        Command="{Binding ChatViewModel.ClearChatCommand}"
+                                        ToolTip.Tip="Clear Chat (Ctrl+L)"
+                                        Width="36" Height="36" Padding="0" Margin="4,8,0,0"/>
+                            </Grid>
+                        </Grid>
+
+                        <!-- Preview Pane (click-to-edit visual layer) -->
+                        <Border Name="PreviewHost" Grid.Column="3"
+                                IsVisible="{Binding ShowPreviewPanel}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                                Margin="0,0,0,8"
+                                MinWidth="300"
+                                MaxWidth="{Binding PreviewMaxWidth}">
+                            <views:PreviewPaneView DataContext="{Binding PreviewPane}"/>
+                        </Border>
+
+                        <!-- Agent Session Sidebar (Right) -->
+                        <Border Name="AgentsHost" Grid.Column="4" 
+                                IsVisible="{Binding ShowAgentsPanel}"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" 
+                                Padding="8" 
+                                Margin="8,0,0,8"
+                                MinWidth="180"
+                                MaxWidth="{Binding AgentsMaxWidth}">
+                            <Grid RowDefinitions="Auto,*">
+                                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                    <TextBlock Grid.Column="0" Text="🤖 Agents" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" 
+                                            Content="✕" 
+                                            Command="{Binding ChatViewModel.ToggleAgentSidebarCommand}"
+                                            Width="20" Height="20" Padding="0" FontSize="10"/>
+                                </Grid>
+                                <ScrollViewer Grid.Row="1">
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.AgentSessions}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:AgentSessionItem">
+                                                <Border Margin="0,2" Padding="8" Background="{DynamicResource AppHeaderBrush}" CornerRadius="6">
+                                                    <StackPanel Spacing="2">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <TextBlock Grid.Column="0" Text="🤖" FontSize="12" Margin="0,0,6,0"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding AgentId}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="10" Opacity="0.6"/>
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding Role}" FontSize="10" Opacity="0.5"/>
+                                                        <TextBlock Text="{Binding PermissionMode, StringFormat='Mode: {}{0}'}" FontSize="10" Opacity="0.4"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </SplitView.Content>
+            </SplitView>
+        </Grid>
+
+        <!-- Approval Request Overlay -->
+        <Border Grid.RowSpan="3"
+                IsVisible="{Binding ChatViewModel.ShowApprovalDialog}"
+                Background="#88000000"
+                ZIndex="200"
+                PointerPressed="OnPaletteBackdropPressed">
+            <Border Width="520"
+                    MaxHeight="420"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="16"
+                    BoxShadow="0 8 24 0 #66000000">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="0,10">
+                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="🔐" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Column="1" Text="Approval Required" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Grid.Column="2" 
+                                Content="✕" 
+                                Command="{Binding ChatViewModel.DenyToolCommand}"
+                                Width="24" Height="24" Padding="0" FontSize="12"
+                                Background="Transparent" BorderThickness="0"/>
+                    </Grid>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="Tool:" FontSize="12" Opacity="0.6" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ChatViewModel.ApprovalToolName}" FontSize="14" FontWeight="Bold" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    </Grid>
+
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="Risk:" FontSize="12" Opacity="0.6" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ChatViewModel.ApprovalRisk}" FontSize="13" FontWeight="SemiBold" Foreground="#FFAA22" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    </Grid>
+
+                    <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="Agent:" FontSize="11" Opacity="0.5" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                        <TextBlock Grid.Column="1" Text="{Binding ChatViewModel.ApprovalAgent}" FontSize="11" Opacity="0.7" FontFamily="Consolas" TextWrapping="Wrap"/>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="4">
+                        <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="10">
+                            <TextBlock Text="{Binding ChatViewModel.ApprovalArgs}" 
+                                       FontSize="11" 
+                                       FontFamily="Consolas" 
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button Content="✕ Deny (Esc)" 
+                                Command="{Binding ChatViewModel.DenyToolCommand}"
+                                Padding="20,10" FontSize="13"
+                                Background="#FF4444" Foreground="White"/>
+                        <Button Content="✓ Approve" 
+                                Command="{Binding ChatViewModel.ApproveToolCommand}"
+                                Padding="20,10" FontSize="13"
+                                Background="#22AA22" Foreground="White"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- Command Palette Overlay -->
+        <Border Grid.RowSpan="3"
+                IsVisible="{Binding CommandPalette.IsOpen}"
+                Background="#88000000"
+                ZIndex="100"
+                PointerPressed="OnPaletteBackdropPressed">
+            <Border Width="640"
+                    MaxHeight="480"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    BoxShadow="0 8 24 0 #66000000">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <TextBox Name="PaletteSearchBox"
+                                 Watermark="Type a command or search..."
+                                 Text="{Binding CommandPalette.SearchText}"
+                                 KeyDown="OnPaletteKeyDown"
+                                 MinHeight="34"
+                                 FontSize="14"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="Ctrl+Shift+P"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding CommandPalette.FilteredEntries.Count, StringFormat='{}{0} commands'}"
+                               FontSize="11"
+                               Opacity="0.5"
+                               Margin="0,0,0,8"/>
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding CommandPalette.FilteredEntries}"
+                             SelectedIndex="{Binding CommandPalette.SelectedIndex, Mode=TwoWay}"
+                             MaxHeight="320"
+                             Background="Transparent"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="cmd:ICommandPaletteEntry">
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="4">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Category}"
+                                               FontSize="10"
+                                               Opacity="0.6"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Title}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding KeybindingHint}"
+                                               FontSize="11"
+                                               Opacity="0.5"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Border>
+
+        <!-- Quick Open Overlay: fuzzy file search (Ctrl+P), or workspace-wide
+             symbol search when the query starts with '#' (Ctrl+T seeds it). -->
+        <Border Grid.RowSpan="3"
+                IsVisible="{Binding QuickOpen.IsOpen}"
+                Background="#88000000"
+                ZIndex="100"
+                PointerPressed="OnQuickOpenBackdropPressed">
+            <Border Width="640"
+                    MaxHeight="480"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseHighBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    BoxShadow="0 8 24 0 #66000000">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <TextBox Name="QuickOpenSearchBox"
+                                 Watermark="Go to file... (type # for symbols)"
+                                 Text="{Binding QuickOpen.SearchText}"
+                                 KeyDown="OnQuickOpenKeyDown"
+                                 MinHeight="34"
+                                 FontSize="14"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="Ctrl+P / Ctrl+T"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,0,0"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1"
+                               Text="{Binding QuickOpen.Results.Count, StringFormat='{}{0} results'}"
+                               FontSize="11"
+                               Opacity="0.5"
+                               Margin="0,0,0,8"/>
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding QuickOpen.Results}"
+                             SelectedIndex="{Binding QuickOpen.SelectedIndex, Mode=TwoWay}"
+                             MaxHeight="320"
+                             Background="Transparent"
+                             BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:QuickOpenResult">
+                                <Grid ColumnDefinitions="Auto,*" Margin="4">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding DisplayName}"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SubText}"
+                                               FontSize="11"
+                                               Opacity="0.5"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
+</Window>

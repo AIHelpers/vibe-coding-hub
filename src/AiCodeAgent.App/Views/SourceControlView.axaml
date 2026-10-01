@@ -1,0 +1,136 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.SourceControlView"
+             x:DataType="vm:SourceControlViewModel">
+
+    <UserControl.Resources>
+        <!-- One changed file: badge, name + folder (click = diff), and the per-row actions. -->
+        <DataTemplate x:Key="EntryRow" DataType="vm:SourceControlEntry">
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,1" ToolTip.Tip="{Binding ToolTip}">
+                <TextBlock Grid.Column="0" Text="{Binding Badge}" Foreground="{Binding Color}"
+                           FontSize="11" FontWeight="Bold" Width="14" VerticalAlignment="Center"/>
+                <Button Grid.Column="1"
+                        Command="{Binding $parent[UserControl].DataContext.OpenDiffCommand}"
+                        CommandParameter="{Binding}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Background="Transparent" BorderThickness="0" Padding="2,3">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Directory}" FontSize="11" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Button>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button Content="📄" ToolTip.Tip="Open file"
+                            Command="{Binding $parent[UserControl].DataContext.OpenFileCommand}" CommandParameter="{Binding}"
+                            Width="22" Height="22" Padding="0" FontSize="11" Background="Transparent" BorderThickness="0"/>
+                    <!-- Discard: first click asks, second click does it. -->
+                    <Button Content="↩" ToolTip.Tip="Discard changes…"
+                            IsVisible="{Binding ShowDiscardButton}"
+                            Command="{Binding $parent[UserControl].DataContext.DiscardCommand}" CommandParameter="{Binding}"
+                            Width="22" Height="22" Padding="0" FontSize="12" Background="Transparent" BorderThickness="0"/>
+                    <StackPanel Orientation="Horizontal" Spacing="2" IsVisible="{Binding ShowDiscardConfirm}">
+                        <TextBlock Text="Discard?" FontSize="10" Foreground="#E05555" VerticalAlignment="Center"/>
+                        <Button Content="✓" ToolTip.Tip="Yes, discard — this cannot be undone"
+                                Command="{Binding $parent[UserControl].DataContext.ConfirmDiscardCommand}" CommandParameter="{Binding}"
+                                Width="22" Height="22" Padding="0" FontSize="11" Foreground="#E05555"
+                                Background="Transparent" BorderThickness="0"/>
+                        <Button Content="✕" ToolTip.Tip="Keep my changes"
+                                Command="{Binding $parent[UserControl].DataContext.CancelDiscardCommand}" CommandParameter="{Binding}"
+                                Width="22" Height="22" Padding="0" FontSize="11" Background="Transparent" BorderThickness="0"/>
+                    </StackPanel>
+                    <Button Content="＋" ToolTip.Tip="Stage changes"
+                            IsVisible="{Binding IsUnstaged}"
+                            Command="{Binding $parent[UserControl].DataContext.StageCommand}" CommandParameter="{Binding}"
+                            Width="22" Height="22" Padding="0" FontSize="13" Background="Transparent" BorderThickness="0"/>
+                    <Button Content="－" ToolTip.Tip="Unstage changes"
+                            IsVisible="{Binding IsStaged}"
+                            Command="{Binding $parent[UserControl].DataContext.UnstageCommand}" CommandParameter="{Binding}"
+                            Width="22" Height="22" Padding="0" FontSize="13" Background="Transparent" BorderThickness="0"/>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,*">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10" CornerRadius="4,4,0,0">
+            <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Source Control" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Branch, StringFormat='⎇ {0}'}" FontSize="11" Opacity="0.7"
+                                   VerticalAlignment="Center" IsVisible="{Binding IsGitRepository}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="⟳" ToolTip.Tip="Refresh"
+                            Command="{Binding RefreshCommand}"
+                            Width="24" Height="24" Padding="0" FontSize="13" Margin="0,0,6,0"/>
+                    <Button Grid.Column="2" Content="✕" Command="{Binding ToggleCommand}"
+                            Width="24" Height="24" Padding="0" FontSize="11"/>
+                </Grid>
+                <!-- Several project folders can be git repositories: pick which one to work on. -->
+                <ComboBox ItemsSource="{Binding Repos}" SelectedItem="{Binding SelectedRepo, Mode=TwoWay}"
+                          IsVisible="{Binding HasMultipleRepos}" HorizontalAlignment="Stretch" FontSize="12">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate DataType="vm:RepoOption">
+                            <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Path}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </StackPanel>
+        </Border>
+
+        <!-- Commit box -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8"
+                IsVisible="{Binding IsGitRepository}">
+            <StackPanel Spacing="6">
+                <TextBox Text="{Binding CommitMessage, Mode=TwoWay}"
+                         Watermark="Message (Ctrl+Enter to commit)"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         MinHeight="64" MaxHeight="140" FontSize="12">
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Ctrl+Enter" Command="{Binding CommitCommand}"/>
+                    </TextBox.KeyBindings>
+                </TextBox>
+                <Button Content="{Binding CommitButtonText}" Command="{Binding CommitCommand}"
+                        ToolTip.Tip="{Binding CommitButtonTip}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        FontSize="12" Padding="10,6"/>
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="#E05555" FontSize="11"
+                           TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#4CAF50" FontSize="11"
+                           TextWrapping="Wrap" IsVisible="{Binding HasStatus}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Change lists -->
+        <ScrollViewer Grid.Row="2">
+            <StackPanel Margin="8" Spacing="10">
+                <TextBlock Text="No git repository in the open folders. Open a folder that is a git repository (or run git init in it) to use source control."
+                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding NoRepository}"/>
+                <TextBlock Text="✓ No changes — the working tree is clean." FontSize="12" Opacity="0.6"
+                           IsVisible="{Binding IsClean}"/>
+
+                <!-- Staged -->
+                <StackPanel Spacing="2" IsVisible="{Binding HasStaged}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding StagedHeader}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="－ Unstage all" Command="{Binding UnstageAllCommand}"
+                                FontSize="10" Padding="6,2"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Staged}" ItemTemplate="{StaticResource EntryRow}"/>
+                </StackPanel>
+
+                <!-- Working tree -->
+                <StackPanel Spacing="2" IsVisible="{Binding HasUnstaged}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding UnstagedHeader}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="＋ Stage all" Command="{Binding StageAllCommand}"
+                                FontSize="10" Padding="6,2"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Unstaged}" ItemTemplate="{StaticResource EntryRow}"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

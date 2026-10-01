@@ -1,0 +1,77 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="AiCodeAgent.App.App"
+             xmlns:local="using:AiCodeAgent.App"
+             xmlns:converters="using:AiCodeAgent.App.Converters"
+             RequestedThemeVariant="Dark">
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml"/>
+    </Application.Styles>
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="PrimaryColor">#0078D4</Color>
+                    <Color x:Key="SecondaryColor">#106EBE</Color>
+                    <Color x:Key="AccentColor">#FFB900</Color>
+                    <Color x:Key="BackgroundColor">#FFFFFF</Color>
+                    <Color x:Key="SurfaceColor">#F3F3F3</Color>
+                    <Color x:Key="TextColor">#1A1A1A</Color>
+                    <SolidColorBrush x:Key="AppHeaderBrush" Color="#DDE1EA"/>
+                    <SolidColorBrush x:Key="AppSubBrush" Color="#E9ECF3"/>
+                    <SolidColorBrush x:Key="AppDeepBrush" Color="#EEF0F6"/>
+                    <SolidColorBrush x:Key="AppInsetBrush" Color="#F3F4F8"/>
+                    <SolidColorBrush x:Key="AppPopupBrush" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="AppHoverBrush" Color="#E0E4EE"/>
+                    <SolidColorBrush x:Key="AppBadgeBrush" Color="#D5D9E3"/>
+                    <SolidColorBrush x:Key="AppInfoBrush" Color="#E7F0FB"/>
+                    <SolidColorBrush x:Key="AppInfoBorderBrush" Color="#9DBBE0"/>
+                    <SolidColorBrush x:Key="AppSuccessBrush" Color="#E8F5E9"/>
+                    <SolidColorBrush x:Key="AppSuccessBorderBrush" Color="#8BC48F"/>
+                    <SolidColorBrush x:Key="AppDiffRemovedHeaderBrush" Color="#FBE4E4"/>
+                    <SolidColorBrush x:Key="AppDiffRemovedBrush" Color="#FFF1F1"/>
+                    <SolidColorBrush x:Key="AppDiffAddedHeaderBrush" Color="#E2F4E3"/>
+                    <SolidColorBrush x:Key="AppDiffAddedBrush" Color="#F1FAF2"/>
+                    <SolidColorBrush x:Key="EditorBackgroundBrush" Color="#FFFFFF"/>
+                    <SolidColorBrush x:Key="EditorForegroundBrush" Color="#1E1E2E"/>
+                    <SolidColorBrush x:Key="EditorFrameBrush" Color="#F5F5F5"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="PrimaryColor">#60CDFF</Color>
+                    <Color x:Key="SecondaryColor">#0078D4</Color>
+                    <Color x:Key="AccentColor">#FFB900</Color>
+                    <Color x:Key="BackgroundColor">#1F1F1F</Color>
+                    <Color x:Key="SurfaceColor">#2D2D2D</Color>
+                    <Color x:Key="TextColor">#FFFFFF</Color>
+                    <SolidColorBrush x:Key="AppHeaderBrush" Color="#2A2A3A"/>
+                    <SolidColorBrush x:Key="AppSubBrush" Color="#22222E"/>
+                    <SolidColorBrush x:Key="AppDeepBrush" Color="#1A1A2A"/>
+                    <SolidColorBrush x:Key="AppInsetBrush" Color="#1E1E2E"/>
+                    <SolidColorBrush x:Key="AppPopupBrush" Color="#2D2D3D"/>
+                    <SolidColorBrush x:Key="AppHoverBrush" Color="#26263A"/>
+                    <SolidColorBrush x:Key="AppBadgeBrush" Color="#3A3A4A"/>
+                    <SolidColorBrush x:Key="AppInfoBrush" Color="#1E2A3A"/>
+                    <SolidColorBrush x:Key="AppInfoBorderBrush" Color="#3A5A8A"/>
+                    <SolidColorBrush x:Key="AppSuccessBrush" Color="#1A2A1A"/>
+                    <SolidColorBrush x:Key="AppSuccessBorderBrush" Color="#2A6A2A"/>
+                    <SolidColorBrush x:Key="AppDiffRemovedHeaderBrush" Color="#241A1A"/>
+                    <SolidColorBrush x:Key="AppDiffRemovedBrush" Color="#1A1414"/>
+                    <SolidColorBrush x:Key="AppDiffAddedHeaderBrush" Color="#1A241A"/>
+                    <SolidColorBrush x:Key="AppDiffAddedBrush" Color="#141A14"/>
+                    <SolidColorBrush x:Key="EditorBackgroundBrush" Color="#1E1E2E"/>
+                    <SolidColorBrush x:Key="EditorForegroundBrush" Color="#E8E8F0"/>
+                    <SolidColorBrush x:Key="EditorFrameBrush" Color="#181825"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <!-- Value Converters -->
+            <converters:BoolToStatusIconConverter x:Key="BoolToStatusIcon"/>
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+            <converters:BoolToErrorBrushConverter x:Key="BoolToErrorBrush"/>
+            <converters:InverseBoolConverter x:Key="InverseBool"/>
+            <converters:BoolToActiveTabBrushConverter x:Key="BoolToActiveTabBrush"/>
+            <converters:StringNotEmptyConverter x:Key="StringNotEmpty"/>
+            <converters:BoolToStarGridLengthConverter x:Key="BoolToStarGridLength"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

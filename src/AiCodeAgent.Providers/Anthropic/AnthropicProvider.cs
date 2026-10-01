@@ -1,0 +1,459 @@
+using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using AiCodeAgent.Core;
+using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Models;
+using AiCodeAgent.Providers.Base;
+using Microsoft.Extensions.Logging;
+
+namespace AiCodeAgent.Providers.Anthropic;
+
+public class AnthropicProvider : BaseHttpProvider
+{
+    private const string ApiVersion = "2023-06-01";
+    private static readonly string[] Models =
+    [
+        "claude-opus-4-5", "claude-sonnet-4-5",
+        "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229"
+    ];
+
+    public AnthropicProvider(ProviderConfiguration config, ILogger<AnthropicProvider> logger)
+        : base(config, logger)
+    {
+        HttpClient.DefaultRequestHeaders.Add("anthropic-version", ApiVersion);
+        HttpClient.DefaultRequestHeaders.Add("x-api-key", config.ApiKey ?? string.Empty);
+        HttpClient.DefaultRequestHeaders.Remove("Authorization");
+    }
+
+    public override string Name => "Anthropic";
+    public override string[] SupportedModels => Models;
+
+    public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await HttpClient.GetFromJsonAsync<AnthropicModelsResponse>(
+                "/v1/models", cancellationToken);
+            return response?.Data.Select(m => m.Id).ToArray() ?? Models;
+        }
+        catch
+        {
+            return Models;
+        }
+    }
+
+    public override async Task<CompletionResponse> CompleteAsync(
+        CompletionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = BuildPayload(request, stream: false);
+        var response = await SendWithRetryAsync(
+            () => HttpClient.PostAsJsonAsync("/v1/messages", payload, cancellationToken),
+            cancellationToken);
+        
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException($"Anthropic API error: {error}");
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AnthropicResponse>(
+            cancellationToken: cancellationToken) ?? throw new InvalidOperationException("Empty response");
+
+        return MapResponse(result);
+    }
+
+    public override async IAsyncEnumerable<StreamChunk> StreamAsync(
+        CompletionRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var payload = BuildPayload(request, stream: true);
+
+        // A fresh HttpRequestMessage (and JsonContent) must be built on every
+        // attempt — HttpRequestMessage cannot be sent more than once, so the
+        // previous single-shot SendAsync could never have been retried as-is.
+        var response = await SendWithRetryAsync(
+            () => HttpClient.SendAsync(
+                new HttpRequestMessage(HttpMethod.Post, "/v1/messages") { Content = JsonContent.Create(payload) },
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var toolCallsBuffer = new Dictionary<int, AnthropicToolUseBuffer>();
+        var currentToolIndex = -1;
+        var thinkingBuffer = new SortedDictionary<int, AnthropicThinkingBuffer>();
+
+        // Anthropic streams usage in two places: message_start carries
+        // input_tokens (and an initial output_tokens of 0), and message_delta
+        // carries the final output_tokens plus the stop_reason. We accumulate
+        // both and attach them to the terminal finished chunk so the
+        // orchestrator (which breaks on IsFinished) actually records usage.
+        var inputTokens = 0;
+        var cacheReadTokens = 0;
+        var cacheWriteTokens = 0;
+        var outputTokens = 0;
+        var stopReason = "stop";
+
+        await foreach (var line in ReadSseStreamAsync(response, cancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            AnthropicStreamEvent? evt;
+            try
+            {
+                evt = JsonSerializer.Deserialize<AnthropicStreamEvent>(line, JsonOptions.Default);
+            }
+            catch (JsonException ex)
+            {
+                Logger.LogDebug(ex, "Failed to parse Anthropic streaming event: {Line}", line);
+                continue;
+            }
+
+            if (evt == null) continue;
+
+            switch (evt.Type)
+            {
+                case "message_start":
+                    inputTokens = evt.Message?.Usage?.InputTokens ?? 0;
+                    outputTokens = evt.Message?.Usage?.OutputTokens ?? 0;
+                    cacheReadTokens = evt.Message?.Usage?.CacheReadInputTokens ?? 0;
+                    cacheWriteTokens = evt.Message?.Usage?.CacheCreationInputTokens ?? 0;
+                    break;
+
+                case "content_block_start":
+                    if (evt.ContentBlock?.Type is "thinking" or "redacted_thinking")
+                    {
+                        thinkingBuffer[evt.Index] = new AnthropicThinkingBuffer
+                        {
+                            Type = evt.ContentBlock.Type,
+                            Data = evt.ContentBlock.Data
+                        };
+                    }
+                    else if (evt.ContentBlock?.Type == "tool_use")
+                    {
+                        currentToolIndex = evt.Index;
+                        toolCallsBuffer[currentToolIndex] = new AnthropicToolUseBuffer
+                        {
+                            Id = evt.ContentBlock.Id ?? string.Empty,
+                            Name = evt.ContentBlock.Name ?? string.Empty
+                        };
+                    }
+                    break;
+
+                case "content_block_delta":
+                    if (evt.Delta?.Type == "text_delta")
+                    {
+                        yield return new StreamChunk { Delta = evt.Delta.Text ?? string.Empty };
+                    }
+                    else if (evt.Delta?.Type == "thinking_delta" && thinkingBuffer.TryGetValue(evt.Index, out var thinking))
+                    {
+                        var piece = evt.Delta.Thinking ?? string.Empty;
+                        thinking.Text.Append(piece);
+                        if (piece.Length > 0)
+                            yield return new StreamChunk { ThinkingDelta = piece };
+                    }
+                    else if (evt.Delta?.Type == "signature_delta" && thinkingBuffer.TryGetValue(evt.Index, out var signed))
+                    {
+                        signed.Signature = (signed.Signature ?? string.Empty) + (evt.Delta.Signature ?? string.Empty);
+                    }
+                    else if (evt.Delta?.Type == "input_json_delta" && currentToolIndex >= 0)
+                    {
+                        toolCallsBuffer[currentToolIndex].InputJson += evt.Delta.PartialJson ?? string.Empty;
+                    }
+                    break;
+
+                case "message_delta":
+                    // message_delta carries the final stop_reason and the
+                    // cumulative output_tokens count.
+                    if (evt.Delta?.StopReason != null)
+                        stopReason = evt.Delta.StopReason;
+                    // The real API sends usage next to "delta" (top level of the event), not inside it.
+                    // Read the top-level field first; keep the nested one as a fallback.
+                    if (evt.Usage != null)
+                        outputTokens = evt.Usage.OutputTokens;
+                    else if (evt.Delta?.Usage != null)
+                        outputTokens = evt.Delta.Usage.OutputTokens;
+                    break;
+
+                case "message_stop":
+                    var usage = new TokenUsage
+                    {
+                        PromptTokens = inputTokens,
+                        CompletionTokens = outputTokens,
+                        CacheReadTokens = cacheReadTokens,
+                        CacheCreationTokens = cacheWriteTokens
+                    };
+
+                    if (toolCallsBuffer.Count > 0)
+                    {
+                        var toolCalls = toolCallsBuffer.Values.Select(buf => new ToolCall
+                        {
+                            Id = buf.Id,
+                            Name = buf.Name,
+                            Arguments = ParseArguments(buf.InputJson)
+                        }).ToList();
+
+                        yield return new StreamChunk
+                        {
+                            IsFinished = true,
+                            ToolCalls = toolCalls,
+                            FinishReason = stopReason == "stop" ? "tool_use" : stopReason,
+                            Usage = usage,
+                            ThinkingBlocks = BuildThinkingBlocks(thinkingBuffer)
+                        };
+                    }
+                    else
+                    {
+                        yield return new StreamChunk
+                        {
+                            IsFinished = true,
+                            FinishReason = stopReason,
+                            Usage = usage,
+                            ThinkingBlocks = BuildThinkingBlocks(thinkingBuffer)
+                        };
+                    }
+                    break;
+            }
+        }
+    }
+
+    // Recursively converts a PropertySchema into the plain-object shape the
+    // Anthropic API expects, preserving nested "items" (array element schema)
+    // and "properties"/"required" (object field schemas) instead of the old
+    // inline lambda, which only kept type+description and silently dropped
+    // enum/items/nested-properties for any non-trivial tool parameter.
+    private static object BuildJsonSchemaProperty(PropertySchema schema)
+    {
+        var result = new Dictionary<string, object?>
+        {
+            ["type"] = schema.Type,
+            ["description"] = schema.Description
+        };
+
+        if (schema.Enum is { Count: > 0 })
+            result["enum"] = schema.Enum;
+
+        if (schema.Items != null)
+            result["items"] = BuildJsonSchemaProperty(schema.Items);
+
+        if (schema.Properties is { Count: > 0 })
+        {
+            result["properties"] = schema.Properties.ToDictionary(
+                p => p.Key,
+                p => BuildJsonSchemaProperty(p.Value));
+            if (schema.Required is { Count: > 0 })
+                result["required"] = schema.Required;
+        }
+
+        return result;
+    }
+
+    private object BuildPayload(CompletionRequest request, bool stream)
+    {
+        var messages = request.Messages
+            .Where(m => m.Role != MessageRole.System)
+            .Select(BuildMessage)
+            .ToList();
+
+        // Prompt caching: a cache_control breakpoint on the last tool caches the whole tool list,
+        // and one on the system block caches tools + system. Both are stable across the turns of a
+        // run, so every iteration after the first reads them at a fraction of the input price.
+        var tools = request.Tools.Select(t => new Dictionary<string, object?>
+        {
+            ["name"] = t.Name,
+            ["description"] = t.Description,
+            ["input_schema"] = new
+            {
+                type = t.Parameters.Type,
+                properties = t.Parameters.Properties.ToDictionary(
+                    p => p.Key,
+                    p => BuildJsonSchemaProperty(p.Value)),
+                required = t.Parameters.Required
+            }
+        }).ToList();
+        if (tools.Count > 0)
+            tools[^1]["cache_control"] = new { type = "ephemeral" };
+
+        object? system = request.SystemPrompt;
+        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
+        {
+            system = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "text",
+                    ["text"] = request.SystemPrompt,
+                    ["cache_control"] = new { type = "ephemeral" }
+                }
+            };
+        }
+
+        var model = request.Options.Model ?? Config.DefaultModel;
+        var body = new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["system"] = system,
+            ["messages"] = messages,
+            ["tools"] = tools.Count > 0 ? tools : null,
+            ["max_tokens"] = request.Options.MaxTokens,
+            ["temperature"] = request.Options.Temperature,
+            ["stream"] = stream
+        };
+
+        // Extended thinking: only for models that support it. The API forbids a custom temperature while thinking is
+        // on and needs max_tokens above the thinking budget.
+        var budget = AnthropicThinking.Budget(request.Options.Reasoning);
+        if (budget is int thinkingBudget && AnthropicThinking.Supports(model))
+        {
+            body["thinking"] = new Dictionary<string, object?> { ["type"] = "enabled", ["budget_tokens"] = thinkingBudget };
+            body["max_tokens"] = AnthropicThinking.MaxTokensFor(request.Options.MaxTokens, thinkingBudget);
+            body.Remove("temperature");
+        }
+        return body;
+    }
+
+    private static IEnumerable<object> ReplayThinking(Message msg)
+    {
+        if (msg.ThinkingBlocks is not { Count: > 0 }) yield break;
+        foreach (var b in msg.ThinkingBlocks)
+        {
+            if (b.Type == "redacted_thinking")
+                yield return new Dictionary<string, object?> { ["type"] = "redacted_thinking", ["data"] = b.Data };
+            else if (!string.IsNullOrEmpty(b.Signature))   // an unsigned block would be rejected by the API
+                yield return new Dictionary<string, object?> { ["type"] = "thinking", ["thinking"] = b.Text, ["signature"] = b.Signature };
+        }
+    }
+
+    private static object BuildMessage(Message msg) => msg.Role switch
+    {
+        MessageRole.User when msg.Images is { Count: > 0 } =>
+            new { role = "user", content = BuildUserContentBlocks(msg) },
+        MessageRole.User => new { role = "user", content = msg.Content },
+        MessageRole.Assistant when msg.ToolCalls?.Count > 0 => new
+        {
+            role = "assistant",
+            // Reasoning blocks of a tool-using turn must be replayed first, unmodified (signature included).
+            content = ReplayThinking(msg).Concat(msg.ToolCalls.Select(tc => (object)new
+            {
+                type = "tool_use",
+                id = tc.Id,
+                name = tc.Name,
+                input = tc.Arguments
+            })).ToArray()
+        },
+        MessageRole.Tool => new
+        {
+            role = "user",
+            content = new[]
+            {
+                new
+                {
+                    type = "tool_result",
+                    tool_use_id = msg.ToolCallId,
+                    content = msg.Content
+                }
+            }
+        },
+        _ => new { role = "assistant", content = msg.Content }
+    };
+
+    /// <summary>
+    /// Builds Anthropic's mixed content-block array for a user message that
+    /// carries image attachments: one image block per attachment, followed
+    /// by a trailing text block (Anthropic wants images before the text that
+    /// refers to them).
+    /// </summary>
+    private static List<object> BuildUserContentBlocks(Message msg)
+    {
+        var blocks = new List<object>();
+        foreach (var image in msg.Images!)
+        {
+            blocks.Add(new
+            {
+                type = "image",
+                source = new
+                {
+                    type = "base64",
+                    media_type = image.MediaType,
+                    data = image.Base64Data
+                }
+            });
+        }
+        if (!string.IsNullOrEmpty(msg.Content))
+            blocks.Add(new { type = "text", text = msg.Content });
+        return blocks;
+    }
+
+    private static CompletionResponse MapResponse(AnthropicResponse result)
+    {
+        var textContent = string.Join("", result.Content
+            .Where(c => c.Type == "text")
+            .Select(c => c.Text ?? string.Empty));
+
+        var toolCalls = result.Content
+            .Where(c => c.Type == "tool_use")
+            .Select(c => new ToolCall
+            {
+                Id = c.Id ?? string.Empty,
+                Name = c.Name ?? string.Empty,
+                Arguments = c.Input ?? new()
+            })
+            .ToList();
+
+        return new CompletionResponse
+        {
+            Content = textContent,
+            ToolCalls = toolCalls,
+            Usage = new TokenUsage
+            {
+                PromptTokens = result.Usage?.InputTokens ?? 0,
+                CompletionTokens = result.Usage?.OutputTokens ?? 0,
+                CacheReadTokens = result.Usage?.CacheReadInputTokens ?? 0,
+                CacheCreationTokens = result.Usage?.CacheCreationInputTokens ?? 0
+            },
+            Model = result.Model ?? string.Empty,
+            StopReason = result.StopReason ?? string.Empty
+        };
+    }
+
+    private static Dictionary<string, object?> ParseArguments(string json)
+    {
+        try
+        {
+            return string.IsNullOrEmpty(json)
+                ? new()
+                : JsonSerializer.Deserialize<Dictionary<string, object?>>(json) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    private class AnthropicThinkingBuffer
+    {
+        public string Type { get; set; } = "thinking";
+        public System.Text.StringBuilder Text { get; } = new();
+        public string? Signature { get; set; }
+        public string? Data { get; set; }
+    }
+
+    private static List<ThinkingBlock>? BuildThinkingBlocks(SortedDictionary<int, AnthropicThinkingBuffer> buffer)
+        => buffer.Count == 0
+            ? null
+            : buffer.Values.Select(b => new ThinkingBlock
+            {
+                Type = b.Type,
+                Text = b.Text.ToString(),
+                Signature = b.Signature,
+                Data = b.Data
+            }).ToList();
+
+    private class AnthropicToolUseBuffer
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string InputJson { get; set; } = string.Empty;
+    }
+}
