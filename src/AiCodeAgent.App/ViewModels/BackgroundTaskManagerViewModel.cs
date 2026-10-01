@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
@@ -14,6 +15,32 @@ namespace AiCodeAgent.App.ViewModels;
 
 public enum BackgroundTaskStatus { Running, Completed, Failed, Cancelled }
 
+/// <summary>A project (folder) a background task can be fanned out to, with a checkbox for the "run in several projects" picker.</summary>
+public partial class TaskProjectOption : ObservableObject
+{
+    public TaskProjectOption(string path, bool isSelected = false)
+    {
+        Path = path;
+        _isSelected = isSelected;
+    }
+
+    /// <summary>Absolute folder path — becomes the task's working directory.</summary>
+    public string Path { get; }
+
+    /// <summary>Folder name shown in the picker and on the task card.</summary>
+    public string Name => ProjectNameOf(Path);
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    internal static string ProjectNameOf(string path)
+    {
+        var trimmed = path.TrimEnd('/', '\\');
+        var name = System.IO.Path.GetFileName(trimmed);
+        return string.IsNullOrEmpty(name) ? trimmed : name;
+    }
+}
+
 /// <summary>
 /// One delegated task: an agent turn running in its own isolated session,
 /// independent of whatever the user is doing in the main chat. Output
@@ -25,6 +52,17 @@ public partial class BackgroundTaskItemViewModel : ObservableObject
     public required string SessionId { get; init; }
 
     public required string Prompt { get; init; }
+
+    /// <summary>Folder this task runs in (empty when unknown).</summary>
+    public string ProjectPath { get; init; } = string.Empty;
+
+    /// <summary>Short project name for the task card — empty hides the badge.</summary>
+    public string ProjectName => string.IsNullOrEmpty(ProjectPath) ? string.Empty : TaskProjectOption.ProjectNameOf(ProjectPath);
+
+    public bool HasProject => !string.IsNullOrEmpty(ProjectPath);
+
+    /// <summary>Shared by all tasks launched together from one prompt (one per project); empty for a single launch.</summary>
+    public string BatchId { get; init; } = string.Empty;
 
     public DateTime StartedAt { get; init; } = DateTime.Now;
 
@@ -111,6 +149,94 @@ public partial class BackgroundTaskManagerViewModel : ObservableObject
     [ObservableProperty]
     private string _workingDirectory = string.Empty;
 
+    /// <summary>Projects the new-task prompt can be sent to. Tick several to create one task in each, all running in parallel.</summary>
+    public ObservableCollection<TaskProjectOption> Projects { get; } = new();
+
+    /// <summary>Raised when the user asks to add another project folder; the host (MainViewModel) shows the folder picker and calls <see cref="SetProjects"/> again.</summary>
+    public event Action? AddProjectRequested;
+
+    /// <summary>True when there is more than one project to choose from — hides the picker for single-project users.</summary>
+    public bool HasMultipleProjects => Projects.Count > 1;
+
+    /// <summary>Number of ticked projects.</summary>
+    public int SelectedProjectCount => Projects.Count(p => p.IsSelected);
+
+    /// <summary>Label for the start button, e.g. "▶ Start" or "▶ Start in 2 projects".</summary>
+    public string StartButtonText => SelectedProjectCount > 1 ? $"▶ Start in {SelectedProjectCount} projects" : "▶ Start";
+
+    /// <summary>
+    /// Rebuilds the project list from the main working directory plus any extra folders.
+    /// The main working directory is ticked by default; selections the user already made
+    /// for folders that are still present are kept.
+    /// </summary>
+    public void SetProjects(string mainDirectory, IEnumerable<string>? extraFolders)
+    {
+        var previouslySelected = Projects.Where(p => p.IsSelected)
+            .Select(p => p.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hadSelection = previouslySelected.Count > 0;
+
+        foreach (var existing in Projects)
+            existing.PropertyChanged -= OnProjectOptionChanged;
+        Projects.Clear();
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(mainDirectory))
+            candidates.Add(mainDirectory);
+        if (extraFolders != null)
+            candidates.AddRange(extraFolders.Where(f => !string.IsNullOrWhiteSpace(f)));
+
+        foreach (var path in candidates)
+        {
+            var normalized = path.TrimEnd('/', '\\');
+            if (normalized.Length == 0 || !seen.Add(normalized))
+                continue;
+
+            var selected = hadSelection
+                ? previouslySelected.Contains(path) || previouslySelected.Contains(normalized)
+                : string.Equals(path, mainDirectory, StringComparison.OrdinalIgnoreCase);
+            var option = new TaskProjectOption(path, selected);
+            option.PropertyChanged += OnProjectOptionChanged;
+            Projects.Add(option);
+        }
+
+        // Never leave the picker with nothing ticked.
+        if (Projects.Count > 0 && Projects.All(p => !p.IsSelected))
+            Projects[0].IsSelected = true;
+
+        OnPropertyChanged(nameof(HasMultipleProjects));
+        OnPropertyChanged(nameof(SelectedProjectCount));
+        OnPropertyChanged(nameof(StartButtonText));
+    }
+
+    private void OnProjectOptionChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TaskProjectOption.IsSelected))
+        {
+            OnPropertyChanged(nameof(SelectedProjectCount));
+            OnPropertyChanged(nameof(StartButtonText));
+        }
+    }
+
+    /// <summary>Working directories a new task will be started in: every ticked project, or the panel's own directory when the picker is empty.</summary>
+    public IReadOnlyList<string> GetSelectedProjectPaths()
+    {
+        var selected = Projects.Where(p => p.IsSelected).Select(p => p.Path).ToList();
+        if (selected.Count == 0 && !string.IsNullOrWhiteSpace(WorkingDirectory))
+            selected.Add(WorkingDirectory);
+        return selected;
+    }
+
+    [RelayCommand]
+    private void AddProject() => AddProjectRequested?.Invoke();
+
+    [RelayCommand]
+    private void SelectAllProjects()
+    {
+        foreach (var p in Projects) p.IsSelected = true;
+    }
+
     /// <summary>Number of tasks still running — for a toolbar badge.</summary>
     public int RunningCount => Tasks.Count(t => t.Status == BackgroundTaskStatus.Running);
 
@@ -152,16 +278,39 @@ public partial class BackgroundTaskManagerViewModel : ObservableObject
         if (string.IsNullOrEmpty(prompt))
             return;
 
-        StartTask(prompt, new AgentOptions
-        {
-            WorkingDirectory = WorkingDirectory,
-            // Background tasks have no one watching to answer an approval
-            // prompt, so "Ask" would just hang forever. AutoEdit lets the
-            // task actually make file edits while still not auto-running
-            // arbitrary shell commands unattended.
-            PermissionMode = AiCodeAgent.Core.Models.PermissionMode.AutoEdit
-        });
+        StartTaskInProjects(prompt, GetSelectedProjectPaths());
         NewTaskPrompt = string.Empty;
+    }
+
+    /// <summary>
+    /// Creates one task per project for the same <paramref name="prompt"/> and starts them all
+    /// at once. Each task is a fully independent session confined to its own project folder, so
+    /// they run in parallel and one failing or being cancelled never affects the others.
+    /// </summary>
+    public IReadOnlyList<BackgroundTaskItemViewModel> StartTaskInProjects(string prompt, IEnumerable<string> projectPaths)
+    {
+        var paths = projectPaths
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var batchId = paths.Count > 1 ? Guid.NewGuid().ToString("N")[..8] : string.Empty;
+
+        var started = new List<BackgroundTaskItemViewModel>(paths.Count);
+        foreach (var path in paths)
+        {
+            started.Add(StartTask(prompt, new AgentOptions
+            {
+                WorkingDirectory = path,
+                // Confine the task to its own project so a parallel task can't touch another project's files.
+                AllowedPaths = new List<string> { path },
+                // Background tasks have no one watching to answer an approval
+                // prompt, so "Ask" would just hang forever. AutoEdit lets the
+                // task actually make file edits while still not auto-running
+                // arbitrary shell commands unattended.
+                PermissionMode = AiCodeAgent.Core.Models.PermissionMode.AutoEdit
+            }, batchId));
+        }
+        return started;
     }
 
     /// <summary>
@@ -171,13 +320,15 @@ public partial class BackgroundTaskManagerViewModel : ObservableObject
     /// permission mode, etc. — the same options the caller would otherwise
     /// pass to a normal foreground chat turn.
     /// </summary>
-    public BackgroundTaskItemViewModel StartTask(string prompt, AgentOptions baseOptions)
+    public BackgroundTaskItemViewModel StartTask(string prompt, AgentOptions baseOptions, string batchId = "")
     {
         var sessionId = "bg-" + Guid.NewGuid().ToString("N")[..8];
         var item = new BackgroundTaskItemViewModel
         {
             SessionId = sessionId,
-            Prompt = prompt
+            Prompt = prompt,
+            ProjectPath = baseOptions.WorkingDirectory ?? string.Empty,
+            BatchId = batchId
         };
         Tasks.Insert(0, item);
         NotifyRunningCountChanged();

@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AiCodeAgent.App.ViewModels"
+        xmlns:svc="using:AiCodeAgent.App.Services"
         xmlns:views="using:AiCodeAgent.App.Views"
         xmlns:cmd="using:AiCodeAgent.App.CommandPalette"
         xmlns:core="using:AiCodeAgent.Core.Agent"
@@ -44,6 +45,8 @@
         <KeyBinding Gesture="Ctrl+B" Command="{Binding ToggleFileExplorerCommand}"/>
         <!-- Ctrl+`: Toggle Terminal -->
         <KeyBinding Gesture="Ctrl+Oem3" Command="{Binding ToggleTerminalCommand}"/>
+        <!-- Ctrl+Shift+G: Source Control (stage, diff, commit) -->
+        <KeyBinding Gesture="Ctrl+Shift+G" Command="{Binding ToggleSourceControlCommand}"/>
         <!-- Ctrl+Shift+P: Command Palette -->
         <KeyBinding Gesture="Ctrl+Shift+P" Command="{Binding ToggleCommandPaletteCommand}"/>
         <!-- Ctrl+Shift+O: Change Working Directory -->
@@ -99,6 +102,19 @@
                     <Button Content="🔀" Command="{Binding ViewActiveFileDiffCommand}" 
                             ToolTip.Tip="View Diff (active file vs. last checkpoint)" 
                             Width="32" Height="28" Padding="0"/>
+                    <Button Command="{Binding ToggleSourceControlCommand}"
+                            ToolTip.Tip="Source Control — stage, diff and commit (Ctrl+Shift+G)"
+                            Width="32" Height="28" Padding="0">
+                        <Grid>
+                            <TextBlock Text="🌿" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border IsVisible="{Binding FileExplorer.HasGitChanges}"
+                                    Background="#E5A100" CornerRadius="8" MinWidth="16" Height="16"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0">
+                                <TextBlock Text="{Binding FileExplorer.Changes.Count}" FontSize="9"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+                            </Border>
+                        </Grid>
+                    </Button>
                     <Button Content="🧠" Command="{Binding ToggleProjectKnowledgeCommand}" 
                             ToolTip.Tip="Project Knowledge — AGENTS.md and Skills" 
                             Width="32" Height="28" Padding="0"/>
@@ -322,12 +338,26 @@
         <Border IsVisible="{Binding DiffViewer.IsVisible}"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
                 CornerRadius="4"
-                Margin="40"
+                Margin="{Binding DiffOverlayMargin}"
                 Padding="0"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
                 ZIndex="55">
             <views:DiffViewerView DataContext="{Binding DiffViewer}"/>
+        </Border>
+
+        <!-- Source Control Overlay: VS Code-style panel docked on the right so the diff viewer
+             (and the editor) stay usable next to it while staging and committing. -->
+        <Border IsVisible="{Binding SourceControl.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="8"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Stretch"
+                Width="380"
+                ZIndex="56">
+            <views:SourceControlView DataContext="{Binding SourceControl}"/>
         </Border>
 
         <!-- Project Knowledge Overlay: AGENTS.md editor + doctor checks, and
@@ -461,7 +491,7 @@
                 <!-- File Explorer Pane (Left Sidebar) -->
                 <SplitView.Pane>
                     <Border Name="ExplorerHost" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" Padding="8">
-                        <Grid RowDefinitions="Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,*,Auto,Auto">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
                                 <TextBlock Grid.Column="0" Text="📁 Explorer" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
@@ -494,6 +524,10 @@
                                                                   Command="{Binding $parent[Window].DataContext.OpenExplorerFileCommand}"
                                                                   CommandParameter="{Binding}"
                                                                   IsVisible="{Binding CanOpen}"/>
+                                                        <MenuItem Header="View changes (git diff)"
+                                                                  Command="{Binding $parent[Window].DataContext.ViewGitDiffCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding HasGitChange}"/>
                                                         <MenuItem Header="Open Preview"
                                                                   Command="{Binding $parent[Window].DataContext.OpenExplorerFilePreviewCommand}"
                                                                   CommandParameter="{Binding}"
@@ -506,6 +540,14 @@
                                                 </StackPanel.ContextFlyout>
                                                 <TextBlock Text="{Binding Icon}" FontSize="14"/>
                                                 <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding GitBadge}" FontSize="11" FontWeight="Bold"
+                                                           Foreground="{Binding GitColor}"
+                                                           ToolTip.Tip="{Binding GitTooltip}"
+                                                           IsVisible="{Binding HasGitChange}"/>
+                                                <TextBlock Text="●" FontSize="8" Foreground="#E5A100"
+                                                           VerticalAlignment="Center"
+                                                           ToolTip.Tip="Contains uncommitted changes"
+                                                           IsVisible="{Binding ShowGitFolderDot}"/>
                                                 <TextBlock Text="⏳" 
                                                            IsVisible="{Binding IsLoading}" 
                                                            FontSize="10" 
@@ -522,7 +564,35 @@
                                     </TreeView.ItemTemplate>
                                 </TreeView>
                             </ScrollViewer>
-                            <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6">
+                            <!-- Git changes: shown only when an open folder is a git repository with uncommitted changes. -->
+                            <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6" Margin="0,0,0,8"
+                                    IsVisible="{Binding FileExplorer.HasGitChanges}">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{Binding FileExplorer.ChangesHeader}" FontSize="11" FontWeight="SemiBold"/>
+                                    <ScrollViewer MaxHeight="160">
+                                        <ItemsControl ItemsSource="{Binding FileExplorer.Changes}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="svc:GitFileChange">
+                                                    <Button Command="{Binding $parent[Window].DataContext.ViewGitChangeCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip.Tip="{Binding Description}"
+                                                            HorizontalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Left"
+                                                            Background="Transparent" BorderThickness="0" Padding="2,2">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <TextBlock Text="{Binding Badge}" FontSize="11" FontWeight="Bold"
+                                                                       Foreground="{Binding Color}" Width="12"/>
+                                                            <TextBlock Text="{Binding RelativePath}" FontSize="11"
+                                                                       TextTrimming="CharacterEllipsis"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Row="3" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6">
                                 <StackPanel Spacing="2">
                                     <TextBlock Text="{Binding FileExplorer.RootPath}"
                                                FontSize="10"
@@ -570,7 +640,7 @@
                                       IsVisible="{Binding ShowEditorChatSplitter}"/>
 
                         <!-- Chat + Terminal stacked -->
-                        <Grid Name="ChatHost" Grid.Column="2" MinWidth="360" IsVisible="{Binding ShowChatPanel}" RowDefinitions="*,Auto,Auto,Auto">
+                        <Grid Name="ChatHost" Grid.Column="2" MinWidth="360" IsVisible="{Binding ShowChatPanel}" RowDefinitions="*,Auto,Auto,Auto,Auto">
                             <!-- Chat Messages -->
                             <ScrollViewer Grid.Row="0" Margin="0,0,0,8">
                                 <StackPanel Spacing="8" Margin="16,0">
@@ -708,7 +778,7 @@
                             </Border>
 
                             <!-- Feature 8: Requirements Clarification Panel -->
-                            <Border Grid.Row="2"
+                            <Border Grid.Row="3"
                                     IsVisible="{Binding ChatViewModel.IsAwaitingClarification}"
                                     Background="{DynamicResource AppInfoBrush}"
                                     BorderBrush="{DynamicResource AppInfoBorderBrush}"
@@ -756,7 +826,7 @@
                             </Border>
 
                             <!-- Feature 8: Requirements Summary Card (shown when CurrentRequirements is set and not awaiting) -->
-                            <Border Grid.Row="2"
+                            <Border Grid.Row="3"
                                     IsVisible="{Binding ChatViewModel.CurrentRequirements, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Background="{DynamicResource AppSuccessBrush}"
                                     BorderBrush="{DynamicResource AppSuccessBorderBrush}"
@@ -771,8 +841,41 @@
                                            TextWrapping="Wrap"/>
                             </Border>
 
+                            <!-- Live activity: what the agent is doing right now + elapsed time -->
+                            <Border Grid.Row="2"
+                                    IsVisible="{Binding ChatViewModel.Activity.IsActive}"
+                                    Background="{DynamicResource AppInfoBrush}"
+                                    BorderBrush="{DynamicResource AppInfoBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10,8"
+                                    Margin="16,4,16,0">
+                                <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <ProgressBar Grid.Column="0" IsIndeterminate="True" Width="40" Height="4" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding ChatViewModel.Activity.CurrentActivity}"
+                                                   FontSize="12" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ChatViewModel.Activity.StepElapsedText, StringFormat='step {0}'}" FontSize="11" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding ChatViewModel.Activity.ElapsedText, StringFormat='⏱ {0}'}" FontSize="12" FontFamily="Consolas" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding ChatViewModel.Activity.RecentSteps}"
+                                                  IsVisible="{Binding ChatViewModel.Activity.HasRecentSteps}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Input Area -->
-                            <Grid Grid.Row="3" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
+                            <Grid Grid.Row="4" Margin="16,8,16,16" ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
                                 <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="4" RowDefinitions="*,Auto">
                                     <Popup Grid.Row="0" 
                                            IsOpen="{Binding ChatViewModel.ShowMentionPopup}"

@@ -25,10 +25,12 @@ public class AgentService
 
     // Cache the loaded project memory (AGENTS.md/AGENT.md/AIAGENT.md) keyed
     // by working directory, so every turn doesn't re-read from disk — only
-    // reloaded when the working directory changes or a caller explicitly
-    // asks for a refresh (e.g. after /init or editing the file).
-    private ProjectMemory? _cachedProjectMemory;
-    private string? _cachedMemoryDirectory;
+    // reloaded when a caller explicitly asks for a refresh (e.g. after /init
+    // or editing the file). Keyed per directory (not a single slot) because
+    // parallel background tasks can run in different projects at the same
+    // time and must not overwrite each other's memory.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ProjectMemory?> _memoryCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public IAgentEventBus EventBus => _eventBus;
 
@@ -67,19 +69,19 @@ public class AgentService
 
         try
         {
-            _cachedProjectMemory = await _memoryLoader.LoadAsync(workingDirectory, cancellationToken).ConfigureAwait(false);
-            _cachedMemoryDirectory = workingDirectory;
-            if (_cachedProjectMemory is { HasContent: true })
+            var memory = await _memoryLoader.LoadAsync(workingDirectory, cancellationToken).ConfigureAwait(false);
+            _memoryCache[workingDirectory] = memory;
+            if (memory is { HasContent: true })
             {
-                _logger.LogInformation("Loaded project memory from {Path}", _cachedProjectMemory.FilePath);
+                _logger.LogInformation("Loaded project memory from {Path}", memory.FilePath);
             }
+            return memory;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load project memory for {Dir}", workingDirectory);
+            return _memoryCache.TryGetValue(workingDirectory, out var stale) ? stale : null;
         }
-
-        return _cachedProjectMemory;
     }
 
     /// <summary>
@@ -98,12 +100,12 @@ public class AgentService
         if (string.IsNullOrEmpty(dir))
             return options;
 
-        if (!string.Equals(_cachedMemoryDirectory, dir, StringComparison.OrdinalIgnoreCase))
+        if (!_memoryCache.TryGetValue(dir, out var memory))
         {
-            await RefreshProjectMemoryAsync(dir).ConfigureAwait(false);
+            memory = await RefreshProjectMemoryAsync(dir).ConfigureAwait(false);
         }
 
-        return _cachedProjectMemory == null ? options : options with { ProjectMemory = _cachedProjectMemory };
+        return memory == null ? options : options with { ProjectMemory = memory };
     }
 
     public async Task<string> SendMessageAsync(string message, string sessionId = "default")

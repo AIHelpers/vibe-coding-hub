@@ -20,17 +20,46 @@
             </Grid>
         </Border>
 
-        <!-- New task input -->
+        <!-- New task input + project picker -->
         <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBox Grid.Column="0"
-                         Text="{Binding NewTaskPrompt}"
-                         Watermark="Describe a task to run in the background — e.g. 'add unit tests for the checkout module'"
-                         AcceptsReturn="False"
-                         FontSize="12"/>
-                <Button Grid.Column="1" Content="▶ Start" Command="{Binding StartNewTaskCommand}"
-                        FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
-            </Grid>
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0"
+                             Text="{Binding NewTaskPrompt}"
+                             Watermark="Describe a task to run in the background — e.g. 'add unit tests for the checkout module'"
+                             AcceptsReturn="False"
+                             FontSize="12"/>
+                    <Button Grid.Column="1" Content="{Binding StartButtonText}" Command="{Binding StartNewTaskCommand}"
+                            FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+                </Grid>
+
+                <!-- Tick several projects to create the same task in each one, all running in parallel. -->
+                <StackPanel Spacing="4">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBlock Grid.Column="0" Text="Run in projects" FontSize="11" Opacity="0.6" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="Select all" Command="{Binding SelectAllProjectsCommand}"
+                                IsVisible="{Binding HasMultipleProjects}"
+                                FontSize="10" Padding="6,2" Margin="0,0,6,0"/>
+                        <Button Grid.Column="2" Content="＋ Add project…" Command="{Binding AddProjectCommand}"
+                                FontSize="10" Padding="6,2"/>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Projects}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:TaskProjectOption">
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          Content="{Binding Name}"
+                                          ToolTip.Tip="{Binding Path}"
+                                          FontSize="11" Margin="0,0,10,0"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
         </Border>
 
         <!-- Task list -->
@@ -52,6 +81,8 @@
                                 <StackPanel Orientation="Horizontal" Spacing="10">
                                     <TextBlock Text="{Binding StatusLabel}" FontSize="10" FontWeight="SemiBold"
                                                Foreground="{Binding StatusColor}"/>
+                                    <TextBlock Text="{Binding ProjectName, StringFormat='📁 {0}'}" FontSize="10" Opacity="0.7"
+                                               ToolTip.Tip="{Binding ProjectPath}" IsVisible="{Binding HasProject}"/>
                                     <TextBlock Text="{Binding StartedAt, StringFormat='started {0:t}'}" FontSize="10" Opacity="0.5"/>
                                     <TextBlock Text="{Binding ToolCallCount, StringFormat='{}{0} tool call(s)'}" FontSize="10" Opacity="0.5"/>
                                 </StackPanel>

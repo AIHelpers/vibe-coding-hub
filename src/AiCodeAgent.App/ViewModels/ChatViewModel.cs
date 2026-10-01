@@ -194,6 +194,55 @@ public partial class ChatViewModel : ObservableObject
     private TaskCompletionSource? _eventProcessingComplete;
     public ObservableCollection<ChatMessage> Messages { get; } = new();
     public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
+
+    /// <summary>Live "what is the agent doing now" line with elapsed time, shown above the input box.</summary>
+    public AgentActivityTracker Activity { get; } = new();
+    private Avalonia.Threading.DispatcherTimer? _activityTimer;
+
+    partial void OnIsProcessingChanged(bool value)
+    {
+        if (value)
+        {
+            Activity.Begin();
+            StartActivityTimer();
+        }
+        else
+        {
+            StopActivityTimer();
+            Activity.End();
+        }
+    }
+
+    // Plan steps, indexing, pipeline stages, etc. report progress through StatusText; mirror it as the current activity.
+    partial void OnStatusTextChanged(string value)
+    {
+        if (!IsProcessing) return;
+        if (value is "Ready" or "Done" or "Error" or "Processing..." or "Cancelling...") return;
+        Activity.SetPhase(value);
+    }
+
+    private void StartActivityTimer()
+    {
+        try
+        {
+            _activityTimer ??= new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _activityTimer.Tick -= OnActivityTimerTick;
+            _activityTimer.Tick += OnActivityTimerTick;
+            _activityTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            // No dispatcher (e.g. a bare unit test): the elapsed time just won't tick.
+            System.Diagnostics.Debug.WriteLine($"Activity timer unavailable: {ex.Message}");
+        }
+    }
+
+    private void StopActivityTimer()
+    {
+        try { _activityTimer?.Stop(); } catch { /* ignore */ }
+    }
+
+    private void OnActivityTimerTick(object? sender, EventArgs e) => Activity.Tick();
     public ObservableCollection<MentionItem> MentionItems { get; } = new();
     public ObservableCollection<SlashCommandItem> SlashCommandItems { get; } = new();
     public ObservableCollection<AgentSessionItem> AgentSessions { get; } = new();
@@ -429,7 +478,9 @@ public partial class ChatViewModel : ObservableObject
             }
         }, TaskScheduler.Default);
     }
-    [RelayCommand]
+    // Concurrent execution must be allowed: while the clarification flow is awaiting inside the first SendAsync,
+    // the user's answer arrives through a second SendAsync call (otherwise the Send button stays disabled).
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText) || IsProcessing)
@@ -723,7 +774,12 @@ public partial class ChatViewModel : ObservableObject
                 {
                     case TextDeltaEvent delta:
                         await Task.Factory.StartNew(
-                            () => assistantMessage.Content += delta.Delta,
+                            () =>
+                            {
+                                assistantMessage.Content += delta.Delta;
+                                Activity.ClearBlocking();
+                                Activity.SetPhase("Writing response…");
+                            },
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
@@ -739,6 +795,7 @@ public partial class ChatViewModel : ObservableObject
                                     IsExpanded = false
                                 };
                                 ToolCallCards.Add(card);
+                                Activity.ToolStarted(start.Call.Id, start.Call.Name, start.Call.Arguments);
                             },
                             token,
                             TaskCreationOptions.None,
@@ -748,6 +805,7 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
+                                Activity.ToolFinished(end.Call.Id, end.Call.Name, end.Result.IsError);
                                 var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name);
                                 if (existingCard != null)
                                 {
@@ -766,6 +824,7 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
                                     FormatArguments(approval.Call.Arguments));
+                                Activity.SetBlocking($"⏸ Waiting for your approval: {AgentActivityTracker.DescribeTool(approval.Call.Name, approval.Call.Arguments)}");
                                 // Show an explicit, user-visible approval request in the
                                 // chat transcript so the user knows a decision is needed
                                 // and where to approve/decline — previously the agent
@@ -1036,6 +1095,7 @@ public partial class ChatViewModel : ObservableObject
         var approvedArgs = ApprovalArgs;
         _pendingApproval?.TrySetResult(true);
         _pendingApproval = null;
+        Activity.ClearBlocking();
         ShowNextApproval();
         if (!string.IsNullOrEmpty(approvedTool))
         {
@@ -1052,6 +1112,7 @@ public partial class ChatViewModel : ObservableObject
     {
         _pendingApproval?.TrySetResult(false);
         _pendingApproval = null;
+        Activity.ClearBlocking();
         ShowNextApproval();
     }
     [RelayCommand]

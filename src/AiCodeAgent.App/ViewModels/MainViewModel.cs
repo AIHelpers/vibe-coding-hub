@@ -66,6 +66,12 @@ public partial class MainViewModel : ObservableObject
     public QuickOpenViewModel QuickOpen { get; }
     public ProjectKnowledgeViewModel ProjectKnowledge { get; }
     public BackgroundTaskManagerViewModel BackgroundTasks { get; }
+    public SourceControlViewModel SourceControl { get; }
+
+    /// <summary>The diff overlay leaves room on the right while the Source Control panel is docked there.</summary>
+    public Avalonia.Thickness DiffOverlayMargin => SourceControl.IsVisible
+        ? new Avalonia.Thickness(40, 40, 404, 40)
+        : new Avalonia.Thickness(40);
 
     [ObservableProperty]
     private bool _isPreviewPaneOpen;
@@ -84,6 +90,7 @@ public partial class MainViewModel : ObservableObject
         QuickOpenViewModel quickOpen,
         ProjectKnowledgeViewModel projectKnowledge,
         BackgroundTaskManagerViewModel backgroundTasks,
+        SourceControlViewModel sourceControl,
         WorkspaceIndexQueryService? indexQueryService = null)
     {
         _serviceProvider = serviceProvider;
@@ -99,6 +106,11 @@ public partial class MainViewModel : ObservableObject
         QuickOpen = quickOpen;
         ProjectKnowledge = projectKnowledge;
         BackgroundTasks = backgroundTasks;
+        BackgroundTasks.AddProjectRequested += OnBackgroundTaskAddProjectRequested;
+        SourceControl = sourceControl;
+        SourceControl.DiffRequested += OnSourceControlDiffRequested;
+        SourceControl.OpenFileRequested += OnSourceControlOpenFileRequested;
+        SourceControl.PropertyChanged += OnSourceControlPropertyChanged;
         _indexQueryService = indexQueryService;
         _configurationService = serviceProvider.GetService<ConfigurationService>();
 
@@ -183,6 +195,12 @@ public partial class MainViewModel : ObservableObject
             _configurationService.Saved -= OnConfigurationSaved;
         }
         CheckpointBrowser.ViewDiffRequested -= OnCheckpointViewDiffRequested;
+        BackgroundTasks.AddProjectRequested -= OnBackgroundTaskAddProjectRequested;
+        SourceControl.DiffRequested -= OnSourceControlDiffRequested;
+        SourceControl.OpenFileRequested -= OnSourceControlOpenFileRequested;
+        SourceControl.PropertyChanged -= OnSourceControlPropertyChanged;
+        SourceControl.Dispose();
+        FileExplorer.Dispose();
     }
 
     /// <summary>
@@ -201,6 +219,68 @@ public partial class MainViewModel : ObservableObject
         if (IsSlideMode && EditorPane.HasOpenTabs)
         {
             GoToScreen(AppScreen.Editor);
+        }
+    }
+
+    /// <summary>Explorer context menu: show this file's uncommitted changes as a diff against git HEAD.</summary>
+    [RelayCommand]
+    private Task ViewGitDiff(FileExplorerItem? item)
+        => item == null ? Task.CompletedTask : OpenGitDiffAsync(item.FullPath);
+
+    /// <summary>Changes list: show the clicked change as a diff against git HEAD.</summary>
+    [RelayCommand]
+    private Task ViewGitChange(AiCodeAgent.App.Services.GitFileChange? change)
+        => change == null ? Task.CompletedTask : OpenGitDiffAsync(change.FullPath);
+
+    /// <summary>
+    /// Opens the diff viewer comparing the file at git HEAD (left) with the working-tree
+    /// version (right, editable). New/untracked files diff against an empty baseline and
+    /// deleted files against an empty current side.
+    /// </summary>
+    public async Task OpenGitDiffAsync(string fullPath)
+    {
+        var change = FileExplorer.FindGitChange(fullPath);
+        if (change == null)
+        {
+            StatusText = $"No uncommitted git changes for {Path.GetFileName(fullPath)}";
+            return;
+        }
+
+        var baseline = await FileExplorer.GetGitBaselineAsync(change);
+        if (baseline == null)
+        {
+            StatusText = $"Could not read {change.RelativePath} from git";
+            return;
+        }
+
+        if (baseline.Contains('\0') || IsBinaryFile(change.FullPath))
+        {
+            StatusText = $"{Path.GetFileName(change.FullPath)} is a binary file — no text diff to show";
+            return;
+        }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        DiffViewer.Load(change.FullPath, baseline, "Git HEAD");
+        if (change.Kind == AiCodeAgent.App.Services.GitChangeKind.Deleted)
+            DiffViewer.StatusText = "Deleted in working tree · " + DiffViewer.StatusText;
+        else if (change.Kind == AiCodeAgent.App.Services.GitChangeKind.Untracked)
+            DiffViewer.StatusText = "New file (untracked) · " + DiffViewer.StatusText;
+    }
+
+    private static bool IsBinaryFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            using var stream = File.OpenRead(path);
+            var buffer = new byte[8000];
+            var read = stream.Read(buffer, 0, buffer.Length);
+            return Array.IndexOf(buffer, (byte)0, 0, read) >= 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -326,7 +406,7 @@ public partial class MainViewModel : ObservableObject
     /// Closes every toolbar-driven panel so opening one never stacks on top of another.
     /// Each toolbar button is a toggle: click once to open its panel, click again to close it.
     /// </summary>
-    private void CloseOverlays()
+    private void CloseOverlays(bool keepSourceControl = false)
     {
         IsCheckpointBrowserOpen = false;
         IsSessionHistoryOpen = false;
@@ -335,6 +415,71 @@ public partial class MainViewModel : ObservableObject
         DiffViewer.Close();
         ProjectKnowledge.Close();
         BackgroundTasks.Close();
+        if (!keepSourceControl)
+            SourceControl.Close();
+    }
+
+    // ----- Source Control panel (stage / diff / commit) -----
+
+    /// <summary>Opens/closes the Source Control panel.</summary>
+    [RelayCommand]
+    private void ToggleSourceControl()
+    {
+        if (SourceControl.IsVisible)
+        {
+            SourceControl.Close();
+            return;
+        }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        SourceControl.Open();
+    }
+
+    private void OnSourceControlPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SourceControlViewModel.IsVisible))
+            OnPropertyChanged(nameof(DiffOverlayMargin));
+    }
+
+    private void OnSourceControlDiffRequested(SourceControlEntry entry)
+        => SafeFireAndForget(ShowSourceControlDiffAsync(entry), "ShowSourceControlDiff");
+
+    /// <summary>
+    /// Shows the clicked change in the diff viewer. The Source Control panel stays open next to it so
+    /// the user can step through files. Working-tree rows are editable; staged rows are a read-only HEAD vs. index view.
+    /// </summary>
+    private async Task ShowSourceControlDiffAsync(SourceControlEntry entry)
+    {
+        var diff = await SourceControl.PrepareDiffAsync(entry);
+        if (diff.Error != null)
+        {
+            SourceControl.StatusMessage = diff.Error;
+            return;
+        }
+
+        CloseOverlays(keepSourceControl: true);
+        IsSettingsMode = false;
+
+        if (diff.Current == null)
+            DiffViewer.Load(diff.FilePath, diff.Baseline, diff.BaselineLabel);
+        else
+            DiffViewer.LoadComparison(diff.FilePath, diff.Baseline, diff.Current, diff.BaselineLabel, diff.CurrentLabel);
+
+        if (!string.IsNullOrEmpty(diff.Notice))
+            DiffViewer.StatusText = diff.Notice + " · " + DiffViewer.StatusText;
+    }
+
+    private void OnSourceControlOpenFileRequested(string path)
+        => SafeFireAndForget(OpenFileFromSourceControlAsync(path), "OpenFileFromSourceControl");
+
+    private async Task OpenFileFromSourceControlAsync(string path)
+    {
+        // Keep the panel open; just bring the file up in the editor.
+        DiffViewer.Close();
+        await EditorPane.OpenFileAsync(path, isPreview: false);
+        if (IsSlideMode && EditorPane.HasOpenTabs)
+            GoToScreen(AppScreen.Editor);
     }
 
     [RelayCommand]
@@ -380,7 +525,26 @@ public partial class MainViewModel : ObservableObject
         CloseOverlays();
         IsSettingsMode = false;
         BackgroundTasks.WorkingDirectory = WorkingDirectory;
+        RefreshBackgroundTaskProjects();
         BackgroundTasks.IsVisible = true;
+    }
+
+    /// <summary>Feeds the Background Tasks panel's project picker: the main folder plus every folder added to the task.</summary>
+    private void RefreshBackgroundTaskProjects() =>
+        BackgroundTasks.SetProjects(WorkingDirectory, FileExplorer.ExtraFolders);
+
+    /// <summary>The panel's "Add project…" button: reuses the add-folder flow, then refreshes the picker.</summary>
+    private async void OnBackgroundTaskAddProjectRequested()
+    {
+        try
+        {
+            await AddFolderToTaskCommand.ExecuteAsync(null);
+            RefreshBackgroundTaskProjects();
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not add project: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -762,6 +926,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "agents.md", "agent.md", "aiagent.md", "memory", "skills", "skill.md", "doctor", "init" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(ToggleProjectKnowledgeAsync(), "ToggleProjectKnowledge")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.sourceControl",
+                Title = "Source Control (stage, diff, commit)",
+                Category = "Navigation",
+                Keywords = new[] { "git", "commit", "stage", "diff", "changes", "source", "control", "scm", "branch" },
+                KeybindingHint = "Ctrl+Shift+G",
+                Action = ToggleSourceControl
             },
             new CommandPaletteEntry
             {

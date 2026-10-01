@@ -1,8 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
@@ -48,11 +50,59 @@ public partial class DiffViewerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDirty;
 
+    /// <summary>True for comparisons of two fixed snapshots (e.g. HEAD vs staged) where nothing may be edited, saved or reverted.</summary>
+    [ObservableProperty]
+    private bool _isReadOnly;
+
+    public bool IsEditable => !IsReadOnly;
+
+    /// <summary>Header for the right-hand side.</summary>
+    [ObservableProperty]
+    private string _currentLabel = "Current (editable)";
+
+    partial void OnIsReadOnlyChanged(bool value) => OnPropertyChanged(nameof(IsEditable));
+
     [ObservableProperty]
     private string _statusText = string.Empty;
 
     /// <summary>Parsed hunks between <see cref="BaselineContent"/> and <see cref="CurrentContent"/>, recomputed on demand.</summary>
     public ObservableCollection<DiffHunk> Hunks { get; } = new();
+
+    /// <summary>
+    /// Rows of the GitHub-style split view: old file on the left, new file on the right, aligned,
+    /// with hunk headers and collapsed "unchanged lines" gaps. Replaced as a whole on every recompute
+    /// (one change notification instead of thousands).
+    /// </summary>
+    [ObservableProperty]
+    private IReadOnlyList<DiffRowViewModel> _rows = System.Array.Empty<DiffRowViewModel>();
+
+    /// <summary>False (default): the read-only split diff. True: the two raw text panes, with the right one editable.</summary>
+    [ObservableProperty]
+    private bool _isEditMode;
+
+    /// <summary>The split view is what's shown (not the raw text editor).</summary>
+    public bool IsSplitView => !IsEditMode;
+
+    private SideBySideDiffResult? _lastDiff;
+    private bool _suppressRecompute;
+
+    /// <summary>True when the two versions have no line differences (shows a "No differences" message instead of an empty grid).</summary>
+    public bool HasNoDifferences => Rows.Count == 0;
+
+    partial void OnRowsChanged(IReadOnlyList<DiffRowViewModel> value) => OnPropertyChanged(nameof(HasNoDifferences));
+
+    /// <summary>Suffix for the status line when a giant file was cut off.</summary>
+    private string TruncationNote => _lastDiff?.Truncated == true
+        ? $" · showing the first {SideBySideDiff.MaxRows:N0} rows"
+        : string.Empty;
+
+    partial void OnIsEditModeChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsSplitView));
+        // Back from editing: show what the edits changed.
+        if (!value && !_suppressRecompute)
+            RecomputeDiff();
+    }
 
     public int AddedLineCount { get; private set; }
     public int RemovedLineCount { get; private set; }
@@ -75,6 +125,12 @@ public partial class DiffViewerViewModel : ObservableObject
     /// </summary>
     public void Load(string filePath, string baselineContent, string baselineLabel, string? sourceCheckpointId = null)
     {
+        _suppressRecompute = true;
+        IsEditMode = false;
+        _suppressRecompute = false;
+        IsReadOnly = false;
+        CurrentLabel = "Current (editable)";
+        _diskSnapshot = null; // belongs to the previous file
         FilePath = filePath;
         BaselineLabel = baselineLabel;
         BaselineContent = baselineContent ?? string.Empty;
@@ -95,36 +151,86 @@ public partial class DiffViewerViewModel : ObservableObject
         RecomputeDiff();
         StatusText = Hunks.Count == 0
             ? "No differences"
-            : $"{Hunks.Count} hunk(s), +{AddedLineCount}/-{RemovedLineCount}";
+            : $"{Hunks.Count} hunk(s), +{AddedLineCount}/-{RemovedLineCount}{TruncationNote}";
+    }
+
+    /// <summary>
+    /// Show a read-only comparison of two snapshots that are not the file on disk —
+    /// e.g. the staged diff (HEAD on the left, the index on the right).
+    /// </summary>
+    public void LoadComparison(string filePath, string baselineContent, string currentContent, string baselineLabel, string currentLabel)
+    {
+        _suppressRecompute = true;
+        IsEditMode = false;
+        _suppressRecompute = false;
+        IsReadOnly = true;
+        CurrentLabel = currentLabel;
+        FilePath = filePath;
+        BaselineLabel = baselineLabel;
+        BaselineContent = baselineContent ?? string.Empty;
+        SourceCheckpointId = null;
+        CurrentContent = currentContent ?? string.Empty;
+
+        IsDirty = false;
+        IsVisible = true;
+        RecomputeDiff();
+        StatusText = Hunks.Count == 0
+            ? "No differences"
+            : $"{Hunks.Count} hunk(s), +{AddedLineCount}/-{RemovedLineCount}{TruncationNote} · read-only";
     }
 
     /// <summary>Re-run the diff between BaselineContent and CurrentContent and refresh Hunks.</summary>
     [RelayCommand]
     public void RecomputeDiff()
     {
+        var diff = SideBySideDiff.Build(BaselineContent, CurrentContent, FilePath);
+        _lastDiff = diff;
+
         Hunks.Clear();
-        AddedLineCount = 0;
-        RemovedLineCount = 0;
-
-        var diffText = UnifiedDiffBuilder.Build(BaselineContent, CurrentContent, FilePath);
-        if (string.IsNullOrEmpty(diffText))
-            return;
-
-        foreach (var hunk in DiffParser.Parse(diffText, FilePath))
-        {
+        foreach (var hunk in diff.Hunks)
             Hunks.Add(hunk);
-            foreach (var line in hunk.Lines)
-            {
-                if (line.Kind == DiffLineKind.Added) AddedLineCount++;
-                else if (line.Kind == DiffLineKind.Removed) RemovedLineCount++;
-            }
-        }
+
+        AddedLineCount = diff.AddedLines;
+        RemovedLineCount = diff.RemovedLines;
+        Rows = diff.Rows.Select(r => new DiffRowViewModel(r)).ToList();
+
         OnPropertyChanged(nameof(AddedLineCount));
         OnPropertyChanged(nameof(RemovedLineCount));
     }
 
+    /// <summary>Reveal the unchanged lines hidden behind a "Show N unchanged lines" row.</summary>
+    [RelayCommand]
+    public void ExpandGap(DiffRowViewModel? gap)
+    {
+        if (gap is not { IsGap: true } || _lastDiff == null)
+            return;
+
+        var rows = new List<DiffRowViewModel>(Rows);
+        var at = rows.IndexOf(gap);
+        if (at < 0)
+            return;
+
+        var revealed = new List<DiffRowViewModel>(gap.GapCount);
+        for (var i = 0; i < gap.GapCount; i++)
+        {
+            var oldNo = gap.GapOldStart + i;
+            var newNo = gap.GapNewStart + i;
+            revealed.Add(new DiffRowViewModel(SideBySideRow.Context(oldNo, newNo, _lastDiff.NewLines[newNo - 1])));
+        }
+
+        rows.RemoveAt(at);
+        rows.InsertRange(at, revealed);
+        Rows = rows;
+    }
+
     partial void OnCurrentContentChanged(string value)
     {
+        if (IsReadOnly)
+        {
+            IsDirty = false;
+            return;
+        }
+
         IsDirty = !string.Equals(value, ReadDiskSnapshot(), StringComparison.Ordinal);
     }
 
@@ -145,7 +251,7 @@ public partial class DiffViewerViewModel : ObservableObject
     [RelayCommand]
     public void RevertHunk(DiffHunk hunk)
     {
-        if (hunk == null) return;
+        if (hunk == null || IsReadOnly) return;
 
         var currentLines = SplitPreserving(CurrentContent);
         var baselineLines = SplitPreserving(BaselineContent);
@@ -177,6 +283,8 @@ public partial class DiffViewerViewModel : ObservableObject
     [RelayCommand]
     public void ResetToDisk()
     {
+        if (IsReadOnly) return;
+
         _diskSnapshot = null;
         CurrentContent = ReadDiskSnapshot();
         RecomputeDiff();
@@ -191,7 +299,7 @@ public partial class DiffViewerViewModel : ObservableObject
     [RelayCommand]
     public async Task SaveAsync()
     {
-        if (string.IsNullOrEmpty(FilePath))
+        if (string.IsNullOrEmpty(FilePath) || IsReadOnly)
             return;
 
         try
