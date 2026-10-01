@@ -1,0 +1,100 @@
+name: Release
+
+# Builds self-contained, single-file binaries of the desktop app (Vibe Coding Hub) and the CLI for
+# Windows, Linux and macOS (Intel + Apple Silicon).
+#  - Push a tag like v1.2.3  -> builds everything and publishes a GitHub Release with the archives.
+#  - Run manually (workflow_dispatch) -> builds everything and uploads the archives as workflow artifacts.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64,     archive: zip }
+          - { os: ubuntu-latest,  rid: linux-x64,   archive: tar.gz }
+          - { os: macos-latest,      rid: osx-x64,     archive: tar.gz }
+          - { os: macos-latest,   rid: osx-arm64,   archive: tar.gz }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Publish desktop app
+        shell: bash
+        run: >
+          dotnet publish src/AiCodeAgent.App/AiCodeAgent.App.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/app
+
+      - name: Publish CLI
+        shell: bash
+        run: >
+          dotnet publish src/AiCodeAgent.CLI/AiCodeAgent.CLI.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/cli
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish/app/* -DestinationPath "vibe-coding-hub-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.zip"
+          Compress-Archive -Path publish/cli/* -DestinationPath "vibe-coding-hub-cli-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.zip"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          chmod +x publish/app/* publish/cli/* 2>/dev/null || true
+          tar -czf "vibe-coding-hub-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/app .
+          tar -czf "vibe-coding-hub-cli-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/cli .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibe-coding-hub-${{ matrix.rid }}
+          path: |
+            vibe-coding-hub-*.zip
+            vibe-coding-hub-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
