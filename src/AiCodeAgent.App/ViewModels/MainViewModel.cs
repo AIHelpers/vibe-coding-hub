@@ -112,6 +112,7 @@ public partial class MainViewModel : ObservableObject
         // Sync the file explorer to the same root so it shows the configured
         // workspace immediately on startup.
         FileExplorer.RootPath = WorkingDirectory;
+        FileExplorer.SetExtraFolders(_configurationService?.Config.Agent?.AdditionalFolders ?? new List<string>());
 
         // Default to Chat view (reuse the same instance, don't create a new one)
         _currentViewModel ??= GetOrCreateChatViewModel();
@@ -518,6 +519,60 @@ public partial class MainViewModel : ObservableObject
         var newPath = selected.Path.LocalPath;
 
         await ApplyWorkingDirectoryAsync(newPath);
+    }
+
+    /// <summary>Lets the user pick one or more folders to add to the task next to the main folder.</summary>
+    [RelayCommand]
+    private async Task AddFolderToTaskAsync()
+    {
+        if (_hostWindow == null)
+            return;
+
+        var picked = await _hostWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Add folders to this task",
+            AllowMultiple = true
+        });
+        if (picked.Count == 0)
+            return;
+
+        var skipped = new List<string>();
+        var added = 0;
+        foreach (var folder in picked)
+        {
+            var path = folder.Path.LocalPath;
+            var reason = FileExplorer.AddExtraFolder(path);
+            if (reason == null) added++; else skipped.Add($"{path}: {reason}");
+        }
+
+        await PersistExtraFoldersAsync();
+        FileExplorer.RefreshCommand.Execute(null);
+        StatusText = added > 0
+            ? $"Added {added} folder(s) to the task" + (skipped.Count > 0 ? $" ({skipped.Count} skipped: {skipped[0]})" : "")
+            : skipped.Count > 0 ? $"Nothing added. {skipped[0]}" : StatusText;
+    }
+
+    /// <summary>Removes an extra folder from the task (the main folder cannot be removed here).</summary>
+    [RelayCommand]
+    private async Task RemoveFolderFromTaskAsync(FileExplorerItem? item)
+    {
+        if (item is not { IsExtraRoot: true })
+            return;
+
+        if (FileExplorer.RemoveExtraFolder(item.FullPath))
+        {
+            await PersistExtraFoldersAsync();
+            FileExplorer.RefreshCommand.Execute(null);
+            StatusText = $"Removed {item.Name} from the task";
+        }
+    }
+
+    private async Task PersistExtraFoldersAsync()
+    {
+        if (_configurationService?.Config.Agent == null)
+            return;
+        _configurationService.Config.Agent.AdditionalFolders = FileExplorer.ExtraFolders.ToList();
+        await _configurationService.SaveAsync();
     }
 
     /// <summary>

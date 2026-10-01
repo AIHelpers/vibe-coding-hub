@@ -29,6 +29,10 @@ public partial class FileExplorerItem : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>True for a folder the user added to the task in addition to the main working folder.</summary>
+    [ObservableProperty]
+    private bool _isExtraRoot;
+
     [ObservableProperty]
     private string _icon = "📄";
 
@@ -173,6 +177,59 @@ public partial class FileExplorerViewModel : ObservableObject
 
     public ObservableCollection<FileExplorerItem> RootItems { get; } = new();
 
+    /// <summary>Extra folders added to the task besides <see cref="RootPath"/>.</summary>
+    public ObservableCollection<string> ExtraFolders { get; } = new();
+
+    /// <summary>Short text for the explorer footer, e.g. "+2 extra folders in this task".</summary>
+    public string ExtraFoldersSummary => ExtraFolders.Count switch
+    {
+        0 => "Main folder only. Use ➕ to add more folders to the task.",
+        1 => "+1 extra folder in this task",
+        var n => $"+{n} extra folders in this task"
+    };
+
+    /// <summary>Replaces the extra folder list (used at startup from saved settings).</summary>
+    public void SetExtraFolders(IEnumerable<string> folders)
+    {
+        ExtraFolders.Clear();
+        foreach (var f in folders.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct(StringComparer.OrdinalIgnoreCase))
+            ExtraFolders.Add(f);
+        OnPropertyChanged(nameof(ExtraFoldersSummary));
+    }
+
+    /// <summary>Adds a folder to the task. Returns a reason when it was not added, or null on success.</summary>
+    public string? AddExtraFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return "That folder does not exist.";
+        var full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (IsSameOrInside(full, RootPath)) return "That folder is already part of the main folder.";
+        if (ExtraFolders.Any(e => IsSameOrInside(full, e))) return "That folder is already in the task.";
+        // A new parent folder swallows any extras it contains.
+        foreach (var inner in ExtraFolders.Where(e => IsSameOrInside(e, full)).ToList()) ExtraFolders.Remove(inner);
+        ExtraFolders.Add(full);
+        OnPropertyChanged(nameof(ExtraFoldersSummary));
+        return null;
+    }
+
+    public bool RemoveExtraFolder(string path)
+    {
+        var existing = ExtraFolders.FirstOrDefault(e => string.Equals(e, path, StringComparison.OrdinalIgnoreCase));
+        if (existing == null) return false;
+        ExtraFolders.Remove(existing);
+        OnPropertyChanged(nameof(ExtraFoldersSummary));
+        return true;
+    }
+
+    private static bool IsSameOrInside(string path, string? root)
+    {
+        if (string.IsNullOrEmpty(root)) return false;
+        var r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var p = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(p, r, StringComparison.OrdinalIgnoreCase) ||
+               p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+               p.StartsWith(r + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
     public FileExplorerViewModel()
     {
         RootPath = Directory.GetCurrentDirectory();
@@ -203,6 +260,17 @@ public partial class FileExplorerViewModel : ObservableObject
             rootItem.IsInitiallyLoaded = true;
             RootItems.Add(rootItem);
             rootItem.IsExpanded = true;
+
+            // Folders the user added to the task, listed after the main folder (collapsed until opened).
+            foreach (var extra in ExtraFolders.ToList())
+            {
+                if (!Directory.Exists(extra)) continue;
+                var info = new DirectoryInfo(extra);
+                var item = FileExplorerItem.CreateDirectory(info.Name.Length > 0 ? info.Name : extra, info.FullName);
+                item.IsExtraRoot = true;
+                item.Icon = "📌";
+                RootItems.Add(item);
+            }
         }
         finally
         {

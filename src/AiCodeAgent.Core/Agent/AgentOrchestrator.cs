@@ -900,6 +900,12 @@ public class AgentOrchestrator : IAgentOrchestrator
             OS: {RuntimeInformation.OSDescription}
             Permission mode: {options.PermissionMode}
             """;
+        var extraFolders = options.AllowedPaths
+            .Where(p => !string.IsNullOrWhiteSpace(p) && !string.Equals(p, options.WorkingDirectory, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (extraFolders.Count > 0)
+            environmentBlock += "\nAdditional folders added to this task (you may read and edit files there; use absolute paths): " +
+                                string.Join("; ", extraFolders);
 
         var roleBlock = BuildRoleBlock(options);
         var requirementsBlock = options.Requirements?.ToPromptBlock() ?? string.Empty;

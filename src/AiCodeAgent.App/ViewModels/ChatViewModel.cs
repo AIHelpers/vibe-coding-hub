@@ -360,6 +360,7 @@ public partial class ChatViewModel : ObservableObject
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
                     Reasoning = ReasoningEffortValue,
+                    AllowedPaths = AdditionalFolders,
                     WorkingDirectory = WorkingDirectory,
                     Images = annotationImages,
                     Rights = new GranularRights
@@ -521,6 +522,7 @@ public partial class ChatViewModel : ObservableObject
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
                     Reasoning = ReasoningEffortValue,
+                    AllowedPaths = AdditionalFolders,
                     WorkingDirectory = WorkingDirectory,
                     Rights = new GranularRights
                     {
@@ -1539,6 +1541,7 @@ public partial class ChatViewModel : ObservableObject
                     {
                         PermissionMode = ParsePermissionMode(PermissionMode),
                         Reasoning = ReasoningEffortValue,
+                        AllowedPaths = AdditionalFolders,
                         WorkingDirectory = WorkingDirectory,
                         Rights = new GranularRights
                         {
@@ -1665,6 +1668,7 @@ public partial class ChatViewModel : ObservableObject
             {
                 PermissionMode = ParsePermissionMode(PermissionMode),
                 Reasoning = ReasoningEffortValue,
+                AllowedPaths = AdditionalFolders,
                 WorkingDirectory = WorkingDirectory,
                 Rights = new GranularRights
                 {

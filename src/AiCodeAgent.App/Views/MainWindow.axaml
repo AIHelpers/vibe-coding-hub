@@ -464,10 +464,15 @@
                         <Grid RowDefinitions="Auto,*,Auto">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
                                 <TextBlock Grid.Column="0" Text="📁 Explorer" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" 
-                                        Content="🔄" 
-                                        Command="{Binding RefreshFileExplorerCommand}"
-                                        Width="24" Height="24" Padding="0" FontSize="12"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <Button Content="➕"
+                                            Command="{Binding AddFolderToTaskCommand}"
+                                            ToolTip.Tip="Add a folder to this task (the agent can read and edit it too)"
+                                            Width="24" Height="24" Padding="0" FontSize="12"/>
+                                    <Button Content="🔄"
+                                            Command="{Binding RefreshFileExplorerCommand}"
+                                            Width="24" Height="24" Padding="0" FontSize="12"/>
+                                </StackPanel>
                             </Grid>
                             <ScrollViewer Grid.Row="1" Margin="0,0,0,8">
                                 <TreeView ItemsSource="{Binding FileExplorer.RootItems}"
@@ -493,6 +498,10 @@
                                                                   Command="{Binding $parent[Window].DataContext.OpenExplorerFilePreviewCommand}"
                                                                   CommandParameter="{Binding}"
                                                                   IsVisible="{Binding CanOpen}"/>
+                                                        <MenuItem Header="Remove from task"
+                                                                  Command="{Binding $parent[Window].DataContext.RemoveFolderFromTaskCommand}"
+                                                                  CommandParameter="{Binding}"
+                                                                  IsVisible="{Binding IsExtraRoot}"/>
                                                     </MenuFlyout>
                                                 </StackPanel.ContextFlyout>
                                                 <TextBlock Text="{Binding Icon}" FontSize="14"/>
@@ -501,16 +510,29 @@
                                                            IsVisible="{Binding IsLoading}" 
                                                            FontSize="10" 
                                                            Foreground="#888"/>
+                                                <Button Content="✕"
+                                                        IsVisible="{Binding IsExtraRoot}"
+                                                        Command="{Binding $parent[Window].DataContext.RemoveFolderFromTaskCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Remove this folder from the task"
+                                                        Width="18" Height="18" Padding="0" FontSize="9"
+                                                        Background="Transparent" BorderThickness="0"/>
                                             </StackPanel>
                                         </TreeDataTemplate>
                                     </TreeView.ItemTemplate>
                                 </TreeView>
                             </ScrollViewer>
                             <Border Grid.Row="2" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6">
-                                <TextBlock Text="{Binding FileExplorer.RootPath}" 
-                                           FontSize="10" 
-                                           Opacity="0.5" 
-                                           TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding FileExplorer.RootPath}"
+                                               FontSize="10"
+                                               Opacity="0.5"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding FileExplorer.ExtraFoldersSummary}"
+                                               FontSize="10"
+                                               Opacity="0.7"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
                             </Border>
                         </Grid>
                     </Border>

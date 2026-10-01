@@ -57,6 +57,11 @@ public class AgentConfiguration
     /// </summary>
     public string? WorkingDirectory { get; set; }
     /// <summary>
+    /// Extra folders the user added to the task besides <see cref="WorkingDirectory"/>. They show in the explorer
+    /// and are added to the agent's allowed paths, so it can read and edit files there too (by absolute path).
+    /// </summary>
+    public List<string> AdditionalFolders { get; set; } = new();
+    /// <summary>
     /// Per-skill visibility overrides (Feature 06 — Skills). Keys are skill
     /// names; values are "hidden" or "visible". When "hidden", the skill's
     /// description is kept out of context until the user invokes it.

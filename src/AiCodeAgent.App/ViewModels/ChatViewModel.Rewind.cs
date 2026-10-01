@@ -37,6 +37,11 @@ public partial class ChatViewModel
 
     public bool CanRewind => _rewinder != null;
 
+    /// <summary>Extra folders the user added to the task (from settings); they become allowed paths for the agent.</summary>
+    private System.Collections.Generic.List<string> AdditionalFolders =>
+        (_configurationService?.Config.Agent?.AdditionalFolders ?? new System.Collections.Generic.List<string>())
+        .Where(System.IO.Directory.Exists).ToList();
+
     private void InitializeRewind(ConversationRewinder? rewinder, IRewindPrompt? prompt)
     {
         _rewinder = rewinder;
