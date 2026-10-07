@@ -109,7 +109,9 @@ public class FrontmatterTests
         Assert.Equal(new[] { "one", "three" }, doc.GetList("skills"));
         Assert.Equal("sonnet", doc.GetString("model"));
         Assert.Contains("# keep this comment", updated);
-        Assert.Equal("Persona body\nline 2", doc.Body.TrimEnd());
+        // The body keeps the file's own line endings; the raw literal above has CRLF when git
+        // checks this file out on Windows, so compare line by line.
+        Assert.Equal("Persona body\nline 2", doc.Body.ReplaceLineEndings("\n").TrimEnd());
     }
 
     [Fact]
