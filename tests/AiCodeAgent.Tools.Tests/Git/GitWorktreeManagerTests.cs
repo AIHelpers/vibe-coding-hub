@@ -139,6 +139,72 @@ public class GitWorktreeManagerTests : TestHelpers.TempDirTestBase
         Assert.True(Directory.Exists(lease.RootPath));
     }
 
+    [Fact]
+    public async Task UncommittedWork_IsVisibleToAgents_AndResultsComeBackUncommitted()
+    {
+        InitRepo();
+        // An earlier step changed a tracked file and created a new one, without committing.
+        File.WriteAllText(Path.Combine(RepoDir, "a.txt"), "one\nplan\n");
+        File.WriteAllText(Path.Combine(RepoDir, "plan.md"), "the plan\n");
+        var head = Git(RepoDir, "rev-parse", "HEAD").Trim();
+
+        var lease = (await _manager.AcquireAsync(RepoDir, "flow1/backend#1", "backend"))!;
+        Assert.NotNull(lease.BaseSnapshot);
+        Assert.Equal("one\nplan\n", File.ReadAllText(Path.Combine(lease.WorkingDirectory, "a.txt")));
+        Assert.Equal("the plan\n", File.ReadAllText(Path.Combine(lease.WorkingDirectory, "plan.md")));
+        // Taking the snapshot touched nothing in the main checkout.
+        Assert.Equal(head, Git(RepoDir, "rev-parse", "HEAD").Trim());
+        Assert.Contains("?? plan.md", Git(RepoDir, "status", "--porcelain"));
+
+        File.WriteAllText(Path.Combine(lease.WorkingDirectory, "api.cs"), "class Api {}\n");
+        var result = await _manager.CompleteAsync(lease, "backend", merge: true);
+
+        Assert.Equal(WorkspaceMergeOutcome.Merged, result.Outcome);
+        Assert.Contains("uncommitted", result.Message);
+        Assert.Equal("class Api {}\n", File.ReadAllText(Path.Combine(RepoDir, "api.cs")));
+        Assert.Equal("one\nplan\n", File.ReadAllText(Path.Combine(RepoDir, "a.txt")));
+        Assert.Equal(head, Git(RepoDir, "rev-parse", "HEAD").Trim()); // no commit on the user's branch
+        Assert.False(Directory.Exists(lease.RootPath));
+    }
+
+    [Fact]
+    public async Task UncommittedWork_TwoParallelAgents_BothApply_AndConflictsAreKept()
+    {
+        InitRepo();
+        File.WriteAllText(Path.Combine(RepoDir, "plan.md"), "the plan\n");
+        var a = (await _manager.AcquireAsync(RepoDir, "flow2/a#1", "agent-a"))!;
+        var b = (await _manager.AcquireAsync(RepoDir, "flow2/b#1", "agent-b"))!;
+        var c = (await _manager.AcquireAsync(RepoDir, "flow2/c#1", "agent-c"))!;
+        File.WriteAllText(Path.Combine(a.WorkingDirectory, "a-only.txt"), "A\n");
+        File.WriteAllText(Path.Combine(b.WorkingDirectory, "b-only.txt"), "B\n");
+        File.WriteAllText(Path.Combine(a.WorkingDirectory, "plan.md"), "plan by A\n");
+        File.WriteAllText(Path.Combine(c.WorkingDirectory, "plan.md"), "plan by C\n");
+
+        Assert.Equal(WorkspaceMergeOutcome.Merged, (await _manager.CompleteAsync(a, "a", merge: true)).Outcome);
+        Assert.Equal(WorkspaceMergeOutcome.Merged, (await _manager.CompleteAsync(b, "b", merge: true)).Outcome);
+        var rc = await _manager.CompleteAsync(c, "c", merge: true);
+
+        Assert.Equal(WorkspaceMergeOutcome.Conflict, rc.Outcome);
+        Assert.Contains("plan.md", rc.ConflictFiles);
+        Assert.True(Directory.Exists(c.RootPath));
+        Assert.Equal("plan by A\n", File.ReadAllText(Path.Combine(RepoDir, "plan.md")));
+        Assert.True(File.Exists(Path.Combine(RepoDir, "a-only.txt")));
+        Assert.True(File.Exists(Path.Combine(RepoDir, "b-only.txt")));
+    }
+
+    [Fact]
+    public async Task EachLoopRound_GetsItsOwnBranch()
+    {
+        InitRepo();
+        // Round 1 left its branch behind (e.g. after a conflict); round 2 must still be isolated.
+        var round1 = (await _manager.AcquireAsync(RepoDir, "flow3/backend#1", "backend"))!;
+        var round2 = await _manager.AcquireAsync(RepoDir, "flow3/backend#2", "backend");
+
+        Assert.NotNull(round2);
+        Assert.NotEqual(round1.Branch, round2!.Branch);
+        Assert.NotEqual(round1.RootPath, round2.RootPath);
+    }
+
     [Theory]
     [InlineData("agent one", "agent-one")]
     [InlineData("../evil", "evil")]

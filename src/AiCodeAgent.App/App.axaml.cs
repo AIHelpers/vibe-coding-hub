@@ -507,6 +507,7 @@ public partial class App : Application
         services.AddSingleton<QuickOpenViewModel>();
         services.AddSingleton<CharactersViewModel>();
         services.AddSingleton<ProjectKnowledgeViewModel>();
+        services.AddSingleton<FlowEditorViewModel>();
         services.AddSingleton<BackgroundTaskManagerViewModel>();
         services.AddSingleton<GitChangeService>();
         services.AddSingleton<SourceControlViewModel>();

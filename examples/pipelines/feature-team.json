@@ -1,0 +1,56 @@
+{
+  "name": "feature-team",
+  "description": "Alex designs; Dana (backend) and Mia (model) build in parallel; Quinn reviews and sends work back on rejection; Sam writes the release notes.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "design",
+      "name": "Design",
+      "character": "alex-architect",
+      "promptTemplate": "Task: {task}\n\nProduce an implementation plan split into two independent parts: (1) the .NET backend and (2) the ML model. For each part list files, steps and how it is verified.",
+      "x": 40,
+      "y": 170
+    },
+    {
+      "id": "backend",
+      "name": "Backend",
+      "character": "dana-dotnet",
+      "promptTemplate": "Implement the backend part of the plan for: {task}\n\n{input:design}",
+      "x": 300,
+      "y": 60
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "character": "mia-ml",
+      "promptTemplate": "Build and evaluate the ML model part of the plan for: {task}\n\n{input:design}",
+      "x": 300,
+      "y": 280
+    },
+    {
+      "id": "review",
+      "name": "Review & test",
+      "character": "quinn-qa",
+      "promptTemplate": "Review and test the backend and model work for: {task}\n\nApprove only if both parts are correct and tested; otherwise list what must change.",
+      "outcomes": [ "approved", "rejected" ],
+      "x": 560,
+      "y": 170
+    },
+    {
+      "id": "release-notes",
+      "name": "Release notes",
+      "character": "sam-developer",
+      "promptTemplate": "Write release notes for: {task}",
+      "x": 820,
+      "y": 170
+    }
+  ],
+  "edges": [
+    { "from": "design", "to": "backend" },
+    { "from": "design", "to": "model" },
+    { "from": "backend", "to": "review" },
+    { "from": "model", "to": "review" },
+    { "from": "review", "to": "backend", "when": "rejected", "maxLoops": 2 },
+    { "from": "review", "to": "release-notes", "when": "approved" }
+  ]
+}

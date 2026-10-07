@@ -226,8 +226,9 @@ public class GitRepoIntegrationTests : IDisposable
         var src = vm.RootItems[0].Children.First(c => c.Name == "src");
         Assert.True(src.ContainsGitChanges);          // folder dot
         src.IsExpanded = true;                         // lazy-load, badges must follow
-        for (var i = 0; i < 100 && !src.IsInitiallyLoaded; i++) await Task.Delay(25);
-        for (var i = 0; i < 100 && !src.Children.Any(c => c.HasGitChange); i++)
+        // Up to 10 s: on a busy CI machine loading the folder and running git can take a while.
+        for (var i = 0; i < 400 && !src.IsInitiallyLoaded; i++) await Task.Delay(25);
+        for (var i = 0; i < 400 && !src.Children.Any(c => c.HasGitChange); i++)
             await Task.Delay(25);
 
         var edit = src.Children.First(c => c.Name == "Edit.cs");

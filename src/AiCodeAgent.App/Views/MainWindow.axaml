@@ -115,6 +115,9 @@
                             </Border>
                         </Grid>
                     </Button>
+                    <Button Content="🔀" Command="{Binding ToggleFlowsCommand}"
+                            ToolTip.Tip="Flows — draw and run flows of characters"
+                            Width="32" Height="28" Padding="0"/>
                     <Button Content="🧠" Command="{Binding ToggleProjectKnowledgeCommand}" 
                             ToolTip.Tip="Project Knowledge — AGENTS.md and Skills" 
                             Width="32" Height="28" Padding="0"/>
@@ -372,6 +375,18 @@
                 VerticalAlignment="Stretch"
                 ZIndex="55">
             <views:ProjectKnowledgeView DataContext="{Binding ProjectKnowledge}"/>
+        </Border>
+
+        <!-- Flows Overlay: draw flows of characters on a canvas and run them with live status. -->
+        <Border IsVisible="{Binding Flows.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="24"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:FlowsView DataContext="{Binding Flows}"/>
         </Border>
 
         <!-- Background Tasks Overlay: Cowork-style delegated tasks that run

@@ -1,0 +1,316 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:conv="using:AiCodeAgent.App.Converters"
+             xmlns:flows="using:AiCodeAgent.Core.Flows"
+             x:Class="AiCodeAgent.App.Views.FlowsView"
+             x:DataType="vm:FlowEditorViewModel"
+             Focusable="True">
+
+    <UserControl.Styles>
+        <!-- Node cards -->
+        <Style Selector="Border.node">
+            <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundAltHighBrush}"/>
+            <Setter Property="BorderBrush" Value="#55888888"/>
+            <Setter Property="BorderThickness" Value="1.5"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="Border.node.warning"><Setter Property="BorderBrush" Value="#E0A040"/></Style>
+        <Style Selector="Border.node.error"><Setter Property="BorderBrush" Value="#E05050"/></Style>
+        <Style Selector="Border.node.waiting"><Setter Property="Opacity" Value="0.85"/></Style>
+        <Style Selector="Border.node.running"><Setter Property="BorderBrush" Value="#4A9EFF"/><Setter Property="BorderThickness" Value="2.5"/></Style>
+        <Style Selector="Border.node.done"><Setter Property="BorderBrush" Value="#3FB950"/></Style>
+        <Style Selector="Border.node.failed"><Setter Property="BorderBrush" Value="#E05050"/><Setter Property="BorderThickness" Value="2.5"/></Style>
+        <Style Selector="Border.node.skipped"><Setter Property="Opacity" Value="0.45"/></Style>
+        <Style Selector="Border.node.disabled"><Setter Property="Opacity" Value="0.5"/></Style>
+        <Style Selector="Border.node.selected"><Setter Property="BorderBrush" Value="#4A9EFF"/><Setter Property="BorderThickness" Value="3"/></Style>
+        <Style Selector="Border.node.approval"><Setter Property="BorderBrush" Value="#E5A100"/><Setter Property="BorderThickness" Value="3"/></Style>
+
+        <!-- Ports -->
+        <Style Selector="Ellipse.port">
+            <Setter Property="Width" Value="14"/>
+            <Setter Property="Height" Value="14"/>
+            <Setter Property="Fill" Value="{DynamicResource SystemControlBackgroundAltHighBrush}"/>
+            <Setter Property="Stroke" Value="#888888"/>
+            <Setter Property="StrokeThickness" Value="2"/>
+        </Style>
+        <Style Selector="Ellipse.outport:pointerover"><Setter Property="Fill" Value="#4A9EFF"/><Setter Property="Cursor" Value="Cross"/></Style>
+
+        <!-- Edges -->
+        <Style Selector="Path.edge">
+            <Setter Property="Stroke" Value="#888888"/>
+            <Setter Property="StrokeThickness" Value="2"/>
+        </Style>
+        <Style Selector="Path.edge.loop"><Setter Property="StrokeDashArray" Value="5,3"/><Setter Property="Stroke" Value="#B07CE0"/></Style>
+        <Style Selector="Path.edge.taken"><Setter Property="Stroke" Value="#3FB950"/><Setter Property="StrokeThickness" Value="3"/></Style>
+        <Style Selector="Path.edge.error"><Setter Property="Stroke" Value="#E05050"/></Style>
+        <Style Selector="Path.edge.selected"><Setter Property="Stroke" Value="#4A9EFF"/><Setter Property="StrokeThickness" Value="3.5"/></Style>
+        <Style Selector="Path.arrow"><Setter Property="Fill" Value="#888888"/></Style>
+        <Style Selector="Path.arrow.loop"><Setter Property="Fill" Value="#B07CE0"/></Style>
+        <Style Selector="Path.arrow.taken"><Setter Property="Fill" Value="#3FB950"/></Style>
+        <Style Selector="Path.arrow.error"><Setter Property="Fill" Value="#E05050"/></Style>
+        <Style Selector="Path.arrow.selected"><Setter Property="Fill" Value="#4A9EFF"/></Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10,6" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Flows" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding Pipelines}" SelectedItem="{Binding SelectedPipeline}" MinWidth="170" FontSize="11"
+                              PlaceholderText="Open a pipeline…" ToolTip.Tip="Open a saved flow or pipeline"/>
+                    <Button Content="＋ New" Command="{Binding NewFlowCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="💾 Save" Command="{Binding SaveCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Save to ~/.aiagent/pipelines"/>
+                    <Button Content="🗑" Command="{Binding RequestDeleteCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Delete this flow"/>
+                    <Border Width="1" Background="#40888888" Margin="4,2"/>
+                    <Button Content="↶" Command="{Binding UndoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Undo (Ctrl+Z)"/>
+                    <Button Content="↷" Command="{Binding RedoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Redo (Ctrl+Y)"/>
+                    <Button Content="⇶ Auto-layout" Command="{Binding AutoLayoutCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Arrange left to right by execution order"/>
+                    <Button Content="✔ Validate" Command="{Binding ValidateCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="⌖" Click="OnResetView" FontSize="11" Padding="8,3" ToolTip.Tip="Reset zoom and position"/>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
+                           Margin="12,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="Execution waves: steps joined by ∥ run in parallel"/>
+                <Button Grid.Column="2" Content="✕" Width="24" Height="24" Padding="0" FontSize="11" Command="{Binding CloseCommand}"/>
+            </Grid>
+        </Border>
+
+        <!-- Flow name + run bar -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8,4">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+                <TextBox Grid.Column="0" Text="{Binding FlowName}" Width="170" FontSize="11" Watermark="flow-name" ToolTip.Tip="File name (kebab-case)"/>
+                <TextBox Grid.Column="1" Text="{Binding Description}" Width="260" FontSize="11" Margin="6,0" Watermark="What this flow does"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="Most characters working at the same time">
+                    <TextBlock Text="parallel" FontSize="11" Opacity="0.7" VerticalAlignment="Center"/>
+                    <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" FormatString="0" Width="90" FontSize="11"/>
+                </StackPanel>
+                <TextBox Grid.Column="3" Text="{Binding RunTask}" FontSize="11" Margin="8,0" Watermark="Task for the flow, e.g. Add churn prediction to the customer API"/>
+                <Button Grid.Column="4" Content="▶ Run" Command="{Binding RunCommand}" IsEnabled="{Binding CanRun}" FontSize="11" Padding="12,3"/>
+                <Button Grid.Column="5" Content="■ Stop" Command="{Binding StopCommand}" IsVisible="{Binding IsRunning}" FontSize="11" Padding="12,3" Margin="4,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Palette | canvas | inspector -->
+        <Grid Grid.Row="2" ColumnDefinitions="210,*,300">
+            <!-- Palette -->
+            <Border Grid.Column="0" Background="{DynamicResource AppSubBrush}" Padding="6">
+                <Grid RowDefinitions="Auto,Auto,*">
+                    <TextBlock Grid.Row="0" Text="Characters" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox Grid.Row="1" Text="{Binding PaletteFilter}" Watermark="Search" FontSize="11" Margin="0,4"/>
+                    <ScrollViewer Grid.Row="2">
+                        <ItemsControl ItemsSource="{Binding Palette}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:FlowPaletteItem">
+                                    <Border Classes="paletteItem" Background="Transparent" Padding="4,4" CornerRadius="4" Cursor="Hand"
+                                            PointerPressed="OnPaletteItemPressed" ToolTip.Tip="Drag onto the canvas, or click ＋">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <TextBlock Grid.Column="0" Text="{Binding Avatar}" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Hint}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Content="＋" Padding="5,0" FontSize="11" VerticalAlignment="Center"
+                                                    Command="{Binding DataContext.AddFromPaletteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Add after the selected step"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Canvas -->
+            <Border Grid.Column="1" x:Name="Viewport" ClipToBounds="True" Background="{DynamicResource AppDeepBrush}"
+                    DragDrop.AllowDrop="True">
+                <Panel>
+                    <Canvas x:Name="Surface" Width="4000" Height="3000" Background="Transparent"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" RenderTransformOrigin="0,0">
+                        <!-- Edges -->
+                        <ItemsControl ItemsSource="{Binding Edges}" Width="4000" Height="3000">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:FlowEdgeViewModel">
+                                    <Canvas>
+                                        <!-- Wide transparent stroke: easy to click. -->
+                                        <Path Classes="edgeHit" Data="{Binding PathData, Converter={x:Static conv:PathDataConverter.Instance}}"
+                                              Stroke="Transparent" StrokeThickness="12" Cursor="Hand"/>
+                                        <Path Classes="edge" IsHitTestVisible="False"
+                                              Classes.loop="{Binding IsLoop}" Classes.taken="{Binding IsTaken}"
+                                              Classes.error="{Binding HasError}" Classes.selected="{Binding IsSelected}"
+                                              Data="{Binding PathData, Converter={x:Static conv:PathDataConverter.Instance}}"/>
+                                        <Path Classes="arrow" IsHitTestVisible="False"
+                                              Classes.loop="{Binding IsLoop}" Classes.taken="{Binding IsTaken}"
+                                              Classes.error="{Binding HasError}" Classes.selected="{Binding IsSelected}"
+                                              Data="{Binding ArrowData, Converter={x:Static conv:PathDataConverter.Instance}}"/>
+                                        <Border Canvas.Left="{Binding LabelX}" Canvas.Top="{Binding LabelY}" IsVisible="{Binding HasLabel}"
+                                                Background="{DynamicResource SystemControlBackgroundAltHighBrush}" CornerRadius="3" Padding="4,1"
+                                                IsHitTestVisible="False" ToolTip.Tip="{Binding ProblemText}">
+                                            <TextBlock Text="{Binding Label}" FontSize="10"/>
+                                        </Border>
+                                    </Canvas>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Arrow being dragged from an output handle -->
+                        <Path Data="{Binding PendingEdgePath, Converter={x:Static conv:PathDataConverter.Instance}}"
+                              IsVisible="{Binding IsDrawingEdge}" Stroke="#4A9EFF" StrokeThickness="2" StrokeDashArray="4,3"
+                              IsHitTestVisible="False"/>
+
+                        <!-- Nodes -->
+                        <ItemsControl ItemsSource="{Binding Nodes}" Width="4000" Height="3000">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.Styles>
+                                <Style Selector="ContentPresenter" x:DataType="vm:FlowNodeViewModel">
+                                    <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                    <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                </Style>
+                            </ItemsControl.Styles>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:FlowNodeViewModel">
+                                    <Panel Width="204" Height="76" Margin="-7,0,0,0">
+                                        <Border Classes="node" Margin="7,0" Width="190" Height="76" Cursor="SizeAll"
+                                                Classes.selected="{Binding IsSelected}" Classes.error="{Binding HasError}"
+                                                Classes.warning="{Binding HasWarning}" Classes.running="{Binding IsRunning}"
+                                                Classes.done="{Binding IsDone}" Classes.failed="{Binding IsFailed}"
+                                                Classes.skipped="{Binding IsSkipped}" Classes.waiting="{Binding IsWaiting}"
+                                                Classes.approval="{Binding IsAwaitingApproval}"
+                                                Classes.disabled="{Binding !Enabled}"
+                                                ToolTip.Tip="{Binding ProblemText}">
+                                            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" Margin="8,6">
+                                                <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Text="{Binding Avatar}" FontSize="20"
+                                                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding StateGlyph}" FontSize="13" Margin="4,0,0,0"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subtitle}" FontSize="10" Opacity="0.65"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding OutcomesText}" FontSize="9" Opacity="0.5"
+                                                           TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                            </Grid>
+                                        </Border>
+                                        <!-- Input handle (left) and output handle (right, drag to connect) -->
+                                        <Ellipse Classes="port inport" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                        <Ellipse Classes="port outport" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                 ToolTip.Tip="Drag to another step to connect"/>
+                                    </Panel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+
+                    <!-- Empty state -->
+                    <TextBlock Text="Drag characters from the left onto the canvas, then drag from a step's right handle to the next step."
+                               IsVisible="{Binding !Nodes.Count}" Opacity="0.5" FontSize="12" TextWrapping="Wrap" MaxWidth="360"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" IsHitTestVisible="False"/>
+                </Panel>
+            </Border>
+
+            <!-- Inspector -->
+            <Border Grid.Column="2" Background="{DynamicResource AppSubBrush}" Padding="8">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Delete confirmation -->
+                    <Border Grid.Row="0" IsVisible="{Binding IsConfirmingDelete}" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding FlowName, StringFormat='Delete the flow file {0}?'}" FontSize="11" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Content="Delete" Command="{Binding ConfirmDeleteCommand}" FontSize="11" Padding="10,3"/>
+                                <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" FontSize="11" Padding="10,3"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1">
+                        <StackPanel Spacing="6">
+                            <!-- Nothing selected -->
+                            <StackPanel IsVisible="{Binding !HasSelection}" Spacing="6">
+                                <TextBlock Text="Inspector" FontSize="12" FontWeight="SemiBold"/>
+                                <TextBlock FontSize="10" Opacity="0.65" TextWrapping="Wrap"
+                                           Text="Select a step to set its character, prompt and outcomes, or an arrow to set its condition and loop limit. Steps not connected to each other run in parallel. Each step gets the task plus the results of the steps pointing into it."/>
+                                <TextBlock FontSize="10" Opacity="0.65" TextWrapping="Wrap" Foreground="#E0A040" IsVisible="{Binding WasLinear}"
+                                           Text="This is a linear pipeline: its stages share one history. Saving it here adds arrows and turns it into a flow (each step then gets only its inputs)."/>
+                            </StackPanel>
+
+                            <!-- Node -->
+                            <StackPanel IsVisible="{Binding SelectedNode, Converter={x:Static ObjectConverters.IsNotNull}}" Spacing="5">
+                                <TextBlock Text="Step" FontSize="12" FontWeight="SemiBold"/>
+                                <Border IsVisible="{Binding SelectedNode.IsAwaitingApproval, FallbackValue=False}" Background="#30E5A100" CornerRadius="4" Padding="6">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Waiting for your approval" FontSize="11" FontWeight="SemiBold"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Content="Approve" Command="{Binding ApproveCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"/>
+                                            <Button Content="Decline" Command="{Binding DeclineCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="Name" FontSize="10" Opacity="0.6"/>
+                                <TextBox Text="{Binding SelectedNode.Name, FallbackValue=''}" FontSize="11"/>
+                                <TextBlock Text="{Binding SelectedNode.Id, StringFormat='id: {0}', FallbackValue=''}" FontSize="9" Opacity="0.5"/>
+                                <TextBlock Text="Character" FontSize="10" Opacity="0.6"/>
+                                <ComboBox ItemsSource="{Binding CharacterOptions}" SelectedItem="{Binding SelectedNode.CharacterId, FallbackValue={x:Null}}"
+                                          HorizontalAlignment="Stretch" FontSize="11"/>
+                                <TextBlock Text="Prompt ({task} = the flow's task, {input:step-id} = that step's result)" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <TextBox Text="{Binding SelectedNode.PromptTemplate, FallbackValue=''}" AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="90" MaxHeight="220" FontSize="11"/>
+                                <TextBlock Text="Outcomes (e.g. approved, rejected) — arrows can route on them" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <TextBox Text="{Binding SelectedNode.OutcomesText, FallbackValue=''}" FontSize="11" Watermark="approved, rejected"/>
+                                <CheckBox Content="Ask me before this step starts" IsChecked="{Binding SelectedNode.RequireConfirmation, FallbackValue=False}" FontSize="11"/>
+                                <CheckBox Content="Enabled (unchecked = skipped, arrows pass through)" IsChecked="{Binding SelectedNode.Enabled, FallbackValue=True}" FontSize="11"/>
+                                <TextBlock Text="{Binding SelectedNode.ProblemText, FallbackValue=''}" FontSize="10" Foreground="#E05050" TextWrapping="Wrap"
+                                           IsVisible="{Binding SelectedNode.ProblemText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"/>
+                                <Button Content="🗑 Remove step" Command="{Binding DeleteSelectedCommand}" FontSize="11" Padding="8,3" HorizontalAlignment="Left"/>
+                            </StackPanel>
+
+                            <!-- Edge -->
+                            <StackPanel IsVisible="{Binding SelectedEdge, Converter={x:Static ObjectConverters.IsNotNull}}" Spacing="5">
+                                <TextBlock Text="Arrow" FontSize="12" FontWeight="SemiBold"/>
+                                <TextBlock FontSize="11">
+                                    <Run Text="{Binding SelectedEdge.From.Name, FallbackValue=''}"/>
+                                    <Run Text=" → "/>
+                                    <Run Text="{Binding SelectedEdge.To.Name, FallbackValue=''}"/>
+                                </TextBlock>
+                                <TextBlock Text="Taken when" FontSize="10" Opacity="0.6"/>
+                                <ComboBox ItemsSource="{Binding ConditionOptions}" SelectedItem="{Binding SelectedCondition}" HorizontalAlignment="Stretch" FontSize="11"/>
+                                <TextBlock Text="Loop limit (for an arrow that goes back; 0 = not a loop)" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <NumericUpDown x:Name="MaxLoopsBox" Value="{Binding SelectedEdge.MaxLoops, FallbackValue=0, Mode=OneWay}" Minimum="0" Maximum="20" Increment="1"
+                                               FormatString="0" ValueChanged="OnMaxLoopsChanged" FontSize="11"/>
+                                <TextBlock Text="↺ This arrow goes back: the steps between run again." FontSize="10" Opacity="0.7" TextWrapping="Wrap"
+                                           IsVisible="{Binding SelectedEdge.IsLoop, FallbackValue=False}"/>
+                                <TextBlock Text="{Binding SelectedEdge.ProblemText, FallbackValue=''}" FontSize="10" Foreground="#E05050" TextWrapping="Wrap"
+                                           IsVisible="{Binding SelectedEdge.ProblemText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"/>
+                                <Button Content="🗑 Remove arrow" Command="{Binding DeleteSelectedCommand}" FontSize="11" Padding="8,3" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Bottom: status, problems, selected step's output -->
+        <Border Grid.Row="3" Background="{DynamicResource AppSubBrush}" Padding="8,4" MaxHeight="220">
+            <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,*">
+                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding StatusText}" FontSize="11" Opacity="0.8" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <ScrollViewer Grid.Row="1" Grid.Column="0" IsVisible="{Binding HasProblems}" Margin="0,0,6,0">
+                    <ItemsControl ItemsSource="{Binding Problems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="flows:FlowProblem">
+                                <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap" Opacity="0.85"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedOutput, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
+                         FontFamily="Consolas,Menlo,monospace" FontSize="11" MinHeight="60"
+                         IsVisible="{Binding SelectedOutput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

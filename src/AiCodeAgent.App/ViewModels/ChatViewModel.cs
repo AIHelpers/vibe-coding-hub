@@ -298,10 +298,20 @@ public partial class ChatViewModel : ObservableObject
         _requirementsClarifier = requirementsClarifier;
         if (_pipelineLoader != null)
         {
-            foreach (var pipeline in _pipelineLoader.GetAllPipelines())
-                AvailablePipelines.Add(pipeline.Name);
-            if (AvailablePipelines.Count > 0 && !AvailablePipelines.Contains(SelectedPipeline))
-                SelectedPipeline = AvailablePipelines[0];
+            RefreshAvailablePipelines();
+            // Flows saved in the Flows panel show up in the pipeline picker right away.
+            _pipelineLoader.Changed += (_, _) =>
+            {
+                try
+                {
+                    if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) RefreshAvailablePipelines();
+                    else Avalonia.Threading.Dispatcher.UIThread.Post(RefreshAvailablePipelines);
+                }
+                catch
+                {
+                    RefreshAvailablePipelines();
+                }
+            };
         }
         // Restore the last selected model from persisted UI settings so the
         // user's choice survives application restarts. Fall back to "Auto"
@@ -630,6 +640,27 @@ public partial class ChatViewModel : ObservableObject
         }
     }
     /// <summary>
+    /// True when an event from <paramref name="eventSessionId"/> belongs to the run <paramref name="runSessionId"/>:
+    /// the same session, or a flow step's sub-session "&lt;run&gt;/&lt;step&gt;#&lt;round&gt;".
+    /// </summary>
+    internal static bool BelongsToSession(string eventSessionId, string runSessionId) =>
+        string.Equals(eventSessionId, runSessionId, StringComparison.Ordinal) ||
+        eventSessionId.StartsWith(runSessionId + "/", StringComparison.Ordinal);
+
+    private void RefreshAvailablePipelines()
+    {
+        if (_pipelineLoader == null) return;
+        var selected = SelectedPipeline;
+        AvailablePipelines.Clear();
+        foreach (var pipeline in _pipelineLoader.GetAllPipelines())
+            AvailablePipelines.Add(pipeline.Name);
+        if (AvailablePipelines.Contains(selected))
+            SelectedPipeline = selected;
+        else if (AvailablePipelines.Count > 0)
+            SelectedPipeline = AvailablePipelines[0];
+    }
+
+    /// <summary>
     /// Runs the selected SDLC pipeline (e.g. full-sdlc: analyze -> implement -> review -> test -> deploy)
     /// against the current input text as a multi-agent session. Reuses the same event bus as SendAsync,
     /// so pipeline stages stream into the chat transcript and the AgentSessions sidebar exactly like a
@@ -774,7 +805,7 @@ public partial class ChatViewModel : ObservableObject
                 AgentEvent evt = raw;
                 if (raw is SessionScopedEvent scoped)
                 {
-                    if (!string.Equals(scoped.SessionId, sessionId, StringComparison.Ordinal))
+                    if (!BelongsToSession(scoped.SessionId, sessionId))
                         continue;
                     evt = scoped.Inner;
                 }

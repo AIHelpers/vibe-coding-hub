@@ -6,7 +6,11 @@ namespace AiCodeAgent.Core.Agent;
 /// <param name="RootPath">Root of the private working copy.</param>
 /// <param name="WorkingDirectory">Directory the agent should use (RootPath, or the matching subfolder when the base dir was not the repo root).</param>
 /// <param name="RepoRoot">Root of the original repository the work merges back into.</param>
-public sealed record WorkspaceLease(string AgentId, string Branch, string RootPath, string WorkingDirectory, string RepoRoot);
+/// <param name="BaseSnapshot">
+/// When the main checkout had uncommitted work, the commit that captured it (the copy started from there);
+/// the agent's changes are then applied back to the working tree instead of merged as a commit.
+/// </param>
+public sealed record WorkspaceLease(string AgentId, string Branch, string RootPath, string WorkingDirectory, string RepoRoot, string? BaseSnapshot = null);
 
 public enum WorkspaceMergeOutcome
 {

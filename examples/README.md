@@ -7,8 +7,8 @@ Copy what you want into your global (`~/.aiagent/...`) or project (`<repo>/.aiag
 cp -r examples/skills/* ~/.aiagent/skills/
 # characters
 mkdir -p ~/.aiagent/characters && cp examples/characters/*.md ~/.aiagent/characters/
-# pipeline that casts the characters into stages
-mkdir -p ~/.aiagent/pipelines && cp examples/pipelines/team-sdlc.json ~/.aiagent/pipelines/
+# a pipeline and a flow that cast the characters into stages
+mkdir -p ~/.aiagent/pipelines && cp examples/pipelines/*.json ~/.aiagent/pipelines/
 
 aiagent skills doctor
 aiagent pipeline run "Add pagination to the /users endpoint" --pipeline team-sdlc
@@ -33,4 +33,13 @@ or from the command line — it picks the skill from the library, or creates it 
 aiagent characters add-skill dana-dotnet ef-core --description "Use EF Core migrations and queries correctly"
 aiagent characters show dana-dotnet     # skills grouped by source: template / own
 aiagent chat --character mia-ml
+```
+
+`pipelines/feature-team.json` is a **flow**: Alex designs, then Dana (backend) and Mia (model) work in
+parallel, Quinn reviews and sends the backend back on rejection (up to 2 times), and Sam writes the
+release notes once Quinn approves. Open it in the desktop app's **🔀 Flows** panel, or:
+
+```bash
+aiagent pipeline show feature-team
+aiagent pipeline run "Add churn prediction to the customer API" --pipeline feature-team
 ```

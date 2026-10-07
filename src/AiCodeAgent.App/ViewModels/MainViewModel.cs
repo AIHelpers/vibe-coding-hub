@@ -65,6 +65,9 @@ public partial class MainViewModel : ObservableObject
     public DiffViewerViewModel DiffViewer { get; }
     public QuickOpenViewModel QuickOpen { get; }
     public ProjectKnowledgeViewModel ProjectKnowledge { get; }
+
+    /// <summary>The Flows panel: draw and run flows of characters.</summary>
+    public FlowEditorViewModel Flows { get; }
     public BackgroundTaskManagerViewModel BackgroundTasks { get; }
     public SourceControlViewModel SourceControl { get; }
 
@@ -91,7 +94,8 @@ public partial class MainViewModel : ObservableObject
         ProjectKnowledgeViewModel projectKnowledge,
         BackgroundTaskManagerViewModel backgroundTasks,
         SourceControlViewModel sourceControl,
-        WorkspaceIndexQueryService? indexQueryService = null)
+        WorkspaceIndexQueryService? indexQueryService = null,
+        FlowEditorViewModel? flows = null)
     {
         _serviceProvider = serviceProvider;
         FileExplorer = fileExplorer;
@@ -105,6 +109,7 @@ public partial class MainViewModel : ObservableObject
         DiffViewer = diffViewer;
         QuickOpen = quickOpen;
         ProjectKnowledge = projectKnowledge;
+        Flows = flows ?? new FlowEditorViewModel();
         BackgroundTasks = backgroundTasks;
         BackgroundTasks.AddProjectRequested += OnBackgroundTaskAddProjectRequested;
         SourceControl = sourceControl;
@@ -414,6 +419,7 @@ public partial class MainViewModel : ObservableObject
         IsSessionDashboardOpen = false;
         DiffViewer.Close();
         ProjectKnowledge.Close();
+        Flows.Close();
         BackgroundTasks.Close();
         if (!keepSourceControl)
             SourceControl.Close();
@@ -507,6 +513,33 @@ public partial class MainViewModel : ObservableObject
         CloseOverlays();
         IsSettingsMode = false;
         await ProjectKnowledge.OpenAsync(WorkingDirectory);
+    }
+
+    /// <summary>Opens or closes the Flows panel (draw and run flows of characters).</summary>
+    [RelayCommand]
+    private async Task ToggleFlowsAsync()
+    {
+        if (Flows.IsVisible)
+        {
+            Flows.Close();
+            return;
+        }
+
+        CloseOverlays();
+        IsSettingsMode = false;
+        await Flows.OpenAsync(WorkingDirectory);
+    }
+
+    /// <summary>Opens the Flows panel on an empty canvas.</summary>
+    private async Task NewFlowAsync()
+    {
+        if (!Flows.IsVisible)
+        {
+            CloseOverlays();
+            IsSettingsMode = false;
+            await Flows.OpenAsync(WorkingDirectory);
+        }
+        Flows.NewFlow();
     }
 
     /// <summary>Opens Project Knowledge directly on a tab (1 = Skills, 2 = Characters), optionally starting the "new" form.</summary>
@@ -965,6 +998,24 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "character", "persona", "create", "new", "agent" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(2, startNew: true), "NewCharacter")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.flows",
+                Title = "Flows (draw and run flows of characters)",
+                Category = "Navigation",
+                Keywords = new[] { "flow", "flows", "pipeline", "workflow", "graph", "parallel", "characters", "canvas", "drawio" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(ToggleFlowsAsync(), "ToggleFlows")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "flows.new",
+                Title = "New Flow",
+                Category = "Flows",
+                Keywords = new[] { "flow", "pipeline", "workflow", "create", "new", "canvas" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(NewFlowAsync(), "NewFlow")
             },
             new CommandPaletteEntry
             {

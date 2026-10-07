@@ -100,4 +100,37 @@ public class ExamplesTests
         Assert.Contains("web_fetch", plan.Steps[0].Options.EnabledTools);
         Assert.All(plan.Steps, s => Assert.Contains("team-conventions", s.Options.PinnedSkills));
     }
+
+    [Fact]
+    public async Task ExampleFlow_IsValid_AndRunsWithParallelBranchesAndReviewLoop()
+    {
+        var (_, characters, presets) = Load();
+        var json = await File.ReadAllTextAsync(Path.Combine(ExamplesDir(), "pipelines", "feature-team.json"));
+        var flow = JsonSerializer.Deserialize<SdlcPipelineDefinition>(json, SdlcPipelineLoader.FileJsonOptions)!;
+        Assert.True(flow.IsFlow);
+
+        var graph = AiCodeAgent.Core.Flows.FlowGraph.Build(flow, id => characters.GetAsync(id).GetAwaiter().GetResult());
+        Assert.True(graph.IsValid, string.Join("\n", graph.Problems));
+        Assert.Empty(graph.Problems);
+        Assert.Equal("1: design · 2: backend ∥ model · 3: review · 4: release-notes", graph.DescribeWaves());
+
+        // Quinn rejects once, then approves.
+        var orchestrator = new AiCodeAgent.Core.Tests.Flows.ScriptedOrchestrator((node, _, call) =>
+            node == "review" ? call == 1 ? "Add tests.\nOUTCOME: rejected" : "OUTCOME: approved" : null)
+        {
+            MeetUp = new HashSet<string> { "backend", "model" }
+        };
+        var coordinator = new AgentSessionCoordinator(NullLogger<AgentSessionCoordinator>.Instance, presetLoader: presets, characters: characters);
+        var runner = new SdlcPipelineRunner(coordinator, presets, orchestrator, NullLogger<SdlcPipelineRunner>.Instance, characters);
+        AiCodeAgent.Core.Flows.FlowRunResult? result = null;
+        await foreach (var e in runner.RunAsync(flow, "add churn prediction", "s", Path.GetTempPath()))
+            if (e is AiCodeAgent.Core.Flows.FlowFinishedEvent f) result = f.Result;
+
+        Assert.NotNull(result);
+        Assert.True(result!.Succeeded, result.Message);
+        Assert.Equal(2, result.Nodes.Single(n => n.NodeId == "backend").Runs);
+        Assert.Equal("dana-dotnet", result.Nodes.Single(n => n.NodeId == "backend").CharacterId);
+        Assert.Equal(2, orchestrator.MaxConcurrent);
+        Assert.Contains(orchestrator.Calls, c => c.Node == "release-notes");
+    }
 }

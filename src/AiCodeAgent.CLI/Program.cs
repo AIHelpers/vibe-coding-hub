@@ -164,11 +164,20 @@ var castOption = new Option<string?>("--cast", "Cast characters into stages: rol
 pipelineRunCommand.AddArgument(pipelineTaskArg);
 pipelineRunCommand.AddOption(pipelineNameOption);
 pipelineRunCommand.AddOption(castOption);
+var maxParallelOption = new Option<int?>("--max-parallel", "Flows: most characters working at the same time (default: the flow's maxParallel, else 3)");
+pipelineRunCommand.AddOption(maxParallelOption);
 pipelineRunCommand.AddOption(providerOption);
 pipelineRunCommand.AddOption(modelOption);
 pipelineRunCommand.AddOption(dirOption);
-pipelineRunCommand.SetHandler(async (task, pipelineName, cast, provider, model, dir) =>
+pipelineRunCommand.SetHandler(async context =>
 {
+    var task = context.ParseResult.GetValueForArgument(pipelineTaskArg);
+    var pipelineName = context.ParseResult.GetValueForOption(pipelineNameOption)!;
+    var cast = context.ParseResult.GetValueForOption(castOption);
+    var maxParallel = context.ParseResult.GetValueForOption(maxParallelOption);
+    var provider = context.ParseResult.GetValueForOption(providerOption);
+    var model = context.ParseResult.GetValueForOption(modelOption);
+    var dir = context.ParseResult.GetValueForOption(dirOption);
     Dictionary<string, string> castMap;
     try { castMap = SdlcPipelineRunner.ParseCast(cast); }
     catch (FormatException ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; return; }
@@ -185,14 +194,14 @@ pipelineRunCommand.SetHandler(async (task, pipelineName, cast, provider, model, 
     var runner = new PipelineRunMode(services.GetRequiredService<SdlcPipelineRunner>());
     try
     {
-        await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model, castMap);
+        await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model, castMap, maxParallel);
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("character", StringComparison.OrdinalIgnoreCase))
     {
         Console.Error.WriteLine(ex.Message);
         Environment.ExitCode = 1;
     }
-}, pipelineTaskArg, pipelineNameOption, castOption, providerOption, modelOption, dirOption);
+});
 
 var pipelineListCommand = new Command("list", "List available pipelines");
 pipelineListCommand.SetHandler(async () =>
@@ -202,14 +211,97 @@ pipelineListCommand.SetHandler(async () =>
     Console.WriteLine("Available pipelines:");
     foreach (var p in loader.GetAllPipelines())
     {
-        Console.WriteLine($"  {p.Name,-12} {p.Description}");
+        Console.WriteLine($"  {p.Name,-12} {(p.IsFlow ? "[flow] " : "")}{p.Description}");
+        if (p.IsFlow)
+        {
+            Console.WriteLine($"      {AiCodeAgent.Core.Flows.FlowGraph.Build(p).DescribeWaves()}");
+            continue;
+        }
         foreach (var stage in p.Stages)
             Console.WriteLine($"      - [{(stage.Enabled ? "x" : " ")}] {stage.Name} ({stage.Role}{(string.IsNullOrEmpty(stage.Character) ? "" : " as " + stage.Character)})");
     }
 });
 
+// pipeline validate / show: check a flow and see what runs in parallel, without a provider.
+async Task<(SdlcPipelineDefinition? Pipeline, AiCodeAgent.Core.Flows.FlowGraph? Graph)> LoadGraphAsync(string name, string? cast, string? dir)
+{
+    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance);
+    var pipeline = loader.GetPipeline(name);
+    if (pipeline == null)
+    {
+        Console.Error.WriteLine($"Unknown pipeline '{name}'. Run 'pipeline list' to see available pipelines.");
+        Environment.ExitCode = 1;
+        return (null, null);
+    }
+    Dictionary<string, string> castMap;
+    try { castMap = SdlcPipelineRunner.ParseCast(cast); }
+    catch (FormatException ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; return (null, null); }
+    var registries = await SkillCharacterCommands.OpenAsync(dir);
+    var graph = AiCodeAgent.Core.Flows.FlowGraph.Build(pipeline, id => registries.Characters.GetAsync(id).GetAwaiter().GetResult(), castMap);
+    return (pipeline, graph);
+}
+
+var flowNameArg = new Argument<string>("name", "Pipeline (flow) name");
+var pipelineValidateCommand = new Command("validate", "Check a pipeline/flow: unknown nodes and characters, cycles without a loop limit, bad conditions");
+pipelineValidateCommand.AddArgument(flowNameArg);
+pipelineValidateCommand.AddOption(castOption);
+pipelineValidateCommand.AddOption(dirOption);
+pipelineValidateCommand.SetHandler(async (name, cast, dir) =>
+{
+    var (_, graph) = await LoadGraphAsync(name, cast, dir);
+    if (graph == null) return;
+    foreach (var problem in graph.Problems)
+        Console.WriteLine($"  {problem}");
+    Console.WriteLine(graph.IsValid
+        ? $"'{name}' is valid. {graph.DescribeWaves()}"
+        : $"'{name}' has {graph.Problems.Count(p => p.IsError)} error(s).");
+    if (!graph.IsValid) Environment.ExitCode = 1;
+}, flowNameArg, castOption, dirOption);
+
+var mermaidOption = new Option<bool>("--mermaid", "Print a Mermaid flowchart instead");
+var pipelineShowCommand = new Command("show", "Show a pipeline/flow: which characters run in parallel, loops and conditions");
+pipelineShowCommand.AddArgument(flowNameArg);
+pipelineShowCommand.AddOption(mermaidOption);
+pipelineShowCommand.AddOption(castOption);
+pipelineShowCommand.AddOption(dirOption);
+pipelineShowCommand.SetHandler(async (name, mermaid, cast, dir) =>
+{
+    var (pipeline, graph) = await LoadGraphAsync(name, cast, dir);
+    if (pipeline == null || graph == null) return;
+    if (mermaid)
+    {
+        Console.Write(graph.ToMermaid());
+        return;
+    }
+    Console.WriteLine($"{pipeline.Name}{(pipeline.IsFlow ? " (flow)" : " (linear: one shared history)")}: {pipeline.Description}");
+    Console.WriteLine();
+    foreach (var (wave, index) in graph.Waves.Select((w, i) => (w, i)))
+    {
+        Console.WriteLine($"  {index + 1}. {string.Join("  ∥  ", wave.Select(id =>
+        {
+            var node = graph.GetNode(id)!;
+            var who = AiCodeAgent.Core.Flows.FlowGraph.EffectiveCharacter(node.Stage, SdlcPipelineRunner.ParseCast(cast)) ?? node.Stage.Role;
+            return $"{id} ({who}{(node.Outcomes.Count > 0 ? ": " + string.Join("/", node.Outcomes) : "")})";
+        }))}");
+    }
+    var special = graph.Edges.Where(e => e.IsLoop || e.IsConditional).ToList();
+    if (special.Count > 0)
+    {
+        Console.WriteLine();
+        foreach (var e in special)
+            Console.WriteLine(e.IsLoop
+                ? $"  ↺ {e.From} → {e.To} when {e.When ?? "always"} (up to {e.MaxLoops}×)"
+                : $"  ⤷ {e.From} → {e.To} when {e.When}");
+    }
+    foreach (var problem in graph.Problems)
+        Console.WriteLine($"  {problem}");
+    if (!graph.IsValid) Environment.ExitCode = 1;
+}, flowNameArg, mermaidOption, castOption, dirOption);
+
 pipelineCommand.AddCommand(pipelineRunCommand);
 pipelineCommand.AddCommand(pipelineListCommand);
+pipelineCommand.AddCommand(pipelineValidateCommand);
+pipelineCommand.AddCommand(pipelineShowCommand);
 
 // config command
 var configCommand = new Command("config", "Configure the agent");
