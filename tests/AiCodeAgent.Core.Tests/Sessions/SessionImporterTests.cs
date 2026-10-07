@@ -90,7 +90,7 @@ public class SessionImporterTests : IDisposable
             }
         };
 
-        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true);
+        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true, workingDirectory: _tempDir);
 
         Assert.Equal(1, result.CheckpointCount);
         Assert.Empty(result.Conflicts);
@@ -118,7 +118,7 @@ public class SessionImporterTests : IDisposable
             }
         };
 
-        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true);
+        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true, workingDirectory: _tempDir);
 
         Assert.Equal(0, result.CheckpointCount);
         var conflict = Assert.Single(result.Conflicts);
@@ -143,7 +143,7 @@ public class SessionImporterTests : IDisposable
             }
         };
 
-        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true);
+        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true, workingDirectory: _tempDir);
 
         var conflict = Assert.Single(result.Conflicts);
         Assert.Equal(ConflictKind.FileMissing, conflict.Kind);
@@ -156,7 +156,7 @@ public class SessionImporterTests : IDisposable
         bundle.CheckpointRefs = new List<string> { "cp-1" };
         bundle.CheckpointSnapshots = new List<CheckpointSnapshotDto>();
 
-        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true);
+        var result = await _importer.ImportAsync(bundle, applyCheckpoints: true, workingDirectory: _tempDir);
 
         Assert.Single(result.Conflicts, c => c.Kind == ConflictKind.CheckpointRefMissing);
     }
@@ -192,4 +192,4 @@ public class SessionImporterTests : IDisposable
         await Assert.ThrowsAsync<FileNotFoundException>(
             () => SessionImporter.LoadBundleAsync(Path.Combine(_tempDir, "nope.json")));
     }
-}
+}

@@ -68,30 +68,25 @@ public class PermissionServiceTests
     }
 
     [Fact]
-    public async Task RequestApprovalAsync_PlanMode_Global_DoesNotAffectOtherAgents()
+    public async Task RequestApprovalAsync_ModeComesFromEachCallsOptions_NotFromServiceState()
     {
         var service = CreateService();
-        service.SetMode(PermissionMode.Plan); // global plan mode
+        // Service-level mode is ignored for approvals: each run passes its own mode in AgentOptions,
+        // so one run switching modes cannot change another run's permissions.
+        service.SetMode(PermissionMode.FullAuto);
 
         var writeCall = CreateToolCall("write_file");
-        var options = new AgentOptions();
 
-        // Global mode is Plan, so writes blocked
-        Assert.False(await service.RequestApprovalAsync(writeCall, RiskLevel.Write, options));
-
-        // But an agent with FullAuto mode is not affected
-        service.SetMode(PermissionMode.FullAuto, "implementer-1");
-        Assert.True(await service.RequestApprovalAsync(writeCall, RiskLevel.Write, options, "implementer-1"));
+        Assert.False(await service.RequestApprovalAsync(writeCall, RiskLevel.Write, new AgentOptions { PermissionMode = PermissionMode.Plan }));
+        Assert.True(await service.RequestApprovalAsync(writeCall, RiskLevel.Write, new AgentOptions { PermissionMode = PermissionMode.FullAuto }, "implementer-1"));
     }
 
     [Fact]
     public async Task RequestApprovalAsync_AutoEditMode_AgentSpecific_ApprovesWrites()
     {
         var service = CreateService();
-        service.SetMode(PermissionMode.AutoEdit, "implementer-1");
-
         var writeCall = CreateToolCall("write_file");
-        var options = new AgentOptions();
+        var options = new AgentOptions { PermissionMode = PermissionMode.AutoEdit };
 
         Assert.True(await service.RequestApprovalAsync(writeCall, RiskLevel.Write, options, "implementer-1"));
     }
@@ -109,15 +104,15 @@ public class PermissionServiceTests
     }
 
     [Fact]
-    public async Task RequestApprovalAsync_FullAutoMode_AgentSpecific_ApprovesEverything()
+    public async Task RequestApprovalAsync_FullAutoMode_ApprovesEditsAndSafeCommands_ButNotRiskyOnes()
     {
         var service = CreateService();
-        service.SetMode(PermissionMode.FullAuto, "implementer-1");
+        var options = new AgentOptions { PermissionMode = PermissionMode.FullAuto };
 
-        var execCall = CreateToolCall("execute_command", "rm -rf /");
-        var options = new AgentOptions();
-
-        Assert.True(await service.RequestApprovalAsync(execCall, RiskLevel.Execute, options, "implementer-1"));
+        Assert.True(await service.RequestApprovalAsync(CreateToolCall("write_file"), RiskLevel.Write, options, "implementer-1"));
+        Assert.True(await service.RequestApprovalAsync(CreateToolCall("execute_command", "dotnet test"), RiskLevel.Execute, options, "implementer-1"));
+        // Risky shell commands fall back to a normal approval prompt (none here, so denied).
+        Assert.False(await service.RequestApprovalAsync(CreateToolCall("execute_command", "rm -rf /"), RiskLevel.Execute, options, "implementer-1"));
     }
 
     [Fact]
@@ -131,4 +126,4 @@ public class PermissionServiceTests
 
         Assert.True(await service.RequestApprovalAsync(readCall, RiskLevel.Read, options, "reviewer-1"));
     }
-}
+}

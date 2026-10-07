@@ -128,7 +128,8 @@ public class EditFileToolTests : TempDirTestBase
             Context());
 
         Assert.False(result.IsError);
-        Assert.Contains("- line2", result.Content);
-        Assert.Contains("+ LINE2", result.Content);
+        // Unified diff format: the +/- marker is followed directly by the line text.
+        Assert.Contains("\n-line2\n", result.Content);
+        Assert.Contains("\n+LINE2\n", result.Content);
     }
-}
+}

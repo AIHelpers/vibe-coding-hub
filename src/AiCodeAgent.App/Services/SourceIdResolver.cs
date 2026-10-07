@@ -52,7 +52,7 @@ public sealed class SourceIdResolver
 
         try
         {
-        var allLines = File.ReadAllLines(span.FilePath);
+            var allLines = File.ReadAllLines(span.FilePath);
             if (span.StartLine < 1 || span.EndLine > allLines.Length)
                 return null;
 
@@ -82,8 +82,11 @@ public sealed class SourceIdResolver
         foreach (var l in newLines)
             lines.Add(new DiffLine(DiffLineKind.Added, l));
 
+        // The id is unique and bounded: the old "<full path>-vis-...".Substring(0, 64) threw for short
+        // paths (e.g. /tmp on Linux) and dropped the GUID for long ones (Windows), so two hunks for
+        // the same file could get the same id.
         return new DiffHunk(
-            $"{span.FilePath}-vis-{span.StartLine}-{span.EndLine}-{Guid.NewGuid():N}".Substring(0, 64),
+            BuildHunkId(span),
             span.FilePath,
             span.StartLine,
             origLines.Length,
@@ -92,6 +95,16 @@ public sealed class SourceIdResolver
             lines.ToArray(),
             agentId ?? "visual-editor",
             HunkStatus.Pending);
+    }
+
+    /// <summary>"vis-&lt;file name&gt;-&lt;start&gt;-&lt;end&gt;-&lt;guid&gt;", at most 64 characters.</summary>
+    internal static string BuildHunkId(SourceSpan span)
+    {
+        var suffix = $"-{span.StartLine}-{span.EndLine}-{Guid.NewGuid():N}";
+        var name = Path.GetFileName(span.FilePath);
+        var room = Math.Max(0, 64 - "vis-".Length - suffix.Length);
+        if (name.Length > room) name = name[..room];
+        return "vis-" + name + suffix;
     }
 
     /// <summary>
@@ -113,4 +126,4 @@ public sealed class SourceIdResolver
 public readonly record struct SourceSpan(string FilePath, int StartLine, int EndLine)
 {
     public int LineCount => Math.Max(1, EndLine - StartLine + 1);
-}
+}
