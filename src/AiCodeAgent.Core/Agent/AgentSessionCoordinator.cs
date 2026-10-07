@@ -17,7 +17,8 @@ namespace AiCodeAgent.Core.Agent;
 /// </summary>
 public class AgentSessionCoordinator
 {
-    private readonly Dictionary<string, IAgentOrchestrator> _agents = new(StringComparer.OrdinalIgnoreCase);
+    // Concurrent: flows register and look up agents while other nodes are running.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IAgentOrchestrator> _agents = new(StringComparer.OrdinalIgnoreCase);
     private readonly SharedChangeset _changeset = new();
     private readonly SharedContextStore _context = new();
     private readonly AgentMailbox _mailbox = new();
@@ -134,7 +135,7 @@ public class AgentSessionCoordinator
     }
 
     /// <summary>Unregister an agent by ID.</summary>
-    public bool UnregisterAgent(string agentId) => _agents.Remove(agentId);
+    public bool UnregisterAgent(string agentId) => _agents.TryRemove(agentId, out _);
 
     /// <summary>
     /// Run a multi-agent session plan. Steps run sequentially by default;
@@ -247,7 +248,8 @@ public class AgentSessionCoordinator
         _logger.LogInformation("Multi-agent session {SessionId} completed", plan.SessionId);
     }
 
-    private static string? DetectStepFailure(AgentEvent evt) => (evt is AgentTaggedEvent t ? t.Inner : evt) switch
+    /// <summary>Why a step failed, from one of its events (error, step limit, repeated tool errors), or null.</summary>
+    public static string? DetectStepFailure(AgentEvent evt) => (evt is AgentTaggedEvent t ? t.Inner : evt) switch
     {
         AgentErrorEvent err => err.Error.Message,
         AgentFinishedEvent { Response.StopReason: "repeated_errors" } => "every tool call kept failing",
@@ -264,6 +266,110 @@ public class AgentSessionCoordinator
         await foreach (var tagged in RunStepCore(step, sessionId, cancellationToken))
             yield return tagged;
     }
+
+    /// <summary>
+    /// Run one step on its own session, optionally in its own git worktree that is merged back
+    /// when it finishes (used by flows, where independent steps run concurrently). Events are
+    /// tagged with the step's agent; worktree status is reported as <see cref="StatusUpdateEvent"/>s.
+    /// </summary>
+    public async IAsyncEnumerable<AgentEvent> RunIsolatedStepAsync(
+        SessionStep step,
+        string sessionId,
+        bool isolate,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (!_agents.TryGetValue(step.AgentId, out var orchestrator))
+        {
+            var errorEvent = new AgentErrorEvent(new InvalidOperationException($"Agent '{step.AgentId}' is not registered"));
+            yield return new AgentTaggedEvent(errorEvent, step.AgentId, step.Role);
+            yield break;
+        }
+
+        var prompt = BuildStepPrompt(step);
+        var stepOptions = ResolveStepOptions(step);
+
+        WorkspaceLease? lease = null;
+        if (isolate && _isolation != null)
+        {
+            lease = await _isolation.AcquireAsync(stepOptions.WorkingDirectory, sessionId, step.AgentId, cancellationToken).ConfigureAwait(false);
+            if (lease != null)
+            {
+                var baseDir = Path.GetFullPath(stepOptions.WorkingDirectory);
+                var allowed = stepOptions.AllowedPaths
+                    .Select(a => string.Equals(Path.GetFullPath(a), baseDir, StringComparison.OrdinalIgnoreCase) ? lease.WorkingDirectory : a)
+                    .ToList();
+                stepOptions = stepOptions with { WorkingDirectory = lease.WorkingDirectory, AllowedPaths = allowed };
+                yield return new AgentTaggedEvent(new StatusUpdateEvent("Worktree", $"Isolated on branch {lease.Branch}"), step.AgentId, step.Role);
+            }
+        }
+
+        string? finalText = null;
+        var leaseSettled = false;
+        try
+        {
+            var stream = orchestrator.StreamRunAsync(prompt, sessionId, stepOptions, cancellationToken).GetAsyncEnumerator(cancellationToken);
+            try
+            {
+                while (true)
+                {
+                    AgentEvent? evt = null;
+                    Exception? error = null;
+                    var cancelled = false;
+                    try
+                    {
+                        if (!await stream.MoveNextAsync().ConfigureAwait(false)) break;
+                        evt = stream.Current;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cancelled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex;
+                    }
+                    if (cancelled) break;
+                    if (error != null)
+                    {
+                        _logger.LogError(error, "Agent {AgentId} failed", step.AgentId);
+                        var failed = new AgentTaggedEvent(new AgentErrorEvent(error), step.AgentId, step.Role);
+                        _eventBus?.Publish(failed);
+                        yield return failed;
+                        break;
+                    }
+
+                    if (evt is AgentFinishedEvent fin) finalText = fin.Response.Content;
+                    if (evt is DiffProducedEvent diffEvent) CaptureDiff(diffEvent, step.AgentId);
+                    var tagged = new AgentTaggedEvent(evt!, step.AgentId, step.Role);
+                    _eventBus?.Publish(tagged);
+                    yield return tagged;
+                }
+            }
+            finally
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (lease != null && _isolation != null)
+            {
+                leaseSettled = true;
+                var result = await _isolation.CompleteAsync(lease, finalText ?? step.Prompt,
+                    merge: !cancellationToken.IsCancellationRequested, CancellationToken.None).ConfigureAwait(false);
+                yield return new AgentTaggedEvent(
+                    new StatusUpdateEvent(result.Succeeded ? "Worktree merged" : WorktreeNeedsAttention, result.Message),
+                    step.AgentId, step.Role);
+            }
+        }
+        finally
+        {
+            // The caller stopped reading early: keep the agent's work on its branch instead of leaving a dangling worktree.
+            if (lease != null && _isolation != null && !leaseSettled)
+                await _isolation.CompleteAsync(lease, finalText ?? step.Prompt, merge: false, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Status of the event sent when a step's worktree could not be merged back.</summary>
+    public const string WorktreeNeedsAttention = "Worktree needs attention";
 
     /// <summary>
     /// Core execution of a single step: drains the agent's mailbox into the prompt,
@@ -417,7 +523,7 @@ public class AgentSessionCoordinator
                             finalTexts[step.AgentId] = (finalTexts.TryGetValue(step.AgentId, out var prev) ? prev : string.Empty)
                                 + $"\n\n[worktree] {result.Message}";
                             await channel.Writer.WriteAsync(new AgentTaggedEvent(
-                                new StatusUpdateEvent(result.Succeeded ? "Worktree merged" : "Worktree needs attention", result.Message),
+                                new StatusUpdateEvent(result.Succeeded ? "Worktree merged" : WorktreeNeedsAttention, result.Message),
                                 step.AgentId, step.Role), CancellationToken.None);
                         }
                     }

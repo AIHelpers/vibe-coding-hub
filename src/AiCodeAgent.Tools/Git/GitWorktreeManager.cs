@@ -9,9 +9,14 @@ namespace AiCodeAgent.Tools.Git;
 
 /// <summary>
 /// <see cref="IWorkspaceIsolation"/> backed by <c>git worktree</c>: each agent gets its own checkout on branch
-/// <c>agent/&lt;session&gt;/&lt;agent&gt;</c> (created from HEAD) under <c>&lt;repo-parent&gt;/.aiagent-worktrees/&lt;repo&gt;/</c>.
-/// Work is committed there and merged back with <c>--no-ff</c>, one agent at a time. Uncommitted changes in the
-/// main checkout are NOT visible to the agents (worktrees start from HEAD).
+/// <c>agent/&lt;session&gt;/&lt;agent&gt;</c> under <c>&lt;repo-parent&gt;/.aiagent-worktrees/&lt;repo&gt;/</c>.
+/// <list type="bullet">
+/// <item>Clean main checkout: the copy starts from HEAD; the agent's commit is merged back with <c>--no-ff</c>.</item>
+/// <item>Uncommitted work in the main checkout (e.g. written by an earlier flow step): it is captured in a snapshot
+/// commit (without touching the branch, index or files), the copy starts from it, and the agent's changes are applied
+/// back to the working tree as uncommitted changes.</item>
+/// </list>
+/// One merge/apply at a time per repository.
 /// </summary>
 public class GitWorktreeManager : IWorkspaceIsolation
 {
@@ -38,12 +43,14 @@ public class GitWorktreeManager : IWorkspaceIsolation
             var repoName = Path.GetFileName(repoRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             var parent = Path.GetDirectoryName(repoRoot) ?? repoRoot;
             var slug = Slug(agentId);
-            var shortSession = Slug(sessionId.Length > 8 ? sessionId[..8] : sessionId);
+            // The hash keeps names apart for sessions that share a prefix (e.g. "<flow>/<step>#1" and "#2").
+            var shortSession = Slug(sessionId.Length > 8 ? sessionId[..8] : sessionId) + "-" + StableHash(sessionId);
             var branch = $"agent/{shortSession}/{slug}";
             var dir = Path.Combine(parent, ".aiagent-worktrees", repoName, $"{shortSession}-{slug}");
 
             Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
-            var add = await GitAsync(repoRoot, ct, "worktree", "add", "-b", branch, dir, "HEAD");
+            var snapshot = await SnapshotAsync(repoRoot, ct);
+            var add = await GitAsync(repoRoot, ct, "worktree", "add", "-b", branch, dir, snapshot ?? "HEAD");
             if (add.ExitCode != 0)
             {
                 _logger.LogWarning("git worktree add failed for {Agent}: {Err}", agentId, add.Stderr.Trim());
@@ -55,7 +62,7 @@ public class GitWorktreeManager : IWorkspaceIsolation
                 ? dir
                 : Path.Combine(dir, relative);
             Directory.CreateDirectory(workDir);
-            return new WorkspaceLease(agentId, branch, dir, workDir, repoRoot);
+            return new WorkspaceLease(agentId, branch, dir, workDir, repoRoot, snapshot);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -97,6 +104,9 @@ public class GitWorktreeManager : IWorkspaceIsolation
             await gate.WaitAsync(CancellationToken.None);
             try
             {
+                if (lease.BaseSnapshot != null)
+                    return await ApplyToWorkingTreeAsync(lease);
+
                 var m = await GitAsync(lease.RepoRoot, CancellationToken.None,
                     "-c", "user.name=AiCodeAgent", "-c", "user.email=agent@localhost",
                     "merge", "--no-ff", "-m", $"Merge agent {lease.AgentId} ({lease.Branch})", lease.Branch);
@@ -129,6 +139,93 @@ public class GitWorktreeManager : IWorkspaceIsolation
         }
     }
 
+    /// <summary>
+    /// The copy started from a snapshot of uncommitted work: apply only what the agent changed since that snapshot
+    /// to the main working tree (left uncommitted, like the work it started from).
+    /// </summary>
+    private async Task<WorkspaceMergeResult> ApplyToWorkingTreeAsync(WorkspaceLease lease)
+    {
+        var patch = Path.Combine(Path.GetTempPath(), $"aiagent-{Slug(lease.AgentId)}-{Guid.NewGuid():N}.patch");
+        try
+        {
+            // git writes the patch itself, byte for byte (no re-encoding of file contents).
+            var diff = await GitAsync(lease.RepoRoot, CancellationToken.None, "diff", "--binary", $"--output={patch}", lease.BaseSnapshot!, lease.Branch);
+            if (diff.ExitCode != 0)
+                return new WorkspaceMergeResult(WorkspaceMergeOutcome.Failed, lease.Branch,
+                    $"Could not compute the agent's changes: {FirstLine(diff.Stderr)}", Array.Empty<string>(), lease.RootPath);
+            if (!File.Exists(patch) || new FileInfo(patch).Length == 0)
+            {
+                await RemoveAsync(lease);
+                return new WorkspaceMergeResult(WorkspaceMergeOutcome.NoChanges, lease.Branch, "No changes.", Array.Empty<string>());
+            }
+            var apply = await GitAsync(lease.RepoRoot, CancellationToken.None, "apply", "--whitespace=nowarn", patch);
+            if (apply.ExitCode == 0)
+            {
+                await RemoveAsync(lease);
+                return new WorkspaceMergeResult(WorkspaceMergeOutcome.Merged, lease.Branch,
+                    $"Applied {lease.Branch} to the working tree (uncommitted).", Array.Empty<string>());
+            }
+            var files = Regex.Matches(apply.Stderr, @"(?:patch failed|does not exist in index|already exists in working directory): ([^:
+]+)")
+                .Select(m => m.Groups[1].Value.Trim()).Distinct().ToArray();
+            var detail = files.Length > 0 ? $"Conflicting changes in: {string.Join(", ", files)}." : $"Could not apply: {FirstLine(apply.Stderr)}";
+            return new WorkspaceMergeResult(WorkspaceMergeOutcome.Conflict, lease.Branch,
+                $"{detail} Branch {lease.Branch} and its worktree were kept for manual resolution.", files, lease.RootPath);
+        }
+        finally
+        {
+            try { File.Delete(patch); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// When the working tree differs from HEAD (changes, new files; ignored files excluded), records it as a commit
+    /// object without touching the branch, the index or any file, and returns its id. Null when the tree is clean.
+    /// </summary>
+    private async Task<string?> SnapshotAsync(string repoRoot, CancellationToken ct)
+    {
+        var tempIndex = Path.Combine(Path.GetTempPath(), $"aiagent-index-{Guid.NewGuid():N}");
+        try
+        {
+            // Start from a copy of the real index (its file stats make "add" fast), else from HEAD.
+            var indexPath = (await GitAsync(repoRoot, ct, "rev-parse", "--git-path", "index")).Stdout.Trim();
+            var realIndex = Path.GetFullPath(Path.Combine(repoRoot, indexPath));
+            var env = new Dictionary<string, string> { ["GIT_INDEX_FILE"] = tempIndex };
+            if (File.Exists(realIndex)) File.Copy(realIndex, tempIndex, overwrite: true);
+            else await GitAsync(repoRoot, ct, env, "read-tree", "HEAD");
+
+            if ((await GitAsync(repoRoot, ct, env, "add", "-A")).ExitCode != 0) return null;
+            var tree = (await GitAsync(repoRoot, ct, env, "write-tree")).Stdout.Trim();
+            var headTree = (await GitAsync(repoRoot, ct, "rev-parse", "HEAD^{tree}")).Stdout.Trim();
+            if (tree.Length == 0 || tree == headTree) return null;
+
+            var commit = await GitAsync(repoRoot, ct, "-c", "user.name=AiCodeAgent", "-c", "user.email=agent@localhost",
+                "commit-tree", tree, "-p", "HEAD", "-m", "aiagent: snapshot of uncommitted work");
+            return commit.ExitCode == 0 && commit.Stdout.Trim().Length > 0 ? commit.Stdout.Trim() : null;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not snapshot uncommitted work in {Repo}; agents start from HEAD", repoRoot);
+            return null;
+        }
+        finally
+        {
+            try { File.Delete(tempIndex); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Short, stable (process-independent) hash for names.</summary>
+    internal static string StableHash(string value)
+    {
+        unchecked
+        {
+            uint h = 2166136261;
+            foreach (var c in value) h = (h ^ c) * 16777619;
+            return (h & 0xFFFFFF).ToString("x6");
+        }
+    }
+
     private async Task RemoveAsync(WorkspaceLease lease)
     {
         await GitAsync(lease.RepoRoot, CancellationToken.None, "worktree", "remove", "--force", lease.RootPath);
@@ -149,7 +246,10 @@ public class GitWorktreeManager : IWorkspaceIsolation
 
     private readonly record struct GitOutput(int ExitCode, string Stdout, string Stderr);
 
-    private async Task<GitOutput> GitAsync(string workingDirectory, CancellationToken ct, params string[] args)
+    private Task<GitOutput> GitAsync(string workingDirectory, CancellationToken ct, params string[] args) =>
+        GitAsync(workingDirectory, ct, null, args);
+
+    private async Task<GitOutput> GitAsync(string workingDirectory, CancellationToken ct, IReadOnlyDictionary<string, string>? env, params string[] args)
     {
         var psi = new ProcessStartInfo
         {
@@ -163,6 +263,8 @@ public class GitWorktreeManager : IWorkspaceIsolation
             StandardErrorEncoding = Encoding.UTF8
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        if (env != null)
+            foreach (var (k, v) in env) psi.Environment[k] = v;
         try
         {
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("git did not start");

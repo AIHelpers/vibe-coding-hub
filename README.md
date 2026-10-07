@@ -247,6 +247,63 @@ desktop app, use **Project Knowledge → Skills / Characters** (skill checklist 
 selector next to the pipeline picker, or `/character`, `/characters`, `/skill`, `/skills` in the chat box.
 Ready-made samples live in [`examples/`](examples/README.md).
 
+## Flows: characters working together
+
+A **flow** is a pipeline whose stages are connected by arrows. Each character starts as soon as the
+characters pointing into it are done, and characters whose work doesn't depend on each other **run in
+parallel**, each in its own git worktree that is merged back when it finishes.
+
+```json
+{
+  "name": "feature-team",
+  "maxParallel": 3,
+  "stages": [
+    { "id": "design",  "character": "alex-architect", "promptTemplate": "Task: {task}\nPlan the backend and the model." },
+    { "id": "backend", "character": "dana-dotnet",    "promptTemplate": "Build the backend part.\n{input:design}" },
+    { "id": "model",   "character": "mia-ml",         "promptTemplate": "Build the model part.\n{input:design}" },
+    { "id": "review",  "character": "quinn-qa",       "promptTemplate": "Review both parts.", "outcomes": ["approved", "rejected"] },
+    { "id": "notes",   "character": "sam-developer",  "promptTemplate": "Write release notes for: {task}" }
+  ],
+  "edges": [
+    { "from": "design",  "to": "backend" },
+    { "from": "design",  "to": "model" },
+    { "from": "backend", "to": "review" },
+    { "from": "model",   "to": "review" },
+    { "from": "review",  "to": "backend", "when": "rejected", "maxLoops": 2 },
+    { "from": "review",  "to": "notes",   "when": "approved" }
+  ]
+}
+```
+
+- **What a character receives:** the task plus the final answers of the characters connected into it, as
+  an `<inputs>` block. Parallel branches don't see each other. `{input:<id>}` places one input inline.
+- **Conditions:** a step with `outcomes` must end its answer with `OUTCOME: <one of them>`, and arrows
+  with `when` follow that outcome. A branch that isn't chosen is skipped and never blocks a later join.
+- **Loops:** an arrow back to an earlier step re-runs it (and the steps between) with the feedback, up to
+  `maxLoops` times. After that, a `"when": "loop-exhausted"` arrow can route elsewhere; otherwise the flow
+  stops. A flow also stops after 25 step runs in total.
+- **Failures** skip only the steps after the failed one; other branches finish.
+- Pipelines **without `edges`** keep the old behavior: stages in order, one shared history.
+
+```bash
+aiagent pipeline validate feature-team          # problems, exit code 1 on errors
+aiagent pipeline show feature-team              # 1: design · 2: backend ∥ model · 3: review · 4: notes
+aiagent pipeline show feature-team --mermaid    # diagram for docs and PRs
+aiagent pipeline run "Add churn prediction" --pipeline feature-team --max-parallel 2
+```
+
+In the desktop app, open **🔀 Flows** (or "Flows" / "New Flow" in the command palette):
+
+- **Draw:** drag characters from the left onto the canvas (or click **＋** to add one after the selected
+  step), then drag from a step's right handle to another step. Select a step to set its character, prompt,
+  outcomes and confirmation; select an arrow to set its condition and loop limit. Delete removes the
+  selection; Ctrl+Z / Ctrl+Y undo and redo; the wheel zooms and dragging empty canvas pans.
+- **Check:** problems are outlined in red as you edit, and the header shows which steps run in parallel.
+  **Auto-layout** arranges steps left to right by execution order. **Save** writes `~/.aiagent/pipelines/<name>.json`.
+- **Run:** type the task and press **▶ Run**. Each step shows ⏳ waiting, ▶ running, ✓ done (with its
+  outcome), ✕ failed or – skipped, plus the round number in loops; arrows light up as they are taken. Click a
+  step to watch its output, and approve steps that ask for confirmation right on the step.
+
 ## Multi-Agent Coordination
 
 Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:

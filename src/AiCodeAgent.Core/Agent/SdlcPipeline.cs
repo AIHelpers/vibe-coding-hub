@@ -12,7 +12,15 @@ namespace AiCodeAgent.Core.Agent;
 /// </summary>
 public record SdlcStageDefinition
 {
-    /// <summary>Role name, resolved against <see cref="RolePresetLoader"/> (e.g. "planner", "implementer").</summary>
+    /// <summary>
+    /// Node id in a flow (kebab-case, unique within the pipeline). Edges refer to it. Optional for
+    /// linear pipelines; a flow derives one from <see cref="Name"/> when it is missing.
+    /// </summary>
+    public string? Id { get; init; }
+    /// <summary>
+    /// Role name, resolved against <see cref="RolePresetLoader"/> (e.g. "planner", "implementer").
+    /// May be empty when <see cref="Character"/> is set: the character's base role is used.
+    /// </summary>
     public string Role { get; init; } = string.Empty;
     /// <summary>
     /// Optional character that runs this stage (e.g. "alex-architect"). Its base role, persona,
@@ -28,6 +36,34 @@ public record SdlcStageDefinition
     public bool Enabled { get; init; } = true;
     /// <summary>Ask the user to confirm before this stage starts. Built-in "Deploy" stages set this.</summary>
     public bool RequireConfirmation { get; init; }
+    /// <summary>
+    /// Verdicts this stage must choose from in a flow (e.g. ["approved", "rejected"]). The agent
+    /// ends its answer with <c>OUTCOME: &lt;one of them&gt;</c> and edges route on it.
+    /// </summary>
+    public List<string>? Outcomes { get; init; }
+    /// <summary>Canvas position (left) in the Flows panel.</summary>
+    public double? X { get; init; }
+    /// <summary>Canvas position (top) in the Flows panel.</summary>
+    public double? Y { get; init; }
+}
+
+/// <summary>An arrow in a flow: <see cref="To"/> runs after <see cref="From"/>.</summary>
+public record FlowEdge
+{
+    /// <summary>Id of the stage that runs first.</summary>
+    public string From { get; init; } = string.Empty;
+    /// <summary>Id of the stage that runs after it.</summary>
+    public string To { get; init; } = string.Empty;
+    /// <summary>
+    /// Outcome of <see cref="From"/> that makes this edge taken (one of its <c>outcomes</c>, or
+    /// <c>loop-exhausted</c>). Null = always taken once <see cref="From"/> is done.
+    /// </summary>
+    public string? When { get; init; }
+    /// <summary>
+    /// How many times this edge may send work back to an earlier stage. Required on an edge that
+    /// closes a cycle (e.g. reviewer → developer on "rejected").
+    /// </summary>
+    public int? MaxLoops { get; init; }
 }
 
 /// <summary>
@@ -39,6 +75,18 @@ public record SdlcPipelineDefinition
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }
     public List<SdlcStageDefinition> Stages { get; init; } = new();
+    /// <summary>
+    /// Arrows between stages. When present the pipeline is a <b>flow</b>: stages run as soon as the
+    /// stages before them finish (independent ones in parallel), and each gets the outputs of the
+    /// stages connected into it. When null/empty the pipeline is linear (one shared history).
+    /// </summary>
+    public List<FlowEdge>? Edges { get; init; }
+    /// <summary>Most stages a flow runs at the same time (default 3).</summary>
+    public int? MaxParallel { get; init; }
+
+    /// <summary>True when this pipeline is a flow (has edges).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsFlow => Edges is { Count: > 0 };
 }
 
 /// <summary>
@@ -55,17 +103,60 @@ public class SdlcPipelineLoader
 
     public IReadOnlyDictionary<string, SdlcPipelineDefinition> Pipelines => _pipelines;
 
-    public SdlcPipelineLoader(ILogger<SdlcPipelineLoader> logger)
+    private readonly HashSet<string> _builtInNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>JSON used for pipeline files: camelCase, indented, nulls left out (so linear pipelines stay short).</summary>
+    public static readonly JsonSerializerOptions FileJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    /// <param name="pipelinesDirectory">Folder with user pipelines; defaults to <c>~/.aiagent/pipelines</c>.</param>
+    public SdlcPipelineLoader(ILogger<SdlcPipelineLoader> logger, string? pipelinesDirectory = null)
     {
         _logger = logger;
-        var configDir = Path.Combine(
+        _pipelinesDirectory = pipelinesDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent");
-        _pipelinesDirectory = Path.Combine(configDir, "pipelines");
+            ".aiagent", "pipelines");
         Directory.CreateDirectory(_pipelinesDirectory);
 
         LoadBuiltInPipelines();
+        _builtInNames.UnionWith(_pipelines.Keys);
         LoadUserPipelines();
+    }
+
+    /// <summary>Raised after a pipeline was saved or deleted (pipeline pickers refresh on it).</summary>
+    public event EventHandler? Changed;
+
+    /// <summary>Folder that holds user pipeline files.</summary>
+    public string PipelinesDirectory => _pipelinesDirectory;
+
+    /// <summary>True for a pipeline that ships with the app and has no user file overriding it.</summary>
+    public bool IsBuiltIn(string name) => _builtInNames.Contains(name) && !File.Exists(GetPipelinePath(name));
+
+    /// <summary>Path of the user file for <paramref name="name"/> (whether or not it exists).</summary>
+    public string GetPipelinePath(string name) => Path.Combine(_pipelinesDirectory, $"{name}.json");
+
+    /// <summary>Re-read the user pipelines folder (after files changed on disk).</summary>
+    public void Reload()
+    {
+        _pipelines.Clear();
+        LoadBuiltInPipelines();
+        LoadUserPipelines();
+    }
+
+    /// <summary>Delete a user pipeline file. A built-in pipeline it overrode becomes visible again.</summary>
+    public bool DeletePipeline(string name)
+    {
+        var path = GetPipelinePath(name);
+        if (!File.Exists(path)) return false;
+        File.Delete(path);
+        Reload();
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     public SdlcPipelineDefinition? GetPipeline(string name) =>
@@ -161,10 +252,7 @@ public class SdlcPipelineLoader
                 try
                 {
                     var json = File.ReadAllText(file);
-                    var pipeline = JsonSerializer.Deserialize<SdlcPipelineDefinition>(json, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                    var pipeline = JsonSerializer.Deserialize<SdlcPipelineDefinition>(json, FileJsonOptions);
 
                     if (pipeline == null || string.IsNullOrEmpty(pipeline.Name) || pipeline.Stages.Count == 0)
                     {
@@ -190,15 +278,14 @@ public class SdlcPipelineLoader
     /// <summary>Save a custom pipeline definition to the user pipelines directory.</summary>
     public async Task SavePipelineAsync(SdlcPipelineDefinition pipeline)
     {
-        var filePath = Path.Combine(_pipelinesDirectory, $"{pipeline.Name}.json");
-        var json = JsonSerializer.Serialize(pipeline, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNameCaseInsensitive = true
-        });
-        await File.WriteAllTextAsync(filePath, json);
+        if (string.IsNullOrWhiteSpace(pipeline.Name) || !Context.LocalFileStore.IsValidName(pipeline.Name))
+            throw new ArgumentException($"Pipeline name '{pipeline.Name}' must be kebab-case (letters, numbers, hyphens).", nameof(pipeline));
+        var filePath = GetPipelinePath(pipeline.Name);
+        var json = JsonSerializer.Serialize(pipeline, FileJsonOptions);
+        await Context.LocalFileStore.WriteAllTextAtomicAsync(filePath, json + "\n");
         _pipelines[pipeline.Name] = pipeline;
         _logger.LogInformation("Saved pipeline '{Name}' to {File}", pipeline.Name, filePath);
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 }
 
@@ -282,7 +369,7 @@ public class SdlcPipelineRunner
         return character.IsBuiltIn && !explicitChoice ? null : character;
     }
 
-    /// <summary>Builds the multi-agent session plan for a pipeline run without executing it.</summary>
+    /// <summary>Builds the multi-agent session plan for a linear pipeline run without executing it.</summary>
     public SessionPlan BuildPlan(
         SdlcPipelineDefinition pipeline,
         string task,
@@ -297,58 +384,14 @@ public class SdlcPipelineRunner
         foreach (var stage in pipeline.Stages)
         {
             if (!stage.Enabled) continue;
-            if (string.IsNullOrWhiteSpace(stage.Role))
+            if (string.IsNullOrWhiteSpace(stage.Role) && string.IsNullOrWhiteSpace(stage.Character))
             {
-                _logger.LogWarning("Skipping pipeline stage '{Name}' with no role", stage.Name);
+                _logger.LogWarning("Skipping pipeline stage '{Name}' with no role or character", stage.Name);
                 continue;
             }
 
-            var character = ResolveStageCharacter(stage, cast);
-            var agentId = character?.Id ?? stage.Role;
-
-            // The orchestrator itself is stateless per-run (all role behavior comes from
-            // AgentOptions), so the same instance can safely serve every role in the pipeline.
-            if (!_coordinator.Agents.ContainsKey(agentId))
-                _coordinator.RegisterAgent(agentId, _orchestrator);
-
             var prompt = stage.PromptTemplate.Replace("{task}", task);
-            var baseOptions = new AgentOptions
-            {
-                Model = model,
-                WorkingDirectory = workingDirectory,
-                MaxIterations = maxIterationsPerStage
-            };
-
-            AgentOptions options;
-            if (character != null)
-            {
-                var basePreset = character.BaseRole == null ? null : _presetLoader.GetPreset(character.BaseRole);
-                options = CharacterResolver.Apply(baseOptions, character, basePreset, overwrite: true, useBaseRolePermission: true);
-                // A character's own model is more specific than the session-wide --model; Apply keeps --model otherwise.
-                if (character.BaseRole == null && character.PermissionMode == null) options = options with { PermissionMode = PermissionMode.Ask };
-            }
-            else
-            {
-                var preset = _presetLoader.GetPreset(stage.Role);
-                if (preset == null)
-                    _logger.LogWarning("No role preset found for '{Role}'; stage will run with generic instructions only", stage.Role);
-                options = baseOptions with
-                {
-                    PermissionMode = preset?.DefaultPermissionMode ?? PermissionMode.Ask,
-                    EnabledTools = preset?.AllowedTools ?? new List<string>(),
-                    RoleSystemPrompt = preset?.SystemPrompt
-                };
-            }
-
-            steps.Add(new SessionStep
-            {
-                AgentId = agentId,
-                Role = stage.Role,
-                CharacterId = character?.Id,
-                Prompt = prompt,
-                RequireConfirmation = stage.RequireConfirmation,
-                Options = options
-            });
+            steps.Add(BuildStageStep(stage, prompt, workingDirectory, model, maxIterationsPerStage, cast));
         }
 
         return new SessionPlan
@@ -359,7 +402,72 @@ public class SdlcPipelineRunner
         };
     }
 
-    /// <summary>Builds and runs the pipeline, streaming tagged events from every stage in order.</summary>
+    /// <summary>
+    /// The session step for one stage: resolves its character (cast &gt; stage character &gt; a user
+    /// character named like the role), builds its options and registers its agent. Flows pass
+    /// <paramref name="agentId"/> (the node id) so the same character can appear in several nodes.
+    /// </summary>
+    public SessionStep BuildStageStep(
+        SdlcStageDefinition stage,
+        string prompt,
+        string workingDirectory,
+        string? model = null,
+        int maxIterations = 30,
+        IReadOnlyDictionary<string, string>? cast = null,
+        string? agentId = null)
+    {
+        var character = ResolveStageCharacter(stage, cast);
+        var role = !string.IsNullOrWhiteSpace(stage.Role) ? stage.Role : character?.BaseRole ?? string.Empty;
+        agentId ??= character?.Id ?? role;
+
+        // The orchestrator itself is stateless per-run (all role behavior comes from
+        // AgentOptions), so the same instance can safely serve every role in the pipeline.
+        if (!_coordinator.Agents.ContainsKey(agentId))
+            _coordinator.RegisterAgent(agentId, _orchestrator);
+
+        var baseOptions = new AgentOptions
+        {
+            Model = model,
+            WorkingDirectory = workingDirectory,
+            MaxIterations = maxIterations
+        };
+
+        AgentOptions options;
+        if (character != null)
+        {
+            var basePreset = character.BaseRole == null ? null : _presetLoader.GetPreset(character.BaseRole);
+            options = CharacterResolver.Apply(baseOptions, character, basePreset, overwrite: true, useBaseRolePermission: true);
+            // A character's own model is more specific than the session-wide --model; Apply keeps --model otherwise.
+            if (character.BaseRole == null && character.PermissionMode == null) options = options with { PermissionMode = PermissionMode.Ask };
+        }
+        else
+        {
+            var preset = _presetLoader.GetPreset(role);
+            if (preset == null)
+                _logger.LogWarning("No role preset found for '{Role}'; stage will run with generic instructions only", role);
+            options = baseOptions with
+            {
+                PermissionMode = preset?.DefaultPermissionMode ?? PermissionMode.Ask,
+                EnabledTools = preset?.AllowedTools ?? new List<string>(),
+                RoleSystemPrompt = preset?.SystemPrompt
+            };
+        }
+
+        return new SessionStep
+        {
+            AgentId = agentId,
+            Role = role,
+            CharacterId = character?.Id,
+            Prompt = prompt,
+            RequireConfirmation = stage.RequireConfirmation,
+            Options = options
+        };
+    }
+
+    /// <summary>
+    /// Builds and runs the pipeline, streaming tagged events. A linear pipeline runs its stages in
+    /// order on one shared history; a flow (pipeline with edges) runs through <see cref="Flows.FlowRunner"/>.
+    /// </summary>
     public IAsyncEnumerable<AgentEvent> RunAsync(
         SdlcPipelineDefinition pipeline,
         string task,
@@ -368,8 +476,20 @@ public class SdlcPipelineRunner
         string? model = null,
         int maxIterationsPerStage = 30,
         CancellationToken cancellationToken = default,
-        IReadOnlyDictionary<string, string>? cast = null)
+        IReadOnlyDictionary<string, string>? cast = null,
+        int? maxParallel = null)
     {
+        if (pipeline.IsFlow)
+        {
+            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters);
+            return flow.RunAsync(pipeline, task, sessionId, workingDirectory, new Flows.FlowRunOptions
+            {
+                Model = model,
+                MaxIterationsPerNode = maxIterationsPerStage,
+                Cast = cast,
+                MaxParallel = maxParallel ?? pipeline.MaxParallel
+            }, cancellationToken);
+        }
         var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage, cast);
         return _coordinator.RunAsync(plan, cancellationToken);
     }
