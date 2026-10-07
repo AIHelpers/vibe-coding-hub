@@ -45,21 +45,68 @@ public sealed class SkillMaintenance
         return new SkillDeleteResult(true, references, removed);
     }
 
-    /// <summary>Skill references in characters that point at skills that do not exist.</summary>
+    /// <summary>
+    /// "Add skill" on a character profile: give <paramref name="characterId"/> the library skill
+    /// <paramref name="skillName"/>, creating it first from <paramref name="createIfMissing"/>
+    /// (in <paramref name="createScope"/>) when it does not exist yet. A character that could use
+    /// every skill (built-in, or <c>skills: ["*"]</c>) switches to an explicit list of its own skills.
+    /// </summary>
+    /// <exception cref="SkillValidationException">Unknown character, invalid skill draft, or a missing skill without a draft.</exception>
+    public async Task<CharacterSkillAddResult> AddSkillToCharacterAsync(
+        string characterId,
+        string skillName,
+        bool pinned = false,
+        SkillDraft? createIfMissing = null,
+        SkillScope createScope = SkillScope.Global,
+        CancellationToken cancellationToken = default)
+    {
+        skillName = (skillName ?? string.Empty).Trim();
+        var character = await _characters.GetAsync(characterId, cancellationToken).ConfigureAwait(false)
+            ?? throw new SkillValidationException($"Character '{characterId}' does not exist.");
+        if (skillName.Length == 0)
+            throw new SkillValidationException("Pick a skill from the library or enter a name for a new one.");
+
+        var skill = await _skills.GetAsync(skillName, cancellationToken).ConfigureAwait(false);
+        var created = false;
+        if (skill == null)
+        {
+            if (createIfMissing == null)
+                throw new SkillValidationException($"Skill '{skillName}' does not exist. Give it a description to create it.");
+            skill = await _skills.CreateAsync(createIfMissing with { Name = skillName }, createScope, cancellationToken).ConfigureAwait(false);
+            created = true;
+        }
+
+        var wasAllSkills = character.Skills == null;
+        if (wasAllSkills && !character.IsBuiltIn)
+            await _characters.UnassignSkillsAsync(character.Id, new[] { CharacterRegistry.AllSkillsToken }, cancellationToken).ConfigureAwait(false);
+        var updated = await _characters.AssignSkillsAsync(character.Id, new[] { skill.Name }, pinned, cancellationToken).ConfigureAwait(false);
+        return new CharacterSkillAddResult(updated, skill, created, wasAllSkills);
+    }
+
+    /// <summary>
+    /// References written in character files that point at skills that do not
+    /// exist. Each file is reported once per missing skill (inherited copies are not repeated).
+    /// </summary>
     public async Task<IReadOnlyList<DanglingSkillReference>> FindDanglingReferencesAsync(CancellationToken cancellationToken = default)
     {
         var known = new HashSet<string>(
             (await _skills.ListAllAsync(cancellationToken).ConfigureAwait(false)).Select(s => s.Name),
             StringComparer.OrdinalIgnoreCase);
+        bool Missing(string s) => s != CharacterRegistry.AllSkillsToken && !known.Contains(s);
+
         var result = new List<DanglingSkillReference>();
         foreach (var c in await _characters.ListAsync(cancellationToken).ConfigureAwait(false))
         {
-            foreach (var s in c.AllSkillReferences.Where(s => s != CharacterRegistry.AllSkillsToken && !known.Contains(s)).Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var s in c.DeclaredSkillReferences.Where(Missing).Distinct(StringComparer.OrdinalIgnoreCase))
                 result.Add(new DanglingSkillReference(c.Id, s));
         }
         return result;
     }
+
 }
+
+/// <param name="WasAllSkills">The character could use every skill before; now it has an explicit list.</param>
+public record CharacterSkillAddResult(CharacterInfo Character, SkillInfo Skill, bool CreatedSkill, bool WasAllSkills);
 
 public record SkillRenameResult(SkillInfo Skill, int CharactersUpdated);
 

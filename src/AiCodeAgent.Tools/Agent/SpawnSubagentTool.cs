@@ -35,7 +35,7 @@ public class SpawnSubagentTool : BaseTool
         if (_characters == null) return string.Empty;
         try
         {
-            var list = _characters.ListAsync().GetAwaiter().GetResult().Where(c => c.IsValid).ToList();
+            var list = _characters.ListAsync().GetAwaiter().GetResult().Where(c => c.IsValid && !c.IsTemplate).ToList();
             if (list.Count == 0) return string.Empty;
             return " Available: " + string.Join("; ", list.Select(c =>
                 string.IsNullOrWhiteSpace(c.Description) ? c.Id : $"{c.Id} ({Truncate(c.Description, 60)})")) + ".";
@@ -118,7 +118,7 @@ public class SpawnSubagentTool : BaseTool
             IsReadOnly = context.IsReadOnly,
             AllowedPaths = context.AllowedPaths.ToList(),
             RoleSystemPrompt = string.IsNullOrWhiteSpace(role) ? null : role,
-            // Without a character the subagent inherits the parent's skill set.
+            // Without a character the subagent inherits the parent's skills.
             AllowedSkills = context.AllowedSkills?.ToList(),
         };
 
@@ -191,7 +191,7 @@ public class SpawnSubagentTool : BaseTool
             EnabledTools = toolsGiven ? subContext.EnabledTools : (resolved.EnabledTools.Count == 0 ? null : resolved.EnabledTools),
             DisabledTools = resolved.DisabledTools,
             Model = modelFromCharacter ? resolved.Model : subContext.Model,
-            // The character's skill set replaces the parent's; built-ins (null) keep the parent's restriction.
+            // The character's skills replace the parent's; built-ins (null) keep the parent's restriction.
             AllowedSkills = character.Skills == null ? subContext.AllowedSkills : character.Skills.ToList(),
             PinnedSkills = resolved.PinnedSkills,
             // Never looser than the parent run.

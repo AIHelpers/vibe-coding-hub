@@ -58,7 +58,7 @@ public interface ISkillRegistry
     /// </summary>
     Task<bool> DeleteAsync(string skillName, SkillScope? scope = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Raised after the skill set changed (CRUD through this registry, or a file change when watching).</summary>
+    /// <summary>Raised after the skill library changed (CRUD through this registry, or a file change when watching).</summary>
     event EventHandler? Changed;
 
     /// <summary>

@@ -209,7 +209,17 @@
 
             <!-- Selected character: summary, editor, new-character form -->
             <Grid Grid.Column="1" Margin="8,0,0,0" RowDefinitions="Auto,Auto,*,Auto">
-                <Border Grid.Row="0" IsVisible="{Binding Characters.IsConfirmingDelete}" Background="{DynamicResource AppSubBrush}"
+                <StackPanel Grid.Row="0" Spacing="4">
+                <!-- Composition: template + extends -->
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4"
+                            IsVisible="{Binding Characters.CanEditSelected}">
+                    <TextBlock Text="Extends" FontSize="11" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding Characters.ExtendsOptions}" SelectedItem="{Binding Characters.SelectedExtends}"
+                              MinWidth="180" FontSize="11"
+                              ToolTip.Tip="Inherit base role, persona and skills from a template (e.g. software-developer)"/>
+                    <CheckBox Content="Template (a base for other characters)" IsChecked="{Binding Characters.SelectedIsTemplate}" FontSize="11"/>
+                </StackPanel>
+                <Border IsVisible="{Binding Characters.IsConfirmingDelete}" Background="{DynamicResource AppSubBrush}"
                         CornerRadius="4" Padding="10" Margin="0,4">
                     <StackPanel Spacing="6">
                         <TextBlock Text="{Binding Characters.DeleteConfirmText}" FontSize="11" TextWrapping="Wrap"/>
@@ -219,6 +229,7 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
+                </StackPanel>
 
                 <TextBlock Grid.Row="1" Text="{Binding Characters.SelectedSummary}" FontSize="11" Opacity="0.8"
                            TextWrapping="Wrap" Margin="0,4,0,6" IsVisible="{Binding !Characters.IsCreating}"/>
@@ -250,6 +261,10 @@
                         <TextBox Text="{Binding Characters.NewDescription}" Watermark="Designs solutions and writes ADRs; never edits code"/>
                         <TextBlock Text="Base role (tools and permissions it starts from; empty = generic agent)" FontSize="10" Opacity="0.6"/>
                         <ComboBox ItemsSource="{Binding Characters.BaseRoles}" SelectedItem="{Binding Characters.NewBaseRole}" MinWidth="200"/>
+                        <TextBlock Text="Start from template (inherits role, persona and skills; add the specialty afterwards)" FontSize="10" Opacity="0.6"/>
+                        <ComboBox ItemsSource="{Binding Characters.ExtendsOptions}" SelectedItem="{Binding Characters.NewExtends}" MinWidth="200"/>
+                        <CheckBox Content="Create as a template (e.g. software-developer) for other characters to extend"
+                                  IsChecked="{Binding Characters.NewIsTemplate}" FontSize="11"/>
                         <CheckBox Content="Project character (.aiagent/characters — unchecked = global, ~/.aiagent/characters)"
                                   IsChecked="{Binding Characters.NewIsProject}" FontSize="11"/>
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
@@ -267,34 +282,103 @@
                 </Border>
             </Grid>
 
-            <!-- Skill checklist -->
+            <!-- Skills of the selected character + "＋ Add skill" -->
             <Border Grid.Column="2" Background="{DynamicResource AppSubBrush}" Margin="8,0,0,0" Padding="8"
                     IsVisible="{Binding !Characters.IsCreating}">
                 <Grid RowDefinitions="Auto,Auto,Auto,*">
-                    <TextBlock Grid.Row="0" Text="Skills" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Row="1" FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,4"
-                               Text="Tick to give the character a skill (loaded on demand). Pin to keep its full instructions in context on every turn."/>
-                    <StackPanel Grid.Row="2" Spacing="4">
-                        <TextBlock FontSize="10" Foreground="#E0A040" TextWrapping="Wrap" IsVisible="{Binding Characters.SelectedUsesAllSkills}"
-                                   Text="This character can use every skill. Ticking a skill restricts it to the ticked list."/>
-                        <TextBox Text="{Binding Characters.SkillFilter}" Watermark="Filter skills" FontSize="11"/>
-                    </StackPanel>
-                    <ScrollViewer Grid.Row="3" Margin="0,6,0,0">
-                        <ItemsControl ItemsSource="{Binding Characters.SkillChoices}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="vm:CharacterSkillChoice">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
-                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsAssigned}" VerticalAlignment="Top"/>
-                                        <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{Binding Hint}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                        <ToggleButton Grid.Column="2" Content="📌" IsChecked="{Binding IsPinned}"
-                                                      ToolTip.Tip="Pin: always in context" Padding="4,0" FontSize="10"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding Characters.SkillsHeader}" FontSize="12" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <Button Grid.Column="1" Content="＋ Add skill" Command="{Binding Characters.BeginAddSkillCommand}"
+                                IsVisible="{Binding Characters.SelectedCharacter, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                ToolTip.Tip="Pick a skill from the library or create a new one for this character"
+                                FontSize="11" Padding="8,3"/>
+                    </Grid>
+                    <TextBlock Grid.Row="1" FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,4"
+                               Text="Each character has its own skills, picked from the shared skill library. 📌 keeps a skill's full instructions in context; otherwise it is loaded on demand."/>
+
+                    <!-- Add skill panel -->
+                    <Border Grid.Row="2" IsVisible="{Binding Characters.IsAddingSkill}" Background="{DynamicResource AppDeepBrush}"
+                            CornerRadius="4" Padding="8" Margin="0,2,0,6">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Add skill" FontSize="12" FontWeight="SemiBold"/>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <RadioButton GroupName="AddSkillMode" Content="From library" FontSize="11"
+                                             IsChecked="{Binding Characters.AddSkillFromLibrary}"/>
+                                <RadioButton GroupName="AddSkillMode" Content="Create new" FontSize="11"
+                                             IsChecked="{Binding Characters.AddSkillCreatesNew}"/>
+                            </StackPanel>
+
+                            <!-- Pick an existing library skill -->
+                            <StackPanel Spacing="4" IsVisible="{Binding Characters.AddSkillFromLibrary}">
+                                <TextBox Text="{Binding Characters.LibraryFilter}" Watermark="Search the library" FontSize="11"/>
+                                <ListBox ItemsSource="{Binding Characters.AvailableSkills}" SelectedItem="{Binding Characters.SelectedLibrarySkill}"
+                                         MaxHeight="170" IsVisible="{Binding Characters.HasAvailableSkills}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="vm:LibrarySkillItem">
+                                            <StackPanel Spacing="0">
+                                                <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Description}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !Characters.HasAvailableSkills}"
+                                           Text="No other library skills match. Choose &quot;Create new&quot;."/>
+                            </StackPanel>
+
+                            <!-- Create a new library skill -->
+                            <StackPanel Spacing="4" IsVisible="{Binding Characters.AddSkillCreatesNew}">
+                                <TextBox Text="{Binding Characters.NewSkillName}" Watermark="Name, e.g. clean-architecture" FontSize="11"/>
+                                <TextBox Text="{Binding Characters.NewSkillDescription}" FontSize="11" TextWrapping="Wrap"
+                                         Watermark="When to use it, e.g. Apply clean architecture layering in .NET services"/>
+                                <TextBox Text="{Binding Characters.NewSkillInstructions}" FontSize="11" AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="70" MaxHeight="160" Watermark="Instructions (Markdown, optional — edit later in the Skills tab)"/>
+                                <CheckBox Content="Project library (.aiagent/skills — unchecked = global)" IsChecked="{Binding Characters.NewSkillIsProject}" FontSize="11"/>
+                            </StackPanel>
+
+                            <CheckBox Content="📌 Pin (always in context)" IsChecked="{Binding Characters.AddSkillPinned}" FontSize="11"/>
+                            <TextBlock Text="{Binding Characters.AddSkillNote}" FontSize="10" Foreground="#E0A040" TextWrapping="Wrap"
+                                       IsVisible="{Binding Characters.SelectedUsesAllSkills}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                <Button Content="Cancel" Command="{Binding Characters.CancelAddSkillCommand}" FontSize="11" Padding="10,4"/>
+                                <Button Content="Add" Command="{Binding Characters.ConfirmAddSkillCommand}" FontSize="11" Padding="10,4"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="3" Margin="0,4,0,0">
+                        <StackPanel Spacing="4">
+                            <TextBlock FontSize="10" Foreground="#E0A040" TextWrapping="Wrap" IsVisible="{Binding Characters.SelectedUsesAllSkills}"
+                                       Text="This character can use every skill in the library. Add a skill to give it its own list."/>
+                            <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap"
+                                       IsVisible="{Binding !Characters.HasSkillChoices}"
+                                       Text="No skills yet. Click &quot;＋ Add skill&quot;."/>
+                            <ItemsControl ItemsSource="{Binding Characters.SkillChoices}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:CharacterSkillChoice">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
+                                            <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Hint}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding Hint}"/>
+                                            </StackPanel>
+                                            <ToggleButton Grid.Column="1" Content="📌" IsChecked="{Binding IsPinned}" IsEnabled="{Binding CanTogglePin}"
+                                                          IsVisible="{Binding IsAssigned}"
+                                                          ToolTip.Tip="Pin: always in context" Padding="4,0" FontSize="10" Margin="4,0,0,0"/>
+                                            <Button Grid.Column="2" Content="🗑" IsVisible="{Binding IsAssigned}"
+                                                    Command="{Binding DataContext.Characters.RemoveSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Remove this skill from the character" Padding="4,0" FontSize="10" Margin="4,0,0,0"/>
+                                            <Button Grid.Column="2" Content="↩ Restore" IsVisible="{Binding IsRemoved}"
+                                                    Command="{Binding DataContext.Characters.RestoreSkillCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="Use this skill from the template again" Padding="4,0" FontSize="10" Margin="4,0,0,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </ScrollViewer>
                 </Grid>
             </Border>

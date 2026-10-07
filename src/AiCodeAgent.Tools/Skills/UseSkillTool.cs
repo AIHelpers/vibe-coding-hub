@@ -10,7 +10,7 @@ namespace AiCodeAgent.Tools.Skills;
 /// Loads a skill's full instructions into the conversation. This is how the
 /// model acts on the <c>&lt;available_skills&gt;</c> list: descriptions are cheap
 /// and always present, the instructions only cost context once used.
-/// Enforces the calling agent's skill set (<see cref="AgentExecutionContext.AllowedSkills"/>),
+/// Enforces the calling agent's allowed skills (<see cref="AgentExecutionContext.AllowedSkills"/>),
 /// so a character can only load the skills assigned to it.
 /// </summary>
 public class UseSkillTool : BaseTool

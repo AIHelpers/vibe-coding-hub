@@ -1208,7 +1208,8 @@ public class TerminalUI
             var active = _activeCharacter != null && string.Equals(_activeCharacter.Id, c.Id, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
             var skills = c.Skills == null ? "all skills" : $"{c.Skills.Count + c.PinnedSkills.Count} skill(s)";
             WriteColored($" {active} {c.Id,-22} ", Colors.Tool);
-            WriteColored($"{c.Scope.ToString().ToLowerInvariant(),-8} {skills,-12} {c.Description}{(c.IsValid ? "" : " [invalid]")}\n", ConsoleColor.Gray);
+            var kind = c.IsTemplate ? " [template]" : c.Extends != null ? $" [extends {c.Extends}]" : "";
+            WriteColored($"{c.Scope.ToString().ToLowerInvariant(),-8} {skills,-12} {c.Description}{kind}{(c.IsValid ? "" : " [invalid]")}\n", ConsoleColor.Gray);
         }
         WriteColored("\nUse /character <id> to switch, /character none to go back to the default agent.\n", Colors.Info);
     }

@@ -36,7 +36,7 @@ public class ExamplesTests
     {
         var (skills, _, _) = Load();
         var all = await skills.ListAllAsync();
-        Assert.Equal(4, all.Count);
+        Assert.Equal(8, all.Count);
         Assert.All(all, s =>
         {
             Assert.True(s.IsValid, string.Join(" ", s.ValidationErrors));
@@ -49,7 +49,7 @@ public class ExamplesTests
     {
         var (skills, characters, _) = Load();
         var custom = (await characters.ListAsync()).Where(c => !c.IsBuiltIn).ToList();
-        Assert.Equal(new[] { "alex-architect", "quinn-qa", "sam-developer" }, custom.Select(c => c.Id));
+        Assert.Equal(new[] { "alex-architect", "dana-dotnet", "mia-ml", "quinn-qa", "sam-developer", "software-developer" }, custom.Select(c => c.Id));
         Assert.All(custom, c =>
         {
             Assert.True(c.IsValid, string.Join(" ", c.ValidationErrors));
@@ -59,6 +59,29 @@ public class ExamplesTests
 
         var checks = await SkillDoctor.DiagnoseAsync(skills, characters);
         Assert.DoesNotContain(checks, c => c.Status != DoctorStatus.Ok);
+    }
+
+    [Fact]
+    public async Task ExampleDevelopers_ShareTemplate_WithTheirOwnSkills()
+    {
+        var (_, characters, _) = Load();
+
+        var template = (await characters.GetAsync("software-developer"))!;
+        Assert.True(template.IsTemplate);
+
+        var dana = (await characters.GetAsync("dana-dotnet"))!;
+        Assert.Equal(new[] { "release-notes", "csharp", "clean-architecture" }, dana.Skills);
+        Assert.Equal(new[] { "csharp", "clean-architecture" }, dana.OwnSkills);
+        Assert.Equal(new[] { "team-conventions" }, dana.PinnedSkills);
+        Assert.Equal("implementer", dana.BaseRole);
+        Assert.StartsWith("You are a professional software developer.", dana.Persona);
+
+        var mia = (await characters.GetAsync("mia-ml"))!;
+        Assert.Equal(new[] { "python", "machine-learning" }, mia.Skills);
+        Assert.Equal("own", mia.SkillSources["python"]);
+
+        var sam = (await characters.GetAsync("sam-developer"))!;
+        Assert.Equal(new[] { "release-notes" }, sam.Skills);
     }
 
     [Fact]

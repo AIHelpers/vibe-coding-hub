@@ -340,6 +340,24 @@ public static class Frontmatter
         return "---" + newline + string.Join(newline, lines) + newline + "---" + newline + body;
     }
 
+    /// <summary>Remove a top-level frontmatter field (and its continuation lines); every other line is preserved.</summary>
+    public static string RemoveField(string content, string key)
+    {
+        var newline = content.Contains("\r\n") ? "\r\n" : "\n";
+        var (fm, body) = Split(content);
+        if (fm == null) return content;
+        var lines = fm.Replace("\r\n", "\n").Split('\n').ToList();
+        var start = lines.FindIndex(l => Indent(l) == 0 && FindKeyColon(l) > 0 &&
+                                         string.Equals(l[..FindKeyColon(l)].Trim().Trim('"', '\''), key, StringComparison.OrdinalIgnoreCase));
+        if (start < 0) return content;
+        var end = start + 1;
+        while (end < lines.Count && !IsBlankOrComment(lines[end]) &&
+               (Indent(lines[end]) > 0 || lines[end].TrimStart().StartsWith("- ", StringComparison.Ordinal)))
+            end++;
+        lines.RemoveRange(start, end - start);
+        return "---" + newline + string.Join(newline, lines) + newline + "---" + newline + body;
+    }
+
     /// <summary>Replace the body of a document, keeping its frontmatter as-is.</summary>
     public static string SetBody(string content, string body)
     {

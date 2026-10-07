@@ -68,7 +68,7 @@ public partial class ChatViewModel
     {
         if (_characterRegistry == null) return;
         var ids = _characterRegistry.ListAsync().GetAwaiter().GetResult()
-            .Where(c => c.IsValid)
+            .Where(c => c.IsValid && !c.IsTemplate) // templates are bases for other characters, not chat partners
             .Select(c => c.Id)
             .ToList();
         var current = SelectedCharacterName;

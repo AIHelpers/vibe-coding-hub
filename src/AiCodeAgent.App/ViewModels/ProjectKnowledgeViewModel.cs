@@ -197,7 +197,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
         _logger = logger;
         _characterRegistry = characterRegistry;
         _maintenance = maintenance ?? (skillRegistry != null && characterRegistry != null ? new SkillMaintenance(skillRegistry, characterRegistry) : null);
-        Characters = characters ?? new CharactersViewModel(characterRegistry, skillRegistry);
+        Characters = characters ?? new CharactersViewModel(characterRegistry, skillRegistry, maintenance: _maintenance);
 
         // Files edited elsewhere (editor, git) show up live while the panel is open.
         if (_skillRegistry != null)
@@ -374,7 +374,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
             {
                 var usedBy = _characterRegistry == null
                     ? (IReadOnlyList<string>)Array.Empty<string>()
-                    : (await _characterRegistry.FindSkillReferencesAsync(s.Name)).Select(r => r.CharacterId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    : (await _characterRegistry.FindSkillReferencesAsync(s.Name)).Select(r => r.Label).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 items.Add(new SkillListItem
                 {
                     Name = s.Name,

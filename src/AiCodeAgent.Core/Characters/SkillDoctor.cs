@@ -48,8 +48,12 @@ public static class SkillDoctor
         foreach (var c in custom.Where(c => c.IsValid && c.Warnings.Count > 0))
             checks.Add(new DoctorCheck($"Character '{c.Id}'", DoctorStatus.Warning, string.Join(" ", c.Warnings), c.FilePath));
 
+        var templates = custom.Count(c => c.IsTemplate);
+        if (templates > 0)
+            checks.Add(new DoctorCheck("Templates", DoctorStatus.Ok, $"{templates} template(s)."));
+
         var dangling = await new SkillMaintenance(skills, characters).FindDanglingReferencesAsync(cancellationToken).ConfigureAwait(false);
-        foreach (var group in dangling.GroupBy(d => d.CharacterId, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in dangling.GroupBy(d => d.CharacterId))
         {
             var names = string.Join(", ", group.Select(d => d.SkillName));
             checks.Add(new DoctorCheck($"Character '{group.Key}'", DoctorStatus.Warning,

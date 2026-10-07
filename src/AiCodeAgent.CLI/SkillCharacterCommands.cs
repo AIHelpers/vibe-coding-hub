@@ -235,7 +235,8 @@ public static class SkillCharacterCommands
             {
                 var skills = c.Skills == null ? "(all)" : c.Skills.Count == 0 && c.PinnedSkills.Count == 0 ? "-" :
                     string.Join(", ", c.Skills.Concat(c.PinnedSkills.Select(p => p + "*")));
-                var flags = !c.IsValid ? " [invalid]" : c.Overrides ? " [override]" : "";
+                var flags = (c.IsTemplate ? " [template]" : "") + (c.Extends != null ? $" [extends {c.Extends}]" : "") +
+                            (!c.IsValid ? " [invalid]" : c.Overrides ? " [override]" : "");
                 Console.WriteLine($"{c.Id,-22} {c.Scope.ToString().ToLowerInvariant(),-8} {c.BaseRole ?? "-",-12} {Truncate(skills, 30),-30} {Truncate(c.Description, 50)}{flags}");
             }
             Console.WriteLine("\n* = pinned (always in context)");
@@ -261,8 +262,12 @@ public static class SkillCharacterCommands
             Console.WriteLine($"Permission:  {CharacterRegistry.FormatPermissionMode(resolved.PermissionMode)}");
             Console.WriteLine($"Tools:       {(resolved.EnabledTools.Count == 0 ? "(all)" : string.Join(", ", resolved.EnabledTools))}" +
                               (resolved.DisabledTools.Count > 0 ? $"  minus {string.Join(", ", resolved.DisabledTools)}" : ""));
-            Console.WriteLine($"Skills:      {(c.Skills == null ? "(all)" : c.Skills.Count == 0 ? "-" : string.Join(", ", c.Skills))}");
-            Console.WriteLine($"Pinned:      {(c.PinnedSkills.Count == 0 ? "-" : string.Join(", ", c.PinnedSkills))}");
+            if (c.IsTemplate) Console.WriteLine("Template:    yes (a base for other characters)");
+            if (c.Extends != null) Console.WriteLine($"Extends:     {string.Join(" → ", c.InheritanceChain.DefaultIfEmpty(c.Extends))}");
+            PrintSkillSources(c);
+            if (c.RemoveSkills.Count > 0) Console.WriteLine($"Removed:     {string.Join(", ", c.RemoveSkills)}");
+            var children = (await r.Characters.ListAsync()).Where(x => string.Equals(x.Extends, c.Id, StringComparison.OrdinalIgnoreCase)).Select(x => x.Id).ToList();
+            if (children.Count > 0) Console.WriteLine($"Used by:     {string.Join(", ", children)} (extend it)");
             var dangling = (await r.Maintenance.FindDanglingReferencesAsync()).Where(d => d.CharacterId == c.Id).ToList();
             PrintProblems(c.ValidationErrors, c.Warnings.Concat(dangling.Select(d => $"Skill '{d.SkillName}' does not exist.")).ToList());
             if (!string.IsNullOrWhiteSpace(c.Persona)) Console.WriteLine("\n" + c.Persona);
@@ -279,7 +284,9 @@ public static class SkillCharacterCommands
         var skillOption = new Option<string[]>("--skill", "Skill to assign (repeatable)") { AllowMultipleArgumentsPerToken = true };
         var pinOption = new Option<string[]>("--pin", "Skill to pin (repeatable)") { AllowMultipleArgumentsPerToken = true };
         var editOption = new Option<bool>("--edit", "Open the new file in $EDITOR");
-        foreach (var o in new Option[] { nameOption, avatarOption, descOption, roleOption, modelOption, modeOption, skillOption, pinOption, projectOption, editOption })
+        var extendsOption = new Option<string?>("--extends", "Template (or other character) to inherit base role, persona and skills from");
+        var templateOption = new Option<bool>("--template", "Create it as a template that other characters extend");
+        foreach (var o in new Option[] { nameOption, avatarOption, descOption, roleOption, modelOption, modeOption, skillOption, pinOption, projectOption, editOption, extendsOption, templateOption })
             create.AddOption(o);
         create.AddArgument(idArg);
         create.SetHandler(async context =>
@@ -302,9 +309,12 @@ public static class SkillCharacterCommands
                     Model = p.GetValueForOption(modelOption),
                     PermissionMode = mode,
                     Skills = p.GetValueForOption(skillOption) ?? Array.Empty<string>(),
-                    PinnedSkills = p.GetValueForOption(pinOption) ?? Array.Empty<string>()
+                    PinnedSkills = p.GetValueForOption(pinOption) ?? Array.Empty<string>(),
+                    Extends = p.GetValueForOption(extendsOption),
+                    IsTemplate = p.GetValueForOption(templateOption)
                 }, p.GetValueForOption(projectOption) ? SkillScope.Project : SkillScope.Global);
-                Console.WriteLine($"Created {c.Scope.ToString().ToLowerInvariant()} character '{c.Id}': {c.FilePath}");
+                Console.WriteLine($"Created {c.Scope.ToString().ToLowerInvariant()} {(c.IsTemplate ? "template" : "character")} '{c.Id}': {c.FilePath}");
+                PrintSkillSources(c);
                 await WarnMissingSkillsAsync(r, c);
                 if (p.GetValueForOption(editOption)) OpenEditor(c.FilePath!);
             });
@@ -376,6 +386,77 @@ public static class SkillCharacterCommands
             });
         }, dirOption, unassignId, unassignSkills);
 
+        var extend = new Command("extend", "Make a character extend a template (or 'none' to stop inheriting)");
+        var extendId = new Argument<string>("id");
+        var extendParent = new Argument<string>("template", "Template/character id, or none");
+        extend.AddArgument(extendId);
+        extend.AddArgument(extendParent);
+        extend.SetHandler(async (dir, id, parent) =>
+        {
+            var r = await OpenAsync(dir);
+            await Run(async () =>
+            {
+                var c = await r.Characters.SetExtendsAsync(id, parent.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : parent);
+                Console.WriteLine(c.Extends == null ? $"'{c.Id}' no longer extends a template." : $"'{c.Id}' now extends '{c.Extends}'.");
+                PrintSkillSources(c);
+            });
+        }, dirOption, extendId, extendParent);
+
+        var template = new Command("template", "Mark a character as a template (on) or a regular character (off)");
+        var templateId = new Argument<string>("id");
+        var templateState = new Argument<string>("state", "on | off");
+        template.AddArgument(templateId);
+        template.AddArgument(templateState);
+        template.SetHandler(async (dir, id, state) =>
+        {
+            var r = await OpenAsync(dir);
+            await Run(async () =>
+            {
+                var on = state.Trim().ToLowerInvariant() is "on" or "true" or "yes";
+                var c = await r.Characters.SetTemplateAsync(id, on);
+                Console.WriteLine(c.IsTemplate ? $"'{c.Id}' is now a template." : $"'{c.Id}' is a regular character.");
+            });
+        }, dirOption, templateId, templateState);
+
+        var addSkill = new Command("add-skill",
+            "Add a skill to a character: pick it from the library, or create it on the spot when it does not exist yet");
+        var addSkillId = new Argument<string>("id", "Character id");
+        var addSkillName = new Argument<string>("skill", "Library skill name (kebab-case); created when missing and --description is given");
+        var addDescOption = new Option<string?>("--description", "Create the skill with this description when it does not exist yet");
+        var addInstrOption = new Option<string?>("--instructions", "Instructions (Markdown) for a newly created skill");
+        var addPinnedOption = new Option<bool>("--pinned", "Pin: inject the full instructions on every turn instead of loading on demand");
+        var addProjectOption = new Option<bool>("--project", "Create a new skill in the project library (.aiagent/skills) instead of global");
+        addSkill.AddArgument(addSkillId);
+        addSkill.AddArgument(addSkillName);
+        foreach (var o in new Option[] { addDescOption, addInstrOption, addPinnedOption, addProjectOption })
+            addSkill.AddOption(o);
+        addSkill.SetHandler(async context =>
+        {
+            var p = context.ParseResult;
+            var r = await OpenAsync(p.GetValueForOption(dirOption));
+            await Run(async () =>
+            {
+                var description = p.GetValueForOption(addDescOption);
+                var instructions = p.GetValueForOption(addInstrOption);
+                var draft = string.IsNullOrWhiteSpace(description) && string.IsNullOrWhiteSpace(instructions)
+                    ? null
+                    : new SkillDraft { Description = description ?? string.Empty, Body = string.IsNullOrWhiteSpace(instructions) ? null : instructions };
+                var pinned = p.GetValueForOption(addPinnedOption);
+                var result = await r.Maintenance.AddSkillToCharacterAsync(
+                    p.GetValueForArgument(addSkillId),
+                    p.GetValueForArgument(addSkillName),
+                    pinned,
+                    draft,
+                    p.GetValueForOption(addProjectOption) ? SkillScope.Project : SkillScope.Global);
+                if (result.CreatedSkill)
+                    Console.WriteLine($"Created {result.Skill.Scope.ToString().ToLowerInvariant()} skill '{result.Skill.Name}': {result.Skill.FilePath}");
+                Console.WriteLine($"Added '{result.Skill.Name}' to '{result.Character.Id}'{(pinned ? " (pinned)" : "")}.");
+                if (result.WasAllSkills)
+                    Console.WriteLine($"  note: '{result.Character.Id}' could use every skill before; now it uses only the skills added to it.");
+                PrintSkillSources(result.Character);
+            });
+        });
+
         cmd.AddCommand(list);
         cmd.AddCommand(show);
         cmd.AddCommand(create);
@@ -383,10 +464,37 @@ public static class SkillCharacterCommands
         cmd.AddCommand(rm);
         cmd.AddCommand(assign);
         cmd.AddCommand(unassign);
+        cmd.AddCommand(extend);
+        cmd.AddCommand(template);
+        cmd.AddCommand(addSkill);
         return cmd;
     }
 
     // ============================== helpers ==============================
+
+    /// <summary>Print a character's effective skills grouped by where they come from.</summary>
+    internal static void PrintSkillSources(CharacterInfo c)
+    {
+        if (c.Skills == null)
+        {
+            Console.WriteLine("Skills:      (all skills)");
+        }
+        else
+        {
+            Console.WriteLine($"Skills:      {(c.Skills.Count == 0 ? "-" : string.Join(", ", c.Skills))}");
+            foreach (var group in c.Skills.GroupBy(x => c.SkillSources.TryGetValue(x, out var src) ? src : "own"))
+                Console.WriteLine($"  {DescribeSource(group.Key) + ":",-36} {string.Join(", ", group)}");
+        }
+        if (c.PinnedSkills.Count > 0)
+            Console.WriteLine($"Pinned:      {string.Join(", ", c.PinnedSkills.Select(x => Annotate(x, c.SkillSources)))}");
+    }
+
+    /// <summary>"own" or "template software-developer".</summary>
+    internal static string DescribeSource(string source) =>
+        source.StartsWith("template:", StringComparison.Ordinal) ? "template " + source["template:".Length..] : source;
+
+    private static string Annotate(string skill, IReadOnlyDictionary<string, string> sources) =>
+        sources.TryGetValue(skill, out var src) && src != "own" ? $"{skill} ({DescribeSource(src)})" : skill;
 
     private static async Task WarnMissingSkillsAsync(Registries r, CharacterInfo c)
     {

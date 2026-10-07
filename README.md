@@ -136,6 +136,77 @@ pinned-skills: [team-conventions]    # full instructions always in context
 You are Alex, a pragmatic software architect...
 ```
 
+### Add skill: every character gets its own skills
+
+All skills live in one shared library (`~/.aiagent/skills`, `.aiagent/skills`). Each character picks
+its own, individual skills from it. In the desktop app open **Project Knowledge → Characters**, select a
+character and click **＋ Add skill**:
+
+- **From library** — pick an existing skill (only skills the character does not have yet are listed);
+- **Create new** — enter a name, description and optional instructions; the skill is created in the
+  library (project or global) and added to the character in one step.
+
+Tick **📌 Pin** to keep the skill's full instructions in context; otherwise it is loaded on demand.
+Each skill in the character's list has 🗑 to remove it. The same from the command line:
+
+```bash
+aiagent characters add-skill dana-dotnet csharp                  # pick an existing library skill
+aiagent characters add-skill dana-dotnet ef-core \
+  --description "Use EF Core migrations and queries correctly" \
+  --instructions "Prefer AsNoTracking for read-only queries..." --project   # create it, then add it
+aiagent characters add-skill dana-dotnet team-conventions --pinned
+aiagent characters unassign dana-dotnet csharp
+```
+
+A character that could use every skill (a built-in role, or `skills: ["*"]`) switches to an explicit
+list as soon as you add a skill to it.
+
+### Templates: share what a profession has in common
+
+Describe what a whole profession shares once, then give each character its specialty with its own skills:
+
+```markdown
+<!-- ~/.aiagent/characters/software-developer.md : the shared base -->
+---
+id: software-developer
+template: true                       # a base for others; hidden from chat/subagent pickers
+base-role: implementer
+skills: [release-notes, code-review-checklist]
+pinned-skills: [team-conventions]
+---
+You are a professional software developer...
+
+<!-- ~/.aiagent/characters/dana-dotnet.md : the specialist -->
+---
+id: dana-dotnet
+extends: software-developer          # inherits role, model, permissions, tools, persona and skills
+skills: [csharp, clean-architecture] # her own skills (added with "＋ Add skill")
+remove-skills: [release-notes]       # drop an inherited skill for her only
+---
+You are Dana, a .NET backend specialist...
+```
+
+Dana's effective skills: `code-review-checklist` (template), `csharp`, `clean-architecture` (own),
+pinned `team-conventions` (template). An ML engineer `mia-ml` extends the same template and adds
+`python` and `machine-learning`. Rules:
+
+- Effective skills = template's skills + own skills − `remove-skills`; own skills always win.
+  Personas stack (template text first, then the character's), and scalar settings (base role, model,
+  permission mode) are inherited unless the character sets its own. Templates can extend templates.
+- Changing a template changes every character built on it. Inheritance cycles are reported as errors;
+  unknown templates as warnings.
+- `characters show <id>` (and the character's skill list in the desktop app) shows where each skill comes
+  from. Removing an inherited skill adds it to `remove-skills`; **↩ Restore** (or adding it again) un-removes it.
+
+```bash
+aiagent characters new software-developer --template --base-role implementer --skill release-notes --pin team-conventions
+aiagent characters new dana-dotnet --extends software-developer --skill csharp --skill clean-architecture
+aiagent characters extend sam-developer software-developer   # or: none
+aiagent characters template software-developer on
+```
+
+In the desktop app, the character header has *Extends* and *Template*.
+
 How it works:
 
 - The agent sees only its character's skills in `<available_skills>` and loads one with the **`use_skill`** tool;

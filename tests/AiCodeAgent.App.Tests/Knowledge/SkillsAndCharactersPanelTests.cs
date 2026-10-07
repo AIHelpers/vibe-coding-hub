@@ -219,7 +219,7 @@ public class SkillsAndCharactersPanelTests : IDisposable
     }
 
     [Fact]
-    public async Task Checklist_AssignPinAndUnassign_PersistToFile()
+    public async Task AddSkill_FromLibrary_PinAndRemove_PersistToFile()
     {
         await _skills.CreateAsync(new SkillDraft { Name = "tdd", Description = "Test first" }, SkillScope.Global);
         await _skills.CreateAsync(new SkillDraft { Name = "conventions", Description = "Team rules" }, SkillScope.Global);
@@ -227,28 +227,93 @@ public class SkillsAndCharactersPanelTests : IDisposable
         var vm = new CharactersViewModel(_characters, _skills, _presets);
         await vm.RefreshAsync();
         await vm.SelectCharacterAsync(vm.Characters.First(c => c.Id == "sam"));
-        Assert.Equal(2, vm.SkillChoices.Count);
+        Assert.Empty(vm.SkillChoices);
+        Assert.False(vm.HasSkillChoices);
+        Assert.Equal("Skills of sam", vm.SkillsHeader);
 
-        var tdd = vm.SkillChoices.First(c => c.Name == "tdd");
-        tdd.IsAssigned = true;
-        await vm.LastChoiceTask;
+        await vm.BeginAddSkillAsync();
+        Assert.True(vm.IsAddingSkill);
+        Assert.True(vm.AddSkillFromLibrary);
+        Assert.Equal(new[] { "conventions", "tdd" }, vm.AvailableSkills.Select(s => s.Name));
+        vm.SelectedLibrarySkill = vm.AvailableSkills.First(s => s.Name == "tdd");
+        await vm.ConfirmAddSkillAsync();
+
+        Assert.False(vm.IsAddingSkill);
         Assert.Equal(new[] { "tdd" }, (await _characters.GetAsync("sam"))!.Skills);
+        var tdd = Assert.Single(vm.SkillChoices);
+        Assert.Equal("Test first", tdd.Hint);
+        Assert.True(tdd.CanTogglePin);
+        // Assigned skills are no longer offered.
+        Assert.Equal(new[] { "conventions" }, vm.AvailableSkills.Select(s => s.Name));
 
-        var conventions = vm.SkillChoices.First(c => c.Name == "conventions");
-        conventions.IsPinned = true;
+        await vm.BeginAddSkillAsync();
+        vm.SelectedLibrarySkill = vm.AvailableSkills.Single();
+        vm.AddSkillPinned = true;
+        await vm.ConfirmAddSkillAsync();
+        Assert.Equal(new[] { "conventions" }, (await _characters.GetAsync("sam"))!.PinnedSkills);
+        Assert.True(vm.SkillChoices.First(c => c.Name == "conventions").IsPinned);
+
+        // Unpin from the list: it stays, loaded on demand.
+        vm.SkillChoices.First(c => c.Name == "conventions").IsPinned = false;
         await vm.LastChoiceTask;
         var sam = (await _characters.GetAsync("sam"))!;
-        Assert.Equal(new[] { "conventions" }, sam.PinnedSkills);
-        Assert.True(vm.SkillChoices.First(c => c.Name == "conventions").IsAssigned);
+        Assert.Empty(sam.PinnedSkills);
+        Assert.Equal(new[] { "tdd", "conventions" }, sam.Skills);
 
-        tdd = vm.SkillChoices.First(c => c.Name == "tdd");
-        tdd.IsAssigned = false;
-        await vm.LastChoiceTask;
+        await vm.RemoveSkillAsync(vm.SkillChoices.First(c => c.Name == "tdd"));
+        Assert.Equal(new[] { "conventions" }, (await _characters.GetAsync("sam"))!.Skills);
+        Assert.DoesNotContain(vm.SkillChoices, c => c.Name == "tdd");
+    }
+
+    [Fact]
+    public async Task AddSkill_CreateNew_AddsToLibraryAndCharacter()
+    {
+        await _characters.CreateAsync(new CharacterDraft { Id = "dana" }, SkillScope.Project);
+        var vm = new CharactersViewModel(_characters, _skills, _presets);
+        await vm.RefreshAsync();
+        await vm.SelectCharacterAsync(vm.Characters.First(c => c.Id == "dana"));
+
+        await vm.BeginAddSkillAsync();
+        Assert.True(vm.AddSkillCreatesNew); // empty library: straight to "Create new"
+        Assert.True(vm.NewSkillIsProject);  // project character → project library by default
+        vm.NewSkillName = "Clean Architecture";
+        await vm.ConfirmAddSkillAsync();
+        Assert.True(vm.IsAddingSkill);
+        Assert.Contains("Describe", vm.StatusText);
+
+        vm.NewSkillDescription = "Layer .NET services the clean way";
+        vm.NewSkillInstructions = "Keep the Domain free of infrastructure.";
+        await vm.ConfirmAddSkillAsync();
+
+        Assert.False(vm.IsAddingSkill);
+        var skill = (await _skills.GetAsync("clean-architecture"))!;
+        Assert.Equal(SkillScope.Project, skill.Scope);
+        Assert.Contains("Keep the Domain free", await _skills.LoadAsync("clean-architecture"));
+        Assert.Equal(new[] { "clean-architecture" }, (await _characters.GetAsync("dana"))!.Skills);
+        Assert.Contains("Created it in the project skill library", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task AddSkill_FromLibrary_RequiresAPick()
+    {
+        await _skills.CreateAsync(new SkillDraft { Name = "tdd", Description = "d" }, SkillScope.Global);
+        await _characters.CreateAsync(new CharacterDraft { Id = "sam" }, SkillScope.Global);
+        var vm = new CharactersViewModel(_characters, _skills, _presets);
+        await vm.RefreshAsync();
+        await vm.SelectCharacterAsync(vm.Characters.First(c => c.Id == "sam"));
+
+        await vm.BeginAddSkillAsync();
+        vm.LibraryFilter = "nothing-matches";
+        Assert.False(vm.HasAvailableSkills);
+        vm.LibraryFilter = "";
+        await vm.ConfirmAddSkillAsync();
+        Assert.True(vm.IsAddingSkill);
+        Assert.Contains("Pick a skill", vm.StatusText);
         Assert.Empty((await _characters.GetAsync("sam"))!.Skills!);
     }
 
     [Fact]
-    public async Task Checklist_OnBuiltIn_CreatesOverride()
+    public async Task AddSkill_OnBuiltIn_CreatesOverride()
     {
         await _skills.CreateAsync(new SkillDraft { Name = "adr", Description = "ADRs" }, SkillScope.Global);
         var vm = new CharactersViewModel(_characters, _skills, _presets);
@@ -256,19 +321,22 @@ public class SkillsAndCharactersPanelTests : IDisposable
         await vm.SelectCharacterAsync(vm.Characters.First(c => c.Id == "planner"));
         Assert.True(vm.SelectedIsBuiltIn);
         Assert.True(vm.SelectedUsesAllSkills);
+        Assert.Empty(vm.SkillChoices);
+        Assert.Contains("every skill", vm.AddSkillNote);
 
-        var adr = vm.SkillChoices.Single();
-        adr.IsAssigned = true;
-        await vm.LastChoiceTask;
+        await vm.BeginAddSkillAsync();
+        vm.SelectedLibrarySkill = vm.AvailableSkills.Single();
+        await vm.ConfirmAddSkillAsync();
 
         var planner = (await _characters.GetAsync("planner"))!;
         Assert.False(planner.IsBuiltIn);
         Assert.Equal(new[] { "adr" }, planner.Skills);
         Assert.False(vm.SelectedIsBuiltIn);
+        Assert.Contains("now uses only the skills added to it", vm.StatusText);
     }
 
     [Fact]
-    public async Task Checklist_ShowsMissingSkillReferences()
+    public async Task SkillList_ShowsMissingSkillReferences()
     {
         await _characters.CreateAsync(new CharacterDraft { Id = "x", Skills = new[] { "ghost" } }, SkillScope.Global);
         var vm = new CharactersViewModel(_characters, _skills, _presets);
@@ -279,10 +347,13 @@ public class SkillsAndCharactersPanelTests : IDisposable
         Assert.True(ghost.IsMissing);
         Assert.True(ghost.IsAssigned);
         Assert.Contains("ghost", vm.SelectedProblems);
+
+        await vm.RemoveSkillAsync(ghost);
+        Assert.Empty((await _characters.GetAsync("x"))!.Skills!);
     }
 
     [Fact]
-    public async Task Checklist_IsBlockedWhileEditorHasUnsavedChanges()
+    public async Task AddSkill_IsBlockedWhileEditorHasUnsavedChanges()
     {
         await _skills.CreateAsync(new SkillDraft { Name = "tdd", Description = "d" }, SkillScope.Global);
         await _characters.CreateAsync(new CharacterDraft { Id = "sam" }, SkillScope.Global);
@@ -291,12 +362,13 @@ public class SkillsAndCharactersPanelTests : IDisposable
         await vm.SelectCharacterAsync(vm.Characters.First(c => c.Id == "sam"));
         vm.SelectedContent += "\nunsaved";
 
-        var tdd = vm.SkillChoices.Single();
-        tdd.IsAssigned = true;
-        await vm.LastChoiceTask;
+        await vm.BeginAddSkillAsync();
+        vm.SelectedLibrarySkill = vm.AvailableSkills.Single();
+        await vm.ConfirmAddSkillAsync();
 
         Assert.Empty((await _characters.GetAsync("sam"))!.Skills!);
         Assert.Contains("Save", vm.StatusText);
+        Assert.True(vm.IsAddingSkill);
     }
 
     [Fact]
