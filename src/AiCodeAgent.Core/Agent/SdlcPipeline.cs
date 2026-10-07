@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,12 @@ public record SdlcStageDefinition
 {
     /// <summary>Role name, resolved against <see cref="RolePresetLoader"/> (e.g. "planner", "implementer").</summary>
     public string Role { get; init; } = string.Empty;
+    /// <summary>
+    /// Optional character that runs this stage (e.g. "alex-architect"). Its base role, persona,
+    /// tools and skills replace the plain <see cref="Role"/> preset. A run-time cast
+    /// (<c>--cast planner=alex-architect</c>) overrides this.
+    /// </summary>
+    public string? Character { get; init; }
     /// <summary>Human-friendly stage name for display (e.g. "Analyze", "Implement").</summary>
     public string Name { get; init; } = string.Empty;
     /// <summary>Prompt sent to the agent for this stage. "{task}" is replaced with the user's task text.</summary>
@@ -207,17 +214,72 @@ public class SdlcPipelineRunner
     private readonly RolePresetLoader _presetLoader;
     private readonly IAgentOrchestrator _orchestrator;
     private readonly ILogger<SdlcPipelineRunner> _logger;
+    private readonly ICharacterRegistry? _characters;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
         RolePresetLoader presetLoader,
         IAgentOrchestrator orchestrator,
-        ILogger<SdlcPipelineRunner> logger)
+        ILogger<SdlcPipelineRunner> logger,
+        ICharacterRegistry? characters = null)
     {
         _coordinator = coordinator;
         _presetLoader = presetLoader;
         _orchestrator = orchestrator;
         _logger = logger;
+        _characters = characters;
+    }
+
+    /// <summary>
+    /// Parse a cast string such as <c>planner=alex-architect,implementer=sam-dev</c>
+    /// (role or stage name → character id). Throws <see cref="FormatException"/> on bad syntax.
+    /// </summary>
+    public static Dictionary<string, string> ParseCast(string? cast)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(cast)) return map;
+        foreach (var pair in cast.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = pair.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+                throw new FormatException($"Invalid cast entry '{pair}'. Use role=character, e.g. planner=alex-architect.");
+            map[parts[0]] = parts[1];
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Character for a stage: run-time cast (by stage name, then role) &gt; the stage's
+    /// <see cref="SdlcStageDefinition.Character"/> &gt; a user character whose id equals the role.
+    /// Returns null to run the stage on its plain role preset.
+    /// </summary>
+    private CharacterInfo? ResolveStageCharacter(SdlcStageDefinition stage, IReadOnlyDictionary<string, string>? cast)
+    {
+        string? id = null;
+        if (cast != null && (cast.TryGetValue(stage.Name, out var byName) || cast.TryGetValue(stage.Role, out byName)))
+            id = byName;
+        id ??= stage.Character;
+        var explicitChoice = id != null;
+        id ??= stage.Role;
+
+        if (_characters == null)
+        {
+            if (explicitChoice)
+                throw new InvalidOperationException($"Stage '{stage.Name}' asks for character '{id}', but no character registry is available.");
+            return null;
+        }
+
+        var character = _characters.GetAsync(id).GetAwaiter().GetResult();
+        if (character == null)
+        {
+            if (explicitChoice)
+                throw new InvalidOperationException($"Unknown character '{id}' for stage '{stage.Name}'. Run 'characters list' to see available characters.");
+            return null;
+        }
+        if (!character.IsValid)
+            throw new InvalidOperationException($"Character '{id}' is invalid: {string.Join(" ", character.ValidationErrors)}");
+        // Built-in characters are just the role presets; keep the plain path for them.
+        return character.IsBuiltIn && !explicitChoice ? null : character;
     }
 
     /// <summary>Builds the multi-agent session plan for a pipeline run without executing it.</summary>
@@ -227,7 +289,8 @@ public class SdlcPipelineRunner
         string sessionId,
         string workingDirectory,
         string? model = null,
-        int maxIterationsPerStage = 30)
+        int maxIterationsPerStage = 30,
+        IReadOnlyDictionary<string, string>? cast = null)
     {
         var steps = new List<SessionStep>();
 
@@ -240,32 +303,51 @@ public class SdlcPipelineRunner
                 continue;
             }
 
+            var character = ResolveStageCharacter(stage, cast);
+            var agentId = character?.Id ?? stage.Role;
+
             // The orchestrator itself is stateless per-run (all role behavior comes from
             // AgentOptions), so the same instance can safely serve every role in the pipeline.
-            if (!_coordinator.Agents.ContainsKey(stage.Role))
-                _coordinator.RegisterAgent(stage.Role, _orchestrator);
-
-            var preset = _presetLoader.GetPreset(stage.Role);
-            if (preset == null)
-                _logger.LogWarning("No role preset found for '{Role}'; stage will run with generic instructions only", stage.Role);
+            if (!_coordinator.Agents.ContainsKey(agentId))
+                _coordinator.RegisterAgent(agentId, _orchestrator);
 
             var prompt = stage.PromptTemplate.Replace("{task}", task);
-
-            steps.Add(new SessionStep
+            var baseOptions = new AgentOptions
             {
-                AgentId = stage.Role,
-                Role = stage.Role,
-                Prompt = prompt,
-                RequireConfirmation = stage.RequireConfirmation,
-                Options = new AgentOptions
+                Model = model,
+                WorkingDirectory = workingDirectory,
+                MaxIterations = maxIterationsPerStage
+            };
+
+            AgentOptions options;
+            if (character != null)
+            {
+                var basePreset = character.BaseRole == null ? null : _presetLoader.GetPreset(character.BaseRole);
+                options = CharacterResolver.Apply(baseOptions, character, basePreset, overwrite: true, useBaseRolePermission: true);
+                // A character's own model is more specific than the session-wide --model; Apply keeps --model otherwise.
+                if (character.BaseRole == null && character.PermissionMode == null) options = options with { PermissionMode = PermissionMode.Ask };
+            }
+            else
+            {
+                var preset = _presetLoader.GetPreset(stage.Role);
+                if (preset == null)
+                    _logger.LogWarning("No role preset found for '{Role}'; stage will run with generic instructions only", stage.Role);
+                options = baseOptions with
                 {
-                    Model = model,
-                    WorkingDirectory = workingDirectory,
-                    MaxIterations = maxIterationsPerStage,
                     PermissionMode = preset?.DefaultPermissionMode ?? PermissionMode.Ask,
                     EnabledTools = preset?.AllowedTools ?? new List<string>(),
                     RoleSystemPrompt = preset?.SystemPrompt
-                }
+                };
+            }
+
+            steps.Add(new SessionStep
+            {
+                AgentId = agentId,
+                Role = stage.Role,
+                CharacterId = character?.Id,
+                Prompt = prompt,
+                RequireConfirmation = stage.RequireConfirmation,
+                Options = options
             });
         }
 
@@ -285,9 +367,10 @@ public class SdlcPipelineRunner
         string workingDirectory,
         string? model = null,
         int maxIterationsPerStage = 30,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? cast = null)
     {
-        var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage);
+        var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage, cast);
         return _coordinator.RunAsync(plan, cancellationToken);
     }
 }

@@ -123,15 +123,18 @@ public class SessionRecorder
 
     private async Task ListenAsync(CancellationToken token)
     {
-        // Signal that the listener is now actively reading the bus
-        lock (_lock)
-        {
-            _listeningTcs?.TrySetResult(true);
-        }
-
         try
         {
-            await foreach (var evt in _eventBus.GetEventsAsync(token))
+            // Subscribe first (GetEventsAsync registers the subscriber when called), and only
+            // then signal that the listener is ready. Signalling before subscribing let events
+            // published right after StartAsync returned slip through and get lost.
+            var events = _eventBus.GetEventsAsync(token);
+            lock (_lock)
+            {
+                _listeningTcs?.TrySetResult(true);
+            }
+
+            await foreach (var evt in events)
             {
                 Record(evt);
             }
@@ -235,4 +238,4 @@ public class SessionRecorder
             }
         }
     }
-}
+}

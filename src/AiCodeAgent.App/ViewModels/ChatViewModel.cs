@@ -256,7 +256,9 @@ public partial class ChatViewModel : ObservableObject
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help",
         // Feature 6: In-Chat Branch / PR Workflow
         "/branch", "/commit", "/pr",
-        "/rewind", "/fork", "/effort"
+        "/rewind", "/fork", "/effort",
+        // Characters & skills
+        "/character", "/characters", "/skill", "/skills"
     };
     public ChatViewModel(
         AgentService agentService,
@@ -273,9 +275,13 @@ public partial class ChatViewModel : ObservableObject
         GitService? gitService = null,
         IRequirementsClarifier? requirementsClarifier = null,
         AiCodeAgent.Core.Sessions.ConversationRewinder? rewinder = null,
-        IRewindPrompt? rewindPrompt = null)
+        IRewindPrompt? rewindPrompt = null,
+        AiCodeAgent.Core.Characters.ICharacterRegistry? characterRegistry = null,
+        RolePresetLoader? presetLoader = null,
+        ISkillRegistry? skillRegistry = null)
     {
         InitializeRewind(rewinder, rewindPrompt);
+        InitializeCharacters(characterRegistry, presetLoader, skillRegistry);
         _agentService = agentService;
         _eventBus = agentService.EventBus;
         _editorPane = editorPane;
@@ -510,6 +516,9 @@ public partial class ChatViewModel : ObservableObject
         // Rewind / fork / reasoning effort.
         if (await TryHandleSessionCommandAsync(userMessage).ConfigureAwait(true))
             return;
+        // Characters and skills: /character, /characters, /skill, /skills.
+        if (await TryHandleCharacterCommandAsync(userMessage).ConfigureAwait(true))
+            return;
         // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
         if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
             return;
@@ -567,9 +576,9 @@ public partial class ChatViewModel : ObservableObject
         {
             // Start streaming
             await _agentService.StreamMessageAsync(
-                userMessage,
+                ApplyPendingSkills(userMessage),
                 SessionId,
-                new AgentOptions
+                ApplyActiveCharacter(new AgentOptions
                 {
                     PermissionMode = ParsePermissionMode(PermissionMode),
                     Reasoning = ReasoningEffortValue,
@@ -582,7 +591,7 @@ public partial class ChatViewModel : ObservableObject
                         AllowExecute = AllowExecute
                     },
                     Requirements = requirements
-                },
+                }),
                 token);
         }
         catch (OperationCanceledException)
@@ -1397,6 +1406,10 @@ public partial class ChatViewModel : ObservableObject
                 "/rewind" => "Go back to an earlier message (chat, code or both)",
                 "/fork" => "Continue from an earlier message in a new session",
                 "/effort" => "Set reasoning effort (off/low/medium/high)",
+                "/character" => "Switch the character that answers (/character none = default agent)",
+                "/characters" => "List characters",
+                "/skill" => "Send a skill's instructions with your next message",
+                "/skills" => "List the active character's skills (--all for every skill)",
                 _ => ""
             };
             var icon = cmd switch
@@ -1430,6 +1443,10 @@ public partial class ChatViewModel : ObservableObject
                 "/rewind" => "Go back to an earlier message (chat, code or both)",
                 "/fork" => "Continue from an earlier message in a new session",
                 "/effort" => "Set reasoning effort (off/low/medium/high)",
+                "/character" => "Switch the character that answers (/character none = default agent)",
+                "/characters" => "List characters",
+                "/skill" => "Send a skill's instructions with your next message",
+                "/skills" => "List the active character's skills (--all for every skill)",
                 _ => ""
             };
             var icon = cmd switch

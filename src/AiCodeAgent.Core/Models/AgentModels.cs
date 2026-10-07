@@ -178,6 +178,13 @@ public record AgentExecutionContext
     public string? AgentId { get; init; }
     /// <summary>Role label (planner/implementer/reviewer) for display.</summary>
     public string? Role { get; init; }
+    /// <summary>Character running this agent (see <c>ICharacterRegistry</c>), if any.</summary>
+    public string? CharacterId { get; init; }
+    /// <summary>
+    /// Skills this agent may load with <c>use_skill</c>. Null = every model-visible
+    /// skill (plain chat); an empty set = none.
+    /// </summary>
+    public IReadOnlyCollection<string>? AllowedSkills { get; init; }
 }
 
 public record AgentOptions
@@ -246,6 +253,16 @@ public record AgentOptions
     /// injected as a system message alongside project memory.
     /// </summary>
     public string? AutoMemory { get; init; }
+    /// <summary>Character (persona) running this agent, if any. Display/attribution only; the resolver copies its settings into the other fields.</summary>
+    public string? CharacterId { get; init; }
+    /// <summary>
+    /// Skills this agent may see in &lt;available_skills&gt; and load with <c>use_skill</c>.
+    /// Null (default) = every model-visible skill, as in plain chat. An empty list = no skills.
+    /// Typically set from a character's <c>skills</c> list.
+    /// </summary>
+    public List<string>? AllowedSkills { get; init; }
+    /// <summary>Skills whose full instructions are injected into the system prompt on every turn (a character's <c>pinned-skills</c>).</summary>
+    public List<string> PinnedSkills { get; init; } = new();
 }
 
 public record AgentResponse
@@ -429,6 +446,12 @@ public record SessionStep
 {
     public string AgentId { get; init; } = string.Empty;
     public string Role { get; init; } = string.Empty;
+    /// <summary>
+    /// Character that runs this step (persona, tools, skills). When null, a user
+    /// character whose id equals <see cref="Role"/> is used if one exists (that is
+    /// how skills assigned to e.g. "planner" reach pipeline stages).
+    /// </summary>
+    public string? CharacterId { get; init; }
     public string Prompt { get; init; } = string.Empty;
     public AgentOptions Options { get; init; } = new();
 

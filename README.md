@@ -95,6 +95,87 @@ your own stage sequence (custom roles, prompts, or a subset of the SDLC). Agent 
 equally configurable via `~/.aiagent/presets/*.json` (see `RolePresetLoader`); built-in roles are
 `planner`, `implementer`, `reviewer`, `tester`, and `deployer`.
 
+## Skills & Characters
+
+**Skills** are reusable instruction packs written as Markdown. **Characters** are agent personas
+that own a set of skills and run the workflow (chat, pipeline stages, subagents).
+
+```
+~/.aiagent/skills/<name>/SKILL.md        # global skill      (.aiagent/skills/... = project skill, wins on name clash)
+~/.aiagent/characters/<id>.md            # global character  (.aiagent/characters/... = project character)
+```
+
+A skill:
+
+```markdown
+---
+name: release-notes                  # must match the folder name
+description: Draft release notes from the commits since the last tag
+tags: [docs, git]
+disable-model-invocation: false      # true = manual only (/skill), hidden from the model
+allowed-tools: [git, read_file]      # advisory; never grants tools
+---
+1. Find the last tag ...
+```
+
+A character (the body is its persona):
+
+```markdown
+---
+id: alex-architect
+display-name: Alex — Architect
+avatar: 🧭
+description: Breaks tasks into designs and plans; never edits code
+base-role: planner                   # inherits tools, permission mode and role instructions
+model: claude-sonnet                 # optional
+permission-mode: plan                # optional: ask | auto-edit | full-auto | plan
+tools: { add: [web_fetch], remove: [] }   # or an explicit list: tools: [read_file, grep]
+skills: [adr-writer]                 # listed for the agent, loaded on demand with use_skill ("*" = all skills)
+pinned-skills: [team-conventions]    # full instructions always in context
+---
+You are Alex, a pragmatic software architect...
+```
+
+How it works:
+
+- The agent sees only its character's skills in `<available_skills>` and loads one with the **`use_skill`** tool;
+  `use_skill` refuses skills the character does not have. Pinned skills are injected in full on every turn.
+- Built-in roles (`planner`, `implementer`, `reviewer`, `tester`, `deployer`) appear as built-in characters with
+  access to every skill. Assigning a skill to one creates `~/.aiagent/characters/<role>.md`, which then applies
+  wherever that role runs — including the built-in pipelines.
+- Renaming a skill updates every character that uses it; deleting one removes it from characters (or keeps a
+  reported dangling reference with `--keep-references`). Missing skills are skipped at run time, never fatal.
+
+```bash
+# Skills
+aiagent skills list [--all] [--tag docs]
+aiagent skills new release-notes --description "Draft release notes" [--project] [--tag git] [--edit]
+aiagent skills show release-notes
+aiagent skills edit release-notes          # opens $EDITOR, validates afterwards
+aiagent skills rename release-notes changelog
+aiagent skills rm changelog [--yes] [--keep-references]
+aiagent skills doctor                      # invalid files, dangling references, large pinned skills
+
+# Characters
+aiagent characters list
+aiagent characters new alex-architect --name "Alex — Architect" --base-role planner --skill adr-writer --pin team-conventions
+aiagent characters assign alex-architect adr-writer [--pinned]
+aiagent characters unassign alex-architect adr-writer
+aiagent characters show alex-architect     # resolved tools, permission mode, skills
+aiagent characters edit alex-architect
+aiagent characters rm alex-architect
+
+# Characters in the workflow
+aiagent chat --character alex-architect
+aiagent pipeline run "Add pagination" --cast planner=alex-architect,implementer=sam-developer
+```
+
+Pipeline stages can also name a character in JSON (`"character": "alex-architect"`), and `spawn_subagent`
+takes a `character` argument (a subagent never gets a looser permission mode than its parent). In the
+desktop app, use **Project Knowledge → Skills / Characters** (skill checklist per character), the character
+selector next to the pipeline picker, or `/character`, `/characters`, `/skill`, `/skills` in the chat box.
+Ready-made samples live in [`examples/`](examples/README.md).
+
 ## Multi-Agent Coordination
 
 Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:
@@ -111,6 +192,10 @@ Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supp
 /clear         - clear screen  
 /reset         - start new session
 /model gpt-4o  - change model
+/skills        - list the active character's skills (--all for every skill)
+/skill <name>  - send a skill's instructions with your next message
+/characters    - list characters
+/character <id>|none - switch the character answering in this chat
 /cd ./src      - change directory
 /exit          - exit
 ```
@@ -127,7 +212,8 @@ Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supp
 - `web_fetch` - Fetch content from URLs
 - `run_diagnostics` - Build/test/lint projects (dotnet, npm, python)
 - `spawn_subagent` - Delegate a scoped sub-task to an isolated subagent
-- `send_message` - Send a message to another agent in the session (`*` = broadcast)
+- `send_message` - Send a message to another agent in the session (`*` = broadcast; agents in a cast pipeline are addressed by character id)
+- `use_skill` - Load the full instructions of one of the agent's skills
 
 ## Key Features
 

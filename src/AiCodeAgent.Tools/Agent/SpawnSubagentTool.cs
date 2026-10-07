@@ -1,4 +1,5 @@
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
@@ -13,11 +14,51 @@ namespace AiCodeAgent.Tools.Agent;
 public class SpawnSubagentTool : BaseTool
 {
     private readonly ISubagentRunner _runner;
+    private readonly ICharacterRegistry? _characters;
+    private readonly RolePresetLoader? _presets;
 
-    public SpawnSubagentTool(ISubagentRunner runner, ILogger<SpawnSubagentTool> logger)
+    public SpawnSubagentTool(
+        ISubagentRunner runner,
+        ILogger<SpawnSubagentTool> logger,
+        ICharacterRegistry? characters = null,
+        RolePresetLoader? presets = null)
         : base(logger)
     {
         _runner = runner;
+        _characters = characters;
+        _presets = presets;
+    }
+
+    /// <summary>"id — description" lines for the valid user + built-in characters (shown in the tool schema).</summary>
+    private string CharacterHint()
+    {
+        if (_characters == null) return string.Empty;
+        try
+        {
+            var list = _characters.ListAsync().GetAwaiter().GetResult().Where(c => c.IsValid).ToList();
+            if (list.Count == 0) return string.Empty;
+            return " Available: " + string.Join("; ", list.Select(c =>
+                string.IsNullOrWhiteSpace(c.Description) ? c.Id : $"{c.Id} ({Truncate(c.Description, 60)})")) + ".";
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    /// <summary>Lower rank = more restrictive. A subagent never gets a looser mode than its parent.</summary>
+    internal static PermissionMode MostRestrictive(PermissionMode a, PermissionMode b)
+    {
+        static int Rank(PermissionMode m) => m switch
+        {
+            PermissionMode.Plan => 0,
+            PermissionMode.Ask => 1,
+            PermissionMode.AutoEdit => 2,
+            _ => 3
+        };
+        return Rank(a) <= Rank(b) ? a : b;
     }
 
     public override string Name => "spawn_subagent";
@@ -44,6 +85,7 @@ public class SpawnSubagentTool : BaseTool
                 ["timeoutSeconds"] = new() { Type = "integer", Description = "Subagent timeout in seconds." },
                 ["enabledTools"] = new() { Type = "array", Description = "Optional list of tool names the subagent may use." },
                 ["role"] = new() { Type = "string", Description = "Optional role prompt for the subagent." },
+                ["character"] = new() { Type = "string", Description = "Optional character id: the subagent runs as that character, with its persona, tools and skills." + CharacterHint() },
             },
             Required = ["task"]
         }
@@ -61,6 +103,7 @@ public class SpawnSubagentTool : BaseTool
         var timeoutSeconds = GetArg(call, "timeoutSeconds", 600);
         var enabledTools = GetArg(call, "enabledTools", Array.Empty<string>());
         var role = GetArg<string>(call, "role") ?? string.Empty;
+        var characterId = GetArg<string>(call, "character")?.Trim() ?? string.Empty;
 
         var subContext = new SubagentContext
         {
@@ -74,7 +117,17 @@ public class SpawnSubagentTool : BaseTool
             PermissionMode = context.Permissions?.Mode ?? AiCodeAgent.Core.Models.PermissionMode.Plan,
             IsReadOnly = context.IsReadOnly,
             AllowedPaths = context.AllowedPaths.ToList(),
+            RoleSystemPrompt = string.IsNullOrWhiteSpace(role) ? null : role,
+            // Without a character the subagent inherits the parent's skill set.
+            AllowedSkills = context.AllowedSkills?.ToList(),
         };
+
+        if (!string.IsNullOrEmpty(characterId))
+        {
+            var applied = await ApplyCharacterAsync(subContext, characterId, enabledTools.Length > 0, string.IsNullOrWhiteSpace(model)).ConfigureAwait(false);
+            if (applied.Error != null) return Error(applied.Error);
+            subContext = applied.Context!;
+        }
 
         try
         {
@@ -104,5 +157,45 @@ public class SpawnSubagentTool : BaseTool
             Logger.LogError(ex, "SpawnSubagent failed");
             return Error($"Subagent failed: {ex.Message}");
         }
+    }
+
+    private async Task<(SubagentContext? Context, string? Error)> ApplyCharacterAsync(
+        SubagentContext subContext, string characterId, bool toolsGiven, bool modelFromCharacter)
+    {
+        if (_characters == null)
+            return (null, "Characters are not available in this session.");
+        var character = await _characters.GetAsync(characterId).ConfigureAwait(false);
+        if (character == null)
+        {
+            var known = (await _characters.ListAsync().ConfigureAwait(false)).Select(c => c.Id);
+            return (null, $"Unknown character '{characterId}'. Available: {string.Join(", ", known)}.");
+        }
+        if (!character.IsValid)
+            return (null, $"Character '{characterId}' is invalid: {string.Join(" ", character.ValidationErrors)}");
+
+        var basePreset = character.BaseRole == null ? null : _presets?.GetPreset(character.BaseRole);
+        var template = new AgentOptions
+        {
+            EnabledTools = subContext.EnabledTools ?? new(),
+            RoleSystemPrompt = subContext.RoleSystemPrompt,
+            Model = subContext.Model,
+            PermissionMode = subContext.PermissionMode
+        };
+        var resolved = CharacterResolver.Apply(template, character, basePreset, overwrite: false, useBaseRolePermission: true);
+
+        return (subContext with
+        {
+            CharacterId = character.Id,
+            Role = character.BaseRole ?? character.Id,
+            RoleSystemPrompt = resolved.RoleSystemPrompt,
+            EnabledTools = toolsGiven ? subContext.EnabledTools : (resolved.EnabledTools.Count == 0 ? null : resolved.EnabledTools),
+            DisabledTools = resolved.DisabledTools,
+            Model = modelFromCharacter ? resolved.Model : subContext.Model,
+            // The character's skill set replaces the parent's; built-ins (null) keep the parent's restriction.
+            AllowedSkills = character.Skills == null ? subContext.AllowedSkills : character.Skills.ToList(),
+            PinnedSkills = resolved.PinnedSkills,
+            // Never looser than the parent run.
+            PermissionMode = MostRestrictive(subContext.PermissionMode, resolved.PermissionMode)
+        }, null);
     }
 }

@@ -509,6 +509,27 @@ public partial class MainViewModel : ObservableObject
         await ProjectKnowledge.OpenAsync(WorkingDirectory);
     }
 
+    /// <summary>Opens Project Knowledge directly on a tab (1 = Skills, 2 = Characters), optionally starting the "new" form.</summary>
+    private async Task OpenProjectKnowledgeTabAsync(int tab, bool startNew)
+    {
+        if (!ProjectKnowledge.IsVisible)
+        {
+            CloseOverlays();
+            IsSettingsMode = false;
+            await ProjectKnowledge.OpenAsync(WorkingDirectory);
+        }
+        if (tab == 2)
+        {
+            await ProjectKnowledge.ShowCharactersTabCommand.ExecuteAsync(null);
+            if (startNew) ProjectKnowledge.Characters.BeginCreate();
+        }
+        else
+        {
+            ProjectKnowledge.ShowSkillsTabCommand.Execute(null);
+            if (startNew) ProjectKnowledge.BeginCreateSkill();
+        }
+    }
+
     /// <summary>
     /// Opens/closes the Background Tasks panel — Cowork-style delegated
     /// tasks that run independently of the main chat conversation.
@@ -921,11 +942,38 @@ public partial class MainViewModel : ObservableObject
             new CommandPaletteEntry
             {
                 Id = "nav.projectKnowledge",
-                Title = "Project Knowledge (AGENTS.md + Skills)",
+                Title = "Project Knowledge (AGENTS.md, Skills, Characters)",
                 Category = "Navigation",
                 Keywords = new[] { "agents.md", "agent.md", "aiagent.md", "memory", "skills", "skill.md", "doctor", "init" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(ToggleProjectKnowledgeAsync(), "ToggleProjectKnowledge")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.characters",
+                Title = "Characters (personas with their own skills)",
+                Category = "Navigation",
+                Keywords = new[] { "character", "characters", "persona", "agent", "role", "skills", "assign" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(2, startNew: false), "OpenCharacters")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "characters.new",
+                Title = "New Character",
+                Category = "Characters",
+                Keywords = new[] { "character", "persona", "create", "new", "agent" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(2, startNew: true), "NewCharacter")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "skills.new",
+                Title = "New Skill",
+                Category = "Skills",
+                Keywords = new[] { "skill", "skill.md", "create", "new", "registry" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(1, startNew: true), "NewSkill")
             },
             new CommandPaletteEntry
             {

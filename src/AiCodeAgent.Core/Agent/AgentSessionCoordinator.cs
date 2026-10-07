@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
+using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
@@ -24,6 +25,7 @@ public class AgentSessionCoordinator
     private readonly ILogger<AgentSessionCoordinator> _logger;
     private readonly RolePresetLoader? _presetLoader;
     private readonly IContextManager? _contextManager;
+    private readonly ICharacterRegistry? _characters;
 
     public SharedChangeset Changeset => _changeset;
     public SharedContextStore Context => _context;
@@ -44,9 +46,11 @@ public class AgentSessionCoordinator
         IAgentEventBus? eventBus = null,
         RolePresetLoader? presetLoader = null,
         IContextManager? contextManager = null,
-        IWorkspaceIsolation? workspaceIsolation = null)
+        IWorkspaceIsolation? workspaceIsolation = null,
+        ICharacterRegistry? characters = null)
     {
         _isolation = workspaceIsolation;
+        _characters = characters;
         _logger = logger;
         _eventBus = eventBus;
         _presetLoader = presetLoader;
@@ -58,9 +62,20 @@ public class AgentSessionCoordinator
     /// system prompt and allowed tools when the step did not already specify them,
     /// so a step's Role is more than a display label.
     /// </summary>
-    private AgentOptions ResolveStepOptions(SessionStep step)
+    internal AgentOptions ResolveStepOptions(SessionStep step)
     {
         var options = step.Options with { AgentId = step.AgentId, Role = step.Role };
+
+        // A user character (explicit CharacterId, or a user file whose id equals the
+        // role, e.g. a customized "planner") supplies persona, tools and skills.
+        var character = ResolveCharacter(step);
+        if (character != null)
+        {
+            var basePreset = character.BaseRole == null ? null : _presetLoader?.GetPreset(character.BaseRole);
+            var resolved = CharacterResolver.Apply(options, character, basePreset, overwrite: false, useBaseRolePermission: false);
+            return resolved with { Role = string.IsNullOrEmpty(step.Role) ? character.BaseRole ?? character.Id : step.Role };
+        }
+
         if (_presetLoader == null || string.IsNullOrEmpty(step.Role))
             return options;
 
@@ -74,6 +89,40 @@ public class AgentSessionCoordinator
             options = options with { EnabledTools = preset.AllowedTools };
 
         return options;
+    }
+
+    /// <summary>
+    /// The user character for a step, or null. Built-in characters are skipped so
+    /// plain role steps keep their exact pre-character behavior.
+    /// </summary>
+    private CharacterInfo? ResolveCharacter(SessionStep step)
+    {
+        if (_characters == null) return null;
+        var id = !string.IsNullOrEmpty(step.CharacterId) ? step.CharacterId : step.Role;
+        if (string.IsNullOrEmpty(id)) return null;
+        try
+        {
+            var character = _characters.GetAsync(id).GetAwaiter().GetResult();
+            if (character == null)
+            {
+                if (!string.IsNullOrEmpty(step.CharacterId))
+                    _logger.LogWarning("Step {AgentId} asks for unknown character {Character}; running with its role only", step.AgentId, step.CharacterId);
+                return null;
+            }
+            if (character.IsBuiltIn) return null;
+            if (!character.IsValid)
+            {
+                _logger.LogWarning("Character {Character} is invalid ({Errors}); running step {AgentId} with its role only",
+                    character.Id, string.Join(" ", character.ValidationErrors), step.AgentId);
+                return null;
+            }
+            return character;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve character for step {AgentId}", step.AgentId);
+            return null;
+        }
     }
 
     /// <summary>Register an agent orchestrator instance under a given agent ID.</summary>

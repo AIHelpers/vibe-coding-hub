@@ -15,25 +15,28 @@ public class PipelineRunMode
 
     public PipelineRunMode(SdlcPipelineRunner runner) => _runner = runner;
 
-    public async Task RunAsync(SdlcPipelineDefinition pipeline, string task, string workingDirectory, string? model)
+    public async Task RunAsync(SdlcPipelineDefinition pipeline, string task, string workingDirectory, string? model,
+        IReadOnlyDictionary<string, string>? cast = null)
     {
         Console.OutputEncoding = Encoding.UTF8;
         var sessionId = Guid.NewGuid().ToString();
 
         Console.WriteLine($"Running pipeline '{pipeline.Name}': {pipeline.Description}");
         Console.WriteLine($"Task: {task}");
+        if (cast is { Count: > 0 })
+            Console.WriteLine($"Cast: {string.Join(", ", cast.Select(kv => $"{kv.Key} = {kv.Value}"))}");
         Console.WriteLine();
 
         string? currentRole = null;
 
-        await foreach (var evt in _runner.RunAsync(pipeline, task, sessionId, workingDirectory, model))
+        await foreach (var evt in _runner.RunAsync(pipeline, task, sessionId, workingDirectory, model, cast: cast))
         {
             if (evt is not AgentTaggedEvent tagged)
                 continue;
 
-            if (tagged.Role != currentRole)
+            if (tagged.AgentId + "/" + tagged.Role != currentRole)
             {
-                currentRole = tagged.Role;
+                currentRole = tagged.AgentId + "/" + tagged.Role;
                 Console.WriteLine();
                 Console.WriteLine($"===== Stage: {tagged.Role} (agent: {tagged.AgentId}) =====");
             }

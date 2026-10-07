@@ -1,0 +1,24 @@
+{
+  "name": "team-sdlc",
+  "description": "Plan with Alex, build with Sam, review and test with Quinn.",
+  "stages": [
+    {
+      "role": "planner",
+      "character": "alex-architect",
+      "name": "Design",
+      "promptTemplate": "Task: {task}\n\nProduce an implementation plan: files to touch, steps, risks and how each step is verified. Record significant decisions as an ADR."
+    },
+    {
+      "role": "implementer",
+      "character": "sam-developer",
+      "name": "Implement",
+      "promptTemplate": "Implement the plan above for this task:\n\n{task}\n\nWork in small steps and run the tests after each one."
+    },
+    {
+      "role": "tester",
+      "character": "quinn-qa",
+      "name": "Review & Test",
+      "promptTemplate": "Review and test the changes made above for the task:\n\n{task}\n\nReport findings and test results."
+    }
+  ]
+}

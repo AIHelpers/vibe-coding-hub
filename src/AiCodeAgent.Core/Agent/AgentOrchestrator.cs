@@ -102,6 +102,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             Permissions = new PermissionSettings { Mode = options.PermissionMode },
             AgentId = options.AgentId,
             Role = options.Role,
+            CharacterId = options.CharacterId,
+            AllowedSkills = BuildAllowedSkillSet(options),
             IsReadOnly = options.IsReadOnly,
             AllowedPaths = BuildAllowedPaths(options),
             CancellationToken = cancellationToken
@@ -161,6 +163,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             tools = tools.Where(t => !options.DisabledTools.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList();
         }
+        tools = await ApplySkillToolAsync(tools, options).ConfigureAwait(false);
 
         // The registry's GetTool() is global, so the model could call any
         // registered tool by name even if it was never offered. When the
@@ -915,7 +918,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         var autoMemoryBlock = string.IsNullOrWhiteSpace(options.AutoMemory)
             ? string.Empty
             : $"Learned from earlier turns in this project — apply unless the user says otherwise:\n{options.AutoMemory.Trim()}";
-        var skillsBlock = await BuildSkillsBlockAsync().ConfigureAwait(false);
+        var skillsBlock = await BuildSkillsBlockAsync(options).ConfigureAwait(false);
+        var pinnedSkillsBlock = await BuildPinnedSkillsBlockAsync(options).ConfigureAwait(false);
         var planModeBlock = options.PermissionMode == PermissionMode.Plan
             ? """
               Plan mode is ACTIVE:
@@ -943,6 +947,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         sb.Append(WrapSection("project_memory_context", memoryBlock, alreadyTagged: true));
         sb.Append(WrapSection("learned_preferences", autoMemoryBlock));
         sb.Append(WrapSection("available_skills", skillsBlock));
+        sb.Append(WrapSection("pinned_skills", pinnedSkillsBlock));
         sb.Append(WrapSection("plan_mode_constraints", planModeBlock));
         sb.Append(WrapSection("guidelines", """
             - Always read files before editing them to understand current state
@@ -1026,28 +1031,100 @@ public class AgentOrchestrator : IAgentOrchestrator
     private static string EscapeXmlAttribute(string value) =>
         value.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
 
+    /// <summary>Name of the tool that loads a skill (see <c>UseSkillTool</c>).</summary>
+    public const string UseSkillToolName = "use_skill";
+
+    /// <summary>
+    /// Skills the model may see and load for this run: model-visible skills,
+    /// narrowed to <see cref="AgentOptions.AllowedSkills"/> when that is set.
+    /// </summary>
+    private async Task<IReadOnlyList<SkillInfo>> GetAgentSkillsAsync(AgentOptions options)
+    {
+        if (_skillRegistry is null) return Array.Empty<SkillInfo>();
+        try
+        {
+            var visible = await _skillRegistry.ListAsync(default).ConfigureAwait(false);
+            if (options.AllowedSkills is null) return visible;
+            var allowed = new HashSet<string>(options.AllowedSkills, StringComparer.OrdinalIgnoreCase);
+            return visible.Where(s => allowed.Contains(s.Name)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to list skills");
+            return Array.Empty<SkillInfo>();
+        }
+    }
+
+    /// <summary>Allowed skill names carried on the execution context so <c>use_skill</c> can enforce them.</summary>
+    private static IReadOnlyCollection<string>? BuildAllowedSkillSet(AgentOptions options)
+    {
+        if (options.AllowedSkills is null) return null;
+        return new HashSet<string>(options.AllowedSkills.Concat(options.PinnedSkills), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Offers <c>use_skill</c> exactly when the agent has skills to load: it is
+    /// added even when a role/character tool whitelist omits it (a character's
+    /// skills are useless without it), and removed when there is nothing to load.
+    /// An explicit <see cref="AgentOptions.DisabledTools"/> entry still wins.
+    /// </summary>
+    private async Task<List<ITool>> ApplySkillToolAsync(List<ITool> tools, AgentOptions options)
+    {
+        var skillTool = _toolRegistry.GetTool(UseSkillToolName);
+        if (skillTool is null) return tools;
+        var disabled = options.DisabledTools.Contains(UseSkillToolName, StringComparer.OrdinalIgnoreCase);
+        var hasSkills = !disabled && (await GetAgentSkillsAsync(options).ConfigureAwait(false)).Count > 0;
+        var offered = tools.Any(t => string.Equals(t.Name, UseSkillToolName, StringComparison.OrdinalIgnoreCase));
+        if (hasSkills && !offered)
+            return tools.Append(skillTool).ToList();
+        if (!hasSkills && offered)
+            return tools.Where(t => !string.Equals(t.Name, UseSkillToolName, StringComparison.OrdinalIgnoreCase)).ToList();
+        return tools;
+    }
+
     /// <summary>
     /// Builds the skills list for the &lt;available_skills&gt; section. Returns
     /// just the inner content — BuildSystemPrompt applies the wrapping tag.
     /// </summary>
-    private async Task<string> BuildSkillsBlockAsync()
+    private async Task<string> BuildSkillsBlockAsync(AgentOptions options)
     {
-        if (_skillRegistry is null) return string.Empty;
-        try
+        var skills = await GetAgentSkillsAsync(options).ConfigureAwait(false);
+        var pinned = new HashSet<string>(options.PinnedSkills, StringComparer.OrdinalIgnoreCase);
+        var listed = skills.Where(s => !pinned.Contains(s.Name)).ToList();
+        if (listed.Count == 0) return string.Empty;
+        var sb = new StringBuilder(
+            $"Skills are reusable instruction packs. When a task matches a skill's description, call the {UseSkillToolName} tool " +
+            "with its name to load the full instructions, then follow them.\n");
+        foreach (var s in listed)
         {
-            var skills = await _skillRegistry.ListAsync(default).ConfigureAwait(false);
-            if (skills.Count == 0) return string.Empty;
-            var sb = new StringBuilder("Skills are reusable prompt expansions. Invoke a skill by name when relevant.\n");
-            foreach (var s in skills)
+            var desc = string.IsNullOrWhiteSpace(s.Description) ? string.Empty : $" — {s.Description}";
+            sb.AppendLine($"- {s.Name}{desc}");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Full instructions of the agent's pinned skills (always in context).</summary>
+    private async Task<string> BuildPinnedSkillsBlockAsync(AgentOptions options)
+    {
+        if (_skillRegistry is null || options.PinnedSkills.Count == 0) return string.Empty;
+        var sb = new StringBuilder();
+        foreach (var name in options.PinnedSkills.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
             {
-                var desc = string.IsNullOrWhiteSpace(s.Description) ? string.Empty : $" — {s.Description}";
-                sb.AppendLine($"- {s.Name}{desc}");
+                var invocation = await _skillRegistry.InvokeAsync(name).ConfigureAwait(false);
+                if (invocation is null)
+                {
+                    _logger.LogWarning("Pinned skill {Name} was not found", name);
+                    continue;
+                }
+                sb.AppendLine(invocation.ToPromptBlock());
             }
-            return sb.ToString();
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load pinned skill {Name}", name);
+            }
         }
-        catch
-        {
-            return string.Empty;
-        }
+        return sb.ToString();
     }
 }
