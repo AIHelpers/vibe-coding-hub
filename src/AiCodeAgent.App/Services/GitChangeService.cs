@@ -102,9 +102,34 @@ public class GitChangeService
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             return null;
 
-        var (code, stdout, _) = await RunGitAsync(directory, new[] { "rev-parse", "--show-toplevel" }, cancellationToken).ConfigureAwait(false);
-        var root = stdout.Trim();
-        return code == 0 && root.Length > 0 ? Path.GetFullPath(root) : null;
+        var (code, stdout, _) = await RunGitAsync(directory, new[] { "rev-parse", "--show-toplevel", "--show-prefix" }, cancellationToken).ConfigureAwait(false);
+        if (code != 0)
+            return null;
+        var lines = stdout.Split('\n');
+        var root = lines[0].Trim();
+        if (root.Length == 0)
+            return null;
+        var prefix = lines.Length > 1 ? lines[1].Trim() : string.Empty;
+        return RootInCallersSpelling(directory, prefix) ?? Path.GetFullPath(root);
+    }
+
+    /// <summary>
+    /// The repo root written the way the caller wrote <paramref name="directory"/>. git prints
+    /// --show-toplevel with symlinks resolved (on macOS the temp folder /var/... comes back as
+    /// /private/var/...), which would never match the explorer's paths. Going up from the
+    /// caller's folder by the depth of --show-prefix keeps the caller's spelling.
+    /// </summary>
+    internal static string? RootInCallersSpelling(string directory, string prefix)
+    {
+        var current = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        foreach (var _ in prefix.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(current))
+                return null;
+        }
+        // Never hand back a bare drive ("C:") or an empty root; let the caller fall back to git's path.
+        return current.Length == 0 || current.EndsWith(':') ? null : current;
     }
 
     /// <summary>Changes under <paramref name="directory"/> (a repo or a folder inside one); null when it isn't a git repository.</summary>
