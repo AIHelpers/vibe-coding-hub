@@ -26,6 +26,9 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="AiCodeAgent.App.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Tools\AiCodeAgent.Tools.csproj" />
@@ -33,4 +36,4 @@
     <ProjectReference Include="..\AiCodeAgent.Indexing\AiCodeAgent.Indexing.csproj" />
     <ProjectReference Include="..\AiCodeAgent.LanguageServices\AiCodeAgent.LanguageServices.csproj" />
   </ItemGroup>
-</Project>
+</Project>

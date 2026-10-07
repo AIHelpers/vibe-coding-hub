@@ -14,7 +14,8 @@ public class CheckpointManagerTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "aiagent-cp-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
-        _manager = new CheckpointManager(Substitute.For<ILogger<CheckpointManager>>());
+        // Isolated store: the default ~/.aiagent/checkpoints is shared by every test and every run.
+        _manager = new CheckpointManager(Substitute.For<ILogger<CheckpointManager>>(), Path.Combine(_tempDir, ".checkpoints"));
     }
 
     public void Dispose()
@@ -137,4 +138,4 @@ public class CheckpointManagerTests : IDisposable
         // The symlink target must not have been overwritten.
         Assert.Equal("target-content", await File.ReadAllTextAsync(target));
     }
-}
+}

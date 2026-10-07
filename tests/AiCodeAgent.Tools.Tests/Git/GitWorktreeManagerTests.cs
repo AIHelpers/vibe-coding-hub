@@ -25,6 +25,9 @@ public class GitWorktreeManagerTests : TestHelpers.TempDirTestBase
     {
         Directory.CreateDirectory(RepoDir);
         Git(RepoDir, "init", "-q");
+        // Keep files byte-for-byte: Windows runners set core.autocrlf=true globally, which would
+        // check merged files out with CRLF. Worktrees share this repo-level setting.
+        Git(RepoDir, "config", "core.autocrlf", "false");
         File.WriteAllText(Path.Combine(RepoDir, "a.txt"), "one\n");
         Git(RepoDir, "add", "-A");
         Git(RepoDir, "commit", "-q", "-m", "init");

@@ -225,13 +225,30 @@ public partial class SourceControlViewModel : ObservableObject, IDisposable
 
     // ----- reading state -----
 
+    /// <summary>
+    /// Re-read repositories and status. Calls made while a refresh is running are coalesced
+    /// into one more pass, and the returned task completes only after that pass, so callers
+    /// that await it always see up-to-date lists.
+    /// </summary>
     [RelayCommand]
-    public async Task RefreshAsync()
+    public Task RefreshAsync()
     {
-        if (_disposed) return;
-        if (_refreshing) { _refreshAgain = true; return; }
+        if (_disposed) return Task.CompletedTask;
+        if (_refreshing)
+        {
+            _refreshAgain = true;
+            return _currentRefresh;
+        }
 
         _refreshing = true;
+        _currentRefresh = RunRefreshLoopAsync();
+        return _currentRefresh;
+    }
+
+    private Task _currentRefresh = Task.CompletedTask;
+
+    private async Task RunRefreshLoopAsync()
+    {
         try
         {
             do

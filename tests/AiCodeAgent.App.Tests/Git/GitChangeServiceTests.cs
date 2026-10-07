@@ -84,6 +84,8 @@ public class GitRepoIntegrationTests : IDisposable
         Git("config", "user.email", "t@example.com");
         Git("config", "user.name", "Test");
         Git("config", "commit.gpgsign", "false");
+        // Byte-exact files regardless of the machine's git config (Windows runners use autocrlf=true).
+        Git("config", "core.autocrlf", "false");
         Directory.CreateDirectory(Path.Combine(_repo, "src"));
         File.WriteAllText(Path.Combine(_repo, "src", "Keep.cs"), "keep\n");
         File.WriteAllText(Path.Combine(_repo, "src", "Edit.cs"), "line1\nline2\n");
@@ -154,6 +156,37 @@ public class GitRepoIntegrationTests : IDisposable
         var status = await new GitChangeService().GetStatusAsync(Path.Combine(_repo, "src"));
 
         Assert.Equal(new[] { "src/Edit.cs" }, status!.Changes.Select(c => c.RelativePath));
+    }
+
+    [Fact]
+    public async Task RepoRoot_KeepsCallersSpelling_ThroughSymlinks()
+    {
+        // macOS temp lives under /var -> /private/var; git prints the resolved path, which must not leak
+        // into the explorer (its paths would stop matching and badges would disappear).
+        if (!_gitAvailable || OperatingSystem.IsWindows()) return;
+        var link = _repo + "-link";
+        Directory.CreateSymbolicLink(link, _repo);
+        try
+        {
+            var svc = new GitChangeService();
+            Assert.Equal(link, await svc.FindRepoRootAsync(link));
+            Assert.Equal(link, await svc.FindRepoRootAsync(Path.Combine(link, "src")));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("src/", 1)]
+    [InlineData("src/deep/", 2)]
+    public void RootInCallersSpelling_GoesUpByPrefixDepth(string prefix, int depth)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "r");
+        var dir = depth switch { 0 => root, 1 => Path.Combine(root, "src"), _ => Path.Combine(root, "src", "deep") };
+        Assert.Equal(root, GitChangeService.RootInCallersSpelling(dir, prefix));
     }
 
     [Fact]

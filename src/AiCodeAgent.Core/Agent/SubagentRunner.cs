@@ -160,7 +160,7 @@ public class SubagentRunner : ISubagentRunner
         }
     }
 
-    private static AgentOptions BuildOptions(string subagentId, SubagentContext context)
+    internal static AgentOptions BuildOptions(string subagentId, SubagentContext context)
     {
         return new AgentOptions
         {
@@ -176,11 +176,15 @@ public class SubagentRunner : ISubagentRunner
             IsReadOnly = context.IsReadOnly,
             AllowedPaths = context.AllowedPaths,
             NonInteractive = true,
-            DisabledTools = new() { "spawn_subagent" },
+            DisabledTools = context.DisabledTools.Append("spawn_subagent").Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             EnabledTools = context.EnabledTools ?? new(),
             SessionId = subagentId,
             AgentId = subagentId,
             Role = context.Role,
+            CharacterId = context.CharacterId,
+            RoleSystemPrompt = context.RoleSystemPrompt,
+            AllowedSkills = context.AllowedSkills,
+            PinnedSkills = context.PinnedSkills,
         };
     }
 
@@ -196,4 +200,4 @@ public class SubagentRunner : ISubagentRunner
 public record SubagentStartedEvent(string SubagentId, string Task, bool Forked) : AgentEvent;
 
 /// <summary>Emitted when a subagent session finishes (success, failure, or cancellation).</summary>
-public record SubagentFinishedEvent(SubagentSummary Summary) : AgentEvent;
+public record SubagentFinishedEvent(SubagentSummary Summary) : AgentEvent;

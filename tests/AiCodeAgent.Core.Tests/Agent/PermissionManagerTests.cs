@@ -414,10 +414,17 @@ public class PermissionManagerTests
         var path = Path.Combine(Path.GetTempPath(), $"pm-settings-{System.Guid.NewGuid():N}.json");
         try
         {
-            await File.WriteAllTextAsync(path, @"{""permissions"":{""organization"":{""mode"":""Plan""},""project"":{""mode"":""AutoEdit""},""personal"":{""mode"":""FullAuto""}}}");
+            // Personal wins over project and organization...
+            await File.WriteAllTextAsync(path, @"{""permissions"":{""organization"":{""mode"":""FullAuto""},""project"":{""mode"":""AutoEdit""},""personal"":{""mode"":""Ask""}}}");
             var svc = CreateService();
             await svc.LoadScopedSettingsAsync(path);
-            Assert.Equal(PermissionMode.FullAuto, await svc.GetModeAsync());
+            Assert.Equal(PermissionMode.Ask, await svc.GetModeAsync());
+
+            // ...but an organization mode is a ceiling that personal settings cannot loosen.
+            await File.WriteAllTextAsync(path, @"{""permissions"":{""organization"":{""mode"":""Plan""},""project"":{""mode"":""AutoEdit""},""personal"":{""mode"":""FullAuto""}}}");
+            svc = CreateService();
+            await svc.LoadScopedSettingsAsync(path);
+            Assert.Equal(PermissionMode.Plan, await svc.GetModeAsync());
         }
         finally
         {
@@ -466,4 +473,4 @@ public class PermissionManagerTests
             if (File.Exists(path)) File.Delete(path);
         }
     }
-}
+}

@@ -38,10 +38,14 @@ public class BaseToolTests
 
     private static TestTool CreateTool() => new(Substitute.For<ILogger>());
 
-    private static AgentExecutionContext CreateContext(string workingDir = @"C:\test", bool readOnly = false, List<string>? allowedPaths = null) => new()
+    /// <summary>An absolute path on the current OS (C:\a\b on Windows, /a/b elsewhere).</summary>
+    private static string Abs(params string[] parts) =>
+        Path.Combine(new[] { OperatingSystem.IsWindows() ? @"C:\" : "/" }.Concat(parts).ToArray());
+
+    private static AgentExecutionContext CreateContext(string? workingDir = null, bool readOnly = false, List<string>? allowedPaths = null) => new()
     {
         SessionId = "test",
-        WorkingDirectory = workingDir,
+        WorkingDirectory = workingDir ?? Abs("test"),
         IsReadOnly = readOnly,
         AllowedPaths = allowedPaths ?? new()
     };
@@ -132,20 +136,20 @@ public class BaseToolTests
         var tool = CreateTool();
         var context = CreateContext();
 
-        var result = tool.PublicResolvePath(@"C:\absolute\path.txt", context);
+        var result = tool.PublicResolvePath(Abs("absolute", "path.txt"), context);
 
-        Assert.Equal(@"C:\absolute\path.txt", result);
+        Assert.Equal(Abs("absolute", "path.txt"), result);
     }
 
     [Fact]
     public void ResolvePath_ResolvesRelativePath_AgainstWorkingDirectory()
     {
         var tool = CreateTool();
-        var context = CreateContext(@"C:\work");
+        var context = CreateContext(Abs("work"));
 
         var result = tool.PublicResolvePath("file.txt", context);
 
-        Assert.Equal(@"C:\work\file.txt", result);
+        Assert.Equal(Abs("work", "file.txt"), result);
     }
 
     [Fact]
@@ -154,35 +158,35 @@ public class BaseToolTests
         var tool = CreateTool();
         var context = CreateContext();
 
-        tool.PublicValidatePath(@"C:\any\path", context);
+        tool.PublicValidatePath(Abs("any", "path"), context);
     }
 
     [Fact]
     public void ValidatePath_DoesNotThrow_WhenPathWithinAllowedPaths()
     {
         var tool = CreateTool();
-        var context = CreateContext(allowedPaths: new() { @"C:\allowed" });
+        var context = CreateContext(allowedPaths: new() { Abs("allowed") });
 
-        tool.PublicValidatePath(@"C:\allowed\file.txt", context);
+        tool.PublicValidatePath(Abs("allowed", "file.txt"), context);
     }
 
     [Fact]
     public void ValidatePath_Throws_WhenPathOutsideAllowedPaths()
     {
         var tool = CreateTool();
-        var context = CreateContext(allowedPaths: new() { @"C:\allowed" });
+        var context = CreateContext(allowedPaths: new() { Abs("allowed") });
 
         Assert.Throws<UnauthorizedAccessException>(() =>
-            tool.PublicValidatePath(@"C:\other\file.txt", context));
+            tool.PublicValidatePath(Abs("other", "file.txt"), context));
     }
 
     [Fact]
     public void ValidatePath_IsCaseInsensitive_ForAllowedPaths()
     {
         var tool = CreateTool();
-        var context = CreateContext(allowedPaths: new() { @"C:\ALLOWED" });
+        var context = CreateContext(allowedPaths: new() { Abs("ALLOWED") });
 
-        tool.PublicValidatePath(@"c:\allowed\file.txt", context);
+        tool.PublicValidatePath(Abs("allowed", "file.txt").ToLowerInvariant(), context);
     }
 
     [Fact]

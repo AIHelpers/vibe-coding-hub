@@ -38,6 +38,7 @@ var verboseOption = new Option<bool>("--verbose", "Verbose output");
 var continueOption = new Option<bool>("--continue", "Resume the most recent session for this worktree");
 var resumeOption = new Option<bool>("--resume", "Open the interactive session picker");
 var forkSessionOption = new Option<string?>("--fork-session", "Fork an existing session id into a new one");
+var characterOption = new Option<string?>("--character", "Start the chat as this character (see 'characters list')");
 
 chatCommand.AddOption(providerOption);
 chatCommand.AddOption(modelOption);
@@ -47,9 +48,20 @@ chatCommand.AddOption(verboseOption);
 chatCommand.AddOption(continueOption);
 chatCommand.AddOption(resumeOption);
 chatCommand.AddOption(forkSessionOption);
+chatCommand.AddOption(characterOption);
 
-chatCommand.SetHandler(async (provider, model, dir, auto, verbose, cont, resume, forkFrom) =>
+chatCommand.SetHandler(async context =>
 {
+    var p = context.ParseResult;
+    var provider = p.GetValueForOption(providerOption);
+    var model = p.GetValueForOption(modelOption);
+    var dir = p.GetValueForOption(dirOption);
+    var auto = p.GetValueForOption(autoOption);
+    var verbose = p.GetValueForOption(verboseOption);
+    var cont = p.GetValueForOption(continueOption);
+    var resume = p.GetValueForOption(resumeOption);
+    var forkFrom = p.GetValueForOption(forkSessionOption);
+    var characterId = p.GetValueForOption(characterOption);
     var services = await BuildServiceProvider(provider, model, dir);
     var sessionManager = services.GetRequiredService<SessionPersistenceManager>();
     var store = services.GetRequiredService<ISessionStore>();
@@ -119,8 +131,8 @@ chatCommand.SetHandler(async (provider, model, dir, auto, verbose, cont, resume,
         WorkingDirectory = worktree,
         AutoApprove = auto,
         Verbose = verbose
-    }, sessionId);
-}, providerOption, modelOption, dirOption, autoOption, verboseOption, continueOption, resumeOption, forkSessionOption);
+    }, sessionId, characterId);
+});
 
 // run command - single prompt
 var runCommand = new Command("run", "Execute a single prompt");
@@ -148,13 +160,18 @@ var pipelineCommand = new Command("pipeline", "Run a configurable multi-agent SD
 var pipelineRunCommand = new Command("run", "Run a pipeline against a task");
 var pipelineTaskArg = new Argument<string>("task", "Description of the task to carry through the pipeline");
 var pipelineNameOption = new Option<string>("--pipeline", () => "full-sdlc", "Pipeline to run (see 'pipeline list')");
+var castOption = new Option<string?>("--cast", "Cast characters into stages: role=character[,role=character...], e.g. planner=alex-architect,implementer=sam-dev");
 pipelineRunCommand.AddArgument(pipelineTaskArg);
 pipelineRunCommand.AddOption(pipelineNameOption);
+pipelineRunCommand.AddOption(castOption);
 pipelineRunCommand.AddOption(providerOption);
 pipelineRunCommand.AddOption(modelOption);
 pipelineRunCommand.AddOption(dirOption);
-pipelineRunCommand.SetHandler(async (task, pipelineName, provider, model, dir) =>
+pipelineRunCommand.SetHandler(async (task, pipelineName, cast, provider, model, dir) =>
 {
+    Dictionary<string, string> castMap;
+    try { castMap = SdlcPipelineRunner.ParseCast(cast); }
+    catch (FormatException ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; return; }
     var services = await BuildServiceProvider(provider, model, dir);
     var loader = services.GetRequiredService<SdlcPipelineLoader>();
     var pipeline = loader.GetPipeline(pipelineName);
@@ -166,8 +183,16 @@ pipelineRunCommand.SetHandler(async (task, pipelineName, provider, model, dir) =
     }
 
     var runner = new PipelineRunMode(services.GetRequiredService<SdlcPipelineRunner>());
-    await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model);
-}, pipelineTaskArg, pipelineNameOption, providerOption, modelOption, dirOption);
+    try
+    {
+        await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model, castMap);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("character", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(ex.Message);
+        Environment.ExitCode = 1;
+    }
+}, pipelineTaskArg, pipelineNameOption, castOption, providerOption, modelOption, dirOption);
 
 var pipelineListCommand = new Command("list", "List available pipelines");
 pipelineListCommand.SetHandler(async () =>
@@ -179,7 +204,7 @@ pipelineListCommand.SetHandler(async () =>
     {
         Console.WriteLine($"  {p.Name,-12} {p.Description}");
         foreach (var stage in p.Stages)
-            Console.WriteLine($"      - [{(stage.Enabled ? "x" : " ")}] {stage.Name} ({stage.Role})");
+            Console.WriteLine($"      - [{(stage.Enabled ? "x" : " ")}] {stage.Name} ({stage.Role}{(string.IsNullOrEmpty(stage.Character) ? "" : " as " + stage.Character)})");
     }
 });
 
@@ -334,12 +359,15 @@ TaskHistoryCommands.AddCommands(rootCommand);
 // File viewing & diff commands
 FileViewCommands.AddCommands(rootCommand);
 
+SkillCharacterCommands.AddCommands(rootCommand);
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);
 rootCommand.AddCommand(configCommand);
 
-return await rootCommand.InvokeAsync(args);
+var exitCode = await rootCommand.InvokeAsync(args);
+// Handlers report failures through Environment.ExitCode (System.CommandLine returns 0 for a completed handler).
+return exitCode != 0 ? exitCode : Environment.ExitCode;
 
 static async Task<ServiceProvider> BuildServiceProvider(
     string? provider, string? model, string? dir)
@@ -453,6 +481,15 @@ static async Task<ServiceProvider> BuildServiceProvider(
             overrides: agentCfg.SkillOverrides);
     });
 
+    // Characters: personas with their own skills that run workflows
+    services.AddSingleton<AiCodeAgent.Core.Characters.ICharacterRegistry>(sp =>
+        new AiCodeAgent.Core.Characters.CharacterRegistry(
+            sp.GetRequiredService<RolePresetLoader>(),
+            sp.GetService<ILogger<AiCodeAgent.Core.Characters.CharacterRegistry>>(),
+            projectCharactersDir: AiCodeAgent.Core.Characters.CharacterRegistry.GetDefaultProjectCharactersDir(
+                sp.GetRequiredService<AgentOptions>().WorkingDirectory)));
+    services.AddSingleton<AiCodeAgent.Core.Characters.SkillMaintenance>();
+
     // Backend primitives
     services.AddSingleton<BackendPrimitiveCatalog>();
     services.AddSingleton<BackendScaffolder>();
@@ -487,6 +524,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, GetDiagnosticsTool>();
     services.AddSingleton<ITool, ScaffoldBackendTool>();
     services.AddSingleton<ITool, SpawnSubagentTool>();
+    services.AddSingleton<ITool, AiCodeAgent.Tools.Skills.UseSkillTool>();
 
     // Inter-agent communication: share the mailbox so agents can send messages.
     services.AddSingleton<ITool>(sp => new SendMessageTool(sp.GetRequiredService<AgentSessionCoordinator>().Mailbox, sp.GetService<IAgentEventBus>(), sp.GetRequiredService<ILogger<SendMessageTool>>()));

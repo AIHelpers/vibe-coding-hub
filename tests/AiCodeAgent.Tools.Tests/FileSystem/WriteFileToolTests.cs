@@ -31,7 +31,7 @@ public class WriteFileToolTests : TempDirTestBase
             Context());
 
         Assert.False(result.IsError);
-        Assert.Contains("Updated", result.Content);
+        Assert.Contains("Created", result.Content);
         Assert.Equal("Hello World", ReadFile("new.txt"));
     }
 

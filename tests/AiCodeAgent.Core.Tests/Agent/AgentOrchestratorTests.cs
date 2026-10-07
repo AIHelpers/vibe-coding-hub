@@ -132,9 +132,12 @@ public class AgentOrchestratorTests
     {
         var toolCall = new ToolCall { Id = "call1", Name = "unknown_tool", Arguments = new() };
 
+        // First turn calls the tool; the next turn ends the loop (the model would otherwise retry).
         var provider = Substitute.For<IAiProvider>();
         provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(CreateStream(new StreamChunk { IsFinished = true, ToolCalls = new() { toolCall } }));
+            .Returns(
+                CreateStream(new StreamChunk { IsFinished = true, ToolCalls = new() { toolCall } }),
+                CreateEmptyStream());
 
         var contextManager = Substitute.For<IContextManager>();
         contextManager.GetContextAsync(Arg.Any<string>()).Returns(new List<Message>());
@@ -213,9 +216,12 @@ public class AgentOrchestratorTests
     {
         var toolCall = new ToolCall { Id = "call1", Name = "failing_tool", Arguments = new() };
 
+        // First turn calls the tool; the next turn ends the loop (the model would otherwise retry).
         var provider = Substitute.For<IAiProvider>();
         provider.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(CreateStream(new StreamChunk { IsFinished = true, ToolCalls = new() { toolCall } }));
+            .Returns(
+                CreateStream(new StreamChunk { IsFinished = true, ToolCalls = new() { toolCall } }),
+                CreateEmptyStream());
 
         var contextManager = Substitute.For<IContextManager>();
         contextManager.GetContextAsync(Arg.Any<string>()).Returns(new List<Message>());

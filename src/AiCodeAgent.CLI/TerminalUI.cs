@@ -27,6 +27,15 @@ public class TerminalUI
     private readonly IAutoMemory? _autoMemory;
     private readonly LearningExtractor? _learningExtractor;
     private readonly ISkillRegistry? _skillRegistry;
+    private readonly AiCodeAgent.Core.Characters.ICharacterRegistry? _characters;
+    private readonly RolePresetLoader? _presets;
+    /// <summary>Character currently driving the chat (set with <c>/character</c> or <c>chat --character</c>).</summary>
+    private AiCodeAgent.Core.Characters.CharacterInfo? _activeCharacter;
+    /// <summary>Options as they were before a character was applied, restored by <c>/character none</c>.</summary>
+    private AgentOptions? _optionsBeforeCharacter;
+    private string? _initialCharacterId;
+    /// <summary>Skills activated with <c>/skill</c>; injected ahead of the next user message, then cleared.</summary>
+    private readonly List<SkillInvocation> _pendingSkills = new();
     private readonly IMcpRegistry? _mcpRegistry;
     private readonly IHookRunner? _hookRunner;
     private readonly IPermissionManager? _permissionManager;
@@ -71,8 +80,12 @@ public class TerminalUI
         IPermissionManager? permissionManager = null,
         ConfigurationService? configurationService = null,
         ModelRegistry? modelRegistry = null,
-        ConversationRewinder? rewinder = null)
+        ConversationRewinder? rewinder = null,
+        AiCodeAgent.Core.Characters.ICharacterRegistry? characterRegistry = null,
+        RolePresetLoader? presetLoader = null)
     {
+        _characters = characterRegistry;
+        _presets = presetLoader;
         _rewinder = rewinder;
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
@@ -95,11 +108,12 @@ public class TerminalUI
         _modelRegistry = modelRegistry;
     }
 
-    public Task RunAsync(AgentOptions options, string? sessionId = null)
+    public Task RunAsync(AgentOptions options, string? sessionId = null, string? characterId = null)
     {
         if (sessionId != null)
             _sessionId = sessionId;
         _options = options;
+        _initialCharacterId = characterId;
         return RunAsyncCore();
     }
 
@@ -117,6 +131,9 @@ public class TerminalUI
 
         // Load auto-memory (learned preferences) and inject into options.
         await RefreshAutoMemoryAsync();
+
+        if (!string.IsNullOrWhiteSpace(_initialCharacterId))
+            await SwitchCharacterAsync(_initialCharacterId);
 
         _recorder.Start(_sessionId);
 
@@ -180,7 +197,7 @@ public class TerminalUI
             }
 
             Console.WriteLine();
-            await StreamResponseAsync(input, captureLearnings: true);
+            await StreamResponseAsync(ApplyPendingSkills(input), captureLearnings: true);
             Console.WriteLine();
         }
 
@@ -479,7 +496,23 @@ public class TerminalUI
                 return true;
 
             case "/skills":
-                PrintSkills();
+                PrintSkills(showAll: false);
+                return true;
+
+            case "/skills --all":
+                PrintSkills(showAll: true);
+                return true;
+
+            case "/characters":
+                await PrintCharactersAsync();
+                return true;
+
+            case "/character":
+                PrintActiveCharacter();
+                return true;
+
+            case var s when s.StartsWith("/character "):
+                await SwitchCharacterAsync(s[11..].Trim());
                 return true;
 
             case var s when s.StartsWith("/skill "):
@@ -864,10 +897,14 @@ public class TerminalUI
         try
         {
             var report = await _memoryLoader.DiagnoseAsync(_options.WorkingDirectory);
-            WriteColored($"\nProject Doctor Report ({(report.AllOk ? "ALL OK" : "ISSUES FOUND")}):\n",
-                report.AllOk ? Colors.Success : Colors.Error);
+            var checks = report.Checks.ToList();
+            if (_skillRegistry != null)
+                checks.AddRange(await AiCodeAgent.Core.Characters.SkillDoctor.DiagnoseAsync(_skillRegistry, _characters));
+            var allOk = checks.All(c => c.Status == DoctorStatus.Ok);
+            WriteColored($"\nProject Doctor Report ({(allOk ? "ALL OK" : "ISSUES FOUND")}):\n",
+                allOk ? Colors.Success : Colors.Error);
             WriteColored(new string('-', 60) + "\n", ConsoleColor.DarkGray);
-            foreach (var check in report.Checks)
+            foreach (var check in checks)
             {
                 var (icon, color) = check.Status switch
                 {
@@ -1117,7 +1154,7 @@ public class TerminalUI
         await Task.CompletedTask;
     }
 
-    private void PrintSkills()
+    private void PrintSkills(bool showAll)
     {
         if (_skillRegistry == null)
         {
@@ -1126,13 +1163,21 @@ public class TerminalUI
         }
 
         var skills = _skillRegistry.ListAsync().GetAwaiter().GetResult();
+        if (!showAll && _options.AllowedSkills != null)
+        {
+            var allowed = new HashSet<string>(_options.AllowedSkills.Concat(_options.PinnedSkills), StringComparer.OrdinalIgnoreCase);
+            skills = skills.Where(s => allowed.Contains(s.Name)).ToList();
+        }
         if (skills.Count == 0)
         {
-            WriteColored("No skills available. Add SKILL.md files to .aiagent/skills/<name>/ to define skills.\n", Colors.Info);
+            WriteColored(_activeCharacter != null && !showAll
+                ? $"Character '{_activeCharacter.Id}' has no skills. Assign some with: aiagent characters assign {_activeCharacter.Id} <skill>  (or /skills --all)\n"
+                : "No skills available. Create one with: aiagent skills new <name> --description \"...\"\n", Colors.Info);
             return;
         }
 
-        WriteColored($"\nAvailable skills ({skills.Count}):\n", Colors.Info);
+        var scope = _activeCharacter != null && !showAll ? $" for {_activeCharacter.Label}" : "";
+        WriteColored($"\nAvailable skills{scope} ({skills.Count}):\n", Colors.Info);
         WriteColored($"  {"Name",-20} {"Manual",-8} {"Description"}\n", ConsoleColor.DarkGray);
         WriteColored(new string('-', 80) + "\n", ConsoleColor.DarkGray);
         foreach (var skill in skills)
@@ -1146,6 +1191,101 @@ public class TerminalUI
         }
         WriteColored("\nUse /skill <name> to load and invoke a skill.\n", Colors.Info);
     }
+
+    // ===================== Characters =====================
+
+    private async Task PrintCharactersAsync()
+    {
+        if (_characters == null)
+        {
+            WriteColored("Characters are not available.\n", Colors.Error);
+            return;
+        }
+        var list = await _characters.ListAsync();
+        WriteColored($"\nCharacters ({list.Count}):\n", Colors.Info);
+        foreach (var c in list)
+        {
+            var active = _activeCharacter != null && string.Equals(_activeCharacter.Id, c.Id, StringComparison.OrdinalIgnoreCase) ? "*" : " ";
+            var skills = c.Skills == null ? "all skills" : $"{c.Skills.Count + c.PinnedSkills.Count} skill(s)";
+            WriteColored($" {active} {c.Id,-22} ", Colors.Tool);
+            var kind = c.IsTemplate ? " [template]" : c.Extends != null ? $" [extends {c.Extends}]" : "";
+            WriteColored($"{c.Scope.ToString().ToLowerInvariant(),-8} {skills,-12} {c.Description}{kind}{(c.IsValid ? "" : " [invalid]")}\n", ConsoleColor.Gray);
+        }
+        WriteColored("\nUse /character <id> to switch, /character none to go back to the default agent.\n", Colors.Info);
+    }
+
+    private void PrintActiveCharacter()
+    {
+        if (_activeCharacter == null)
+        {
+            WriteColored("No character active (default agent). Use /characters to list, /character <id> to switch.\n", Colors.Info);
+            return;
+        }
+        var c = _activeCharacter;
+        WriteColored($"Active character: {c.Label} ({c.Id})\n", Colors.Success);
+        WriteColored($"  Base role: {c.BaseRole ?? "-"}   Permission: {_options.PermissionMode}\n", ConsoleColor.Gray);
+        WriteColored($"  Tools:  {(_options.EnabledTools.Count == 0 ? "(all)" : string.Join(", ", _options.EnabledTools))}\n", ConsoleColor.Gray);
+        WriteColored($"  Skills: {(_options.AllowedSkills == null ? "(all)" : string.Join(", ", _options.AllowedSkills))}\n", ConsoleColor.Gray);
+        if (_options.PinnedSkills.Count > 0)
+            WriteColored($"  Pinned: {string.Join(", ", _options.PinnedSkills)}\n", ConsoleColor.Gray);
+    }
+
+    /// <summary>Switch the chat to a character (persona, tools, skills) or back to the default agent with "none".</summary>
+    internal async Task SwitchCharacterAsync(string id)
+    {
+        if (string.Equals(id, "none", StringComparison.OrdinalIgnoreCase) || string.Equals(id, "off", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_optionsBeforeCharacter != null)
+                _options = RestoreCharacterFields(_options, _optionsBeforeCharacter, _activeCharacter);
+            _optionsBeforeCharacter = null;
+            _activeCharacter = null;
+            WriteColored("Back to the default agent.\n", Colors.Success);
+            return;
+        }
+
+        if (_characters == null)
+        {
+            WriteColored("Characters are not available.\n", Colors.Error);
+            return;
+        }
+        var character = await _characters.GetAsync(id);
+        if (character == null)
+        {
+            WriteColored($"Character '{id}' not found. Use /characters to list them.\n", Colors.Error);
+            return;
+        }
+        if (!character.IsValid)
+        {
+            WriteColored($"Character '{id}' is invalid: {string.Join(" ", character.ValidationErrors)}\n", Colors.Error);
+            return;
+        }
+
+        if (_optionsBeforeCharacter != null)
+            _options = RestoreCharacterFields(_options, _optionsBeforeCharacter, _activeCharacter);
+        _optionsBeforeCharacter = _options;
+
+        var basePreset = character.BaseRole == null ? null : _presets?.GetPreset(character.BaseRole);
+        // Keep the permission mode the user chose for this chat unless the character sets one explicitly.
+        _options = AiCodeAgent.Core.Characters.CharacterResolver.Apply(_options, character, basePreset, overwrite: true, useBaseRolePermission: false);
+        _activeCharacter = character;
+        WriteColored($"Now chatting with {character.Label}.\n", Colors.Success);
+        PrintActiveCharacter();
+    }
+
+    /// <summary>Undo the fields a character changed, keeping later user changes (e.g. /cd, /effort).</summary>
+    private static AgentOptions RestoreCharacterFields(AgentOptions current, AgentOptions before, AiCodeAgent.Core.Characters.CharacterInfo? character) =>
+        current with
+        {
+            CharacterId = before.CharacterId,
+            Role = before.Role,
+            RoleSystemPrompt = before.RoleSystemPrompt,
+            EnabledTools = before.EnabledTools,
+            DisabledTools = before.DisabledTools,
+            AllowedSkills = before.AllowedSkills,
+            PinnedSkills = before.PinnedSkills,
+            Model = character?.Model != null ? before.Model : current.Model,
+            PermissionMode = character?.PermissionMode != null ? before.PermissionMode : current.PermissionMode
+        };
 
     private async Task ActivateSkillAsync(string skillName)
     {
@@ -1168,13 +1308,31 @@ public class TerminalUI
             return;
         }
 
+        QueueSkill(invocation);
         WriteColored($"Skill '{invocation.Name}' loaded.\n", Colors.Success);
-        var path = _skillRegistry.GetSkillPath(skillName);
+        var path = _skillRegistry.GetSkillPath(invocation.Name);
         if (!string.IsNullOrEmpty(path))
             WriteColored($"  File: {path}\n", ConsoleColor.DarkGray);
-        WriteColored($"  Content length: {invocation.Content.Length} chars\n", ConsoleColor.Gray);
-        WriteColored("The skill content is now available for injection into the agent context.\n", Colors.Info);
+        WriteColored($"  ~{AiCodeAgent.Core.Context.LocalFileStore.EstimateTokens(invocation.Content)} tokens\n", ConsoleColor.Gray);
+        WriteColored("Its instructions will be sent with your next message.\n", Colors.Info);
     }
+
+    /// <summary>Queue a skill for the next user message (replacing an earlier queued copy of the same skill).</summary>
+    internal void QueueSkill(SkillInvocation invocation)
+    {
+        _pendingSkills.RemoveAll(p => string.Equals(p.Name, invocation.Name, StringComparison.OrdinalIgnoreCase));
+        _pendingSkills.Add(invocation);
+    }
+
+    /// <summary>Prepends queued <c>/skill</c> instructions to <paramref name="userMessage"/> and clears the queue.</summary>
+    internal string ApplyPendingSkills(string userMessage)
+    {
+        if (_pendingSkills.Count == 0) return userMessage;
+        var text = SkillInvocation.ComposeUserMessage(_pendingSkills, userMessage);
+        _pendingSkills.Clear();
+        return text;
+    }
+
 
     private static void PrintBanner()
     {
@@ -1188,7 +1346,7 @@ public class TerminalUI
     private static void PrintHelp()
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /effort /rewind /fork /init /doctor /memory /automemory /automemory edit /exit");
+        Console.WriteLine("  Commands: /help /clear /reset /branch /tools /skills /skill <name> /characters /character <id> /hooks /mcp /model <name> /models /cd <dir> /tasks /task <id> /effort /rewind /fork /init /doctor /memory /automemory /automemory edit /exit");
         Console.WriteLine("  Files:   /view path (print file with line numbers)  /edit path (open in external editor)");
         Console.WriteLine("  Ctrl+C to cancel current operation");
         Console.ResetColor();
@@ -1542,4 +1700,4 @@ public class TerminalUI
             WriteColored($"Error showing task: {ex.Message}\n", Colors.Error);
         }
     }
-}
+}

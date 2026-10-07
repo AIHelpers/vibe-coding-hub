@@ -142,7 +142,7 @@ public class ExecuteCommandToolTests : TestHelpers.TempDirTestBase
         var context = Context();
         var call = Call(new Dictionary<string, object?>
         {
-            ["command"] = "ping -n 10 127.0.0.1", // Windows ping
+            ["command"] = OperatingSystem.IsWindows() ? "ping -n 10 127.0.0.1" : "sleep 10",
             ["timeout"] = 1
         });
 
@@ -153,4 +153,4 @@ public class ExecuteCommandToolTests : TestHelpers.TempDirTestBase
         Assert.True(result.IsError);
         Assert.Contains("timed out", result.Content, StringComparison.OrdinalIgnoreCase);
     }
-}
+}

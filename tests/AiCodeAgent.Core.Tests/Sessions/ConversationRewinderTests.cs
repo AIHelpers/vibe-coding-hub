@@ -22,13 +22,14 @@ public class ConversationRewinderTests : IDisposable
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "aiagent-rewind-" + Guid.NewGuid().ToString("N"));
     private readonly FakeContext _ctx = new();
-    private readonly CheckpointManager _checkpoints = new(Substitute.For<ILogger<CheckpointManager>>());
+    private readonly CheckpointManager _checkpoints;
     private readonly ConversationRewinder _rewinder;
     private readonly string _session = "s-" + Guid.NewGuid().ToString("N");
 
     public ConversationRewinderTests()
     {
         Directory.CreateDirectory(_dir);
+        _checkpoints = new CheckpointManager(Substitute.For<ILogger<CheckpointManager>>(), Path.Combine(_dir, ".checkpoints"));
         _rewinder = new ConversationRewinder(_ctx, _checkpoints);
     }
 

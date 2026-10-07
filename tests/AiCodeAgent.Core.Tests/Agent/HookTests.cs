@@ -7,6 +7,9 @@ namespace AiCodeAgent.Core.Tests.Agent;
 
 public class HookTests
 {
+    /// <summary>A command that runs for ~30 s on any OS (Windows ping needs -n; elsewhere use sleep).</summary>
+    private static string HangingCommand => OperatingSystem.IsWindows() ? "ping -n 30 127.0.0.1" : "sleep 30";
+
     [Fact]
     public void HookDefinition_Defaults()
     {
@@ -159,7 +162,7 @@ public class HookTests
         {
             Name = "slow-gate",
             Event = HookEvent.PreToolUse,
-            Command = "ping -n 30 127.0.0.1",
+            Command = HangingCommand,
             Blocking = true,
             TimeoutSeconds = 1
         };
@@ -341,7 +344,7 @@ public class HookTests
         {
             Name = "timeout-hook",
             Event = HookEvent.PreToolUse,
-            Command = "ping -n 30 127.0.0.1",
+            Command = HangingCommand,
             Blocking = false,
             TimeoutSeconds = 1
         };
@@ -401,4 +404,4 @@ public class HookTests
         Assert.True(runResult.Results[0].Success);
         Assert.True(runResult.Results[1].Deny);
     }
-}
+}

@@ -16,10 +16,11 @@ public class CheckpointManager : ICheckpointManager
     private readonly string _checkpointDir;
     private readonly ILogger<CheckpointManager> _logger;
 
-    public CheckpointManager(ILogger<CheckpointManager> logger)
+    /// <param name="checkpointDir">Where backups are stored; defaults to <c>~/.aiagent/checkpoints</c>.</param>
+    public CheckpointManager(ILogger<CheckpointManager> logger, string? checkpointDir = null)
     {
         _logger = logger;
-        _checkpointDir = Path.Combine(
+        _checkpointDir = checkpointDir ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".aiagent", "checkpoints");
         Directory.CreateDirectory(_checkpointDir);

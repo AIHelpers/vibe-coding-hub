@@ -572,7 +572,8 @@ public partial class FileExplorerViewModel : ObservableObject, IDisposable
     public async Task SyncDirectoryAsync(string directory)
     {
         var node = FindLoadedDirectory(directory);
-        if (node == null)
+        // A folder that was never opened still holds its placeholder; it reads the disk when expanded.
+        if (node == null || !node.IsInitiallyLoaded)
             return;
 
         var path = node.FullPath;
@@ -580,7 +581,7 @@ public partial class FileExplorerViewModel : ObservableObject, IDisposable
 
         // The tree may have been rebuilt while we were reading the disk.
         node = FindLoadedDirectory(directory);
-        if (node == null)
+        if (node == null || !node.IsInitiallyLoaded)
             return;
 
         var freshPaths = fresh.Select(f => f.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);

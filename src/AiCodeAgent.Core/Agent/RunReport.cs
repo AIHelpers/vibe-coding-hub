@@ -82,6 +82,16 @@ public sealed class RunReportBuilder
         }
         sb.AppendLine();
 
+        var skillsLoaded = SkillsLoaded();
+        if (skillsLoaded.Count > 0)
+        {
+            sb.AppendLine($"## Skills loaded ({skillsLoaded.Count})");
+            sb.AppendLine();
+            foreach (var skill in skillsLoaded)
+                sb.AppendLine($"- `{skill}`");
+            sb.AppendLine();
+        }
+
         sb.AppendLine($"## Approvals requested ({_approvals.Count})");
         sb.AppendLine();
         foreach (var (tool, risk) in _approvals)
@@ -122,6 +132,15 @@ public sealed class RunReportBuilder
             return null;
         }
     }
+
+    /// <summary>Distinct skills the agent loaded successfully with <c>use_skill</c>, in first-use order.</summary>
+    public IReadOnlyList<string> SkillsLoaded() => _tools
+        .Where(t => t.Call.Name == AgentOrchestrator.UseSkillToolName && !t.Result.IsError)
+        .Select(t => t.Call.Arguments.TryGetValue("name", out var n) ? n?.ToString() : null)
+        .Where(n => !string.IsNullOrWhiteSpace(n))
+        .Select(n => n!)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
 
     private static string Shorten(string? s, int max) =>
         string.IsNullOrEmpty(s) ? string.Empty : (s.Length <= max ? s : s[..max] + "…");

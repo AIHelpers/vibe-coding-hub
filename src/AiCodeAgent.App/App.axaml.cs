@@ -288,11 +288,26 @@ public partial class App : Application
         {
             var agentCfg = sp.GetRequiredService<AgentConfiguration>();
             var workdir = Directory.GetCurrentDirectory();
-            return new SkillRegistry(
+            var registry = new SkillRegistry(
                 sp.GetService<ILogger<SkillRegistry>>(),
                 projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
                 overrides: agentCfg.SkillOverrides);
+            // The desktop app stays open while files are edited elsewhere: pick changes up live.
+            registry.EnableWatching();
+            return registry;
         });
+
+        // Characters: personas with their own skills that run workflows
+        services.AddSingleton<AiCodeAgent.Core.Characters.ICharacterRegistry>(sp =>
+        {
+            var registry = new AiCodeAgent.Core.Characters.CharacterRegistry(
+                sp.GetRequiredService<RolePresetLoader>(),
+                sp.GetService<ILogger<AiCodeAgent.Core.Characters.CharacterRegistry>>(),
+                projectCharactersDir: AiCodeAgent.Core.Characters.CharacterRegistry.GetDefaultProjectCharactersDir(Directory.GetCurrentDirectory()));
+            registry.EnableWatching();
+            return registry;
+        });
+        services.AddSingleton<AiCodeAgent.Core.Characters.SkillMaintenance>();
 
         // Register AI provider
         services.AddSingleton<IAiProvider>(sp =>
@@ -358,6 +373,7 @@ public partial class App : Application
         services.AddSingleton<ITool, GetDiagnosticsTool>();
         services.AddSingleton<ITool, ScaffoldBackendTool>();
         services.AddSingleton<ITool, SpawnSubagentTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Skills.UseSkillTool>();
 
         // Inter-agent communication: share the coordinator mailbox across agents.
         services.AddSingleton<ITool>(sp => new SendMessageTool(sp.GetRequiredService<AgentSessionCoordinator>().Mailbox, sp.GetService<IAgentEventBus>(), sp.GetRequiredService<ILogger<SendMessageTool>>()));
@@ -489,6 +505,7 @@ public partial class App : Application
         services.AddSingleton<CheckpointBrowserViewModel>();
         services.AddSingleton<DiffViewerViewModel>();
         services.AddSingleton<QuickOpenViewModel>();
+        services.AddSingleton<CharactersViewModel>();
         services.AddSingleton<ProjectKnowledgeViewModel>();
         services.AddSingleton<BackgroundTaskManagerViewModel>();
         services.AddSingleton<GitChangeService>();

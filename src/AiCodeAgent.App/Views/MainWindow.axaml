@@ -963,6 +963,14 @@
                                             ToolTip.Tip="Run the selected SDLC pipeline against this task"
                                             Padding="12,8"
                                             MinHeight="36"/>
+                                    <ComboBox ItemsSource="{Binding ChatViewModel.CharacterOptions}"
+                                              SelectedItem="{Binding ChatViewModel.SelectedCharacterName}"
+                                              ToolTip.Tip="Character that answers in this chat: its persona, tools and skills (/character)"
+                                              MinHeight="36" MinWidth="130"
+                                              Margin="12,0,0,0"/>
+                                    <TextBlock Text="{Binding ChatViewModel.PendingSkillsText}"
+                                               IsVisible="{Binding ChatViewModel.PendingSkillsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               FontSize="10" Opacity="0.6" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                     <ComboBox ItemsSource="{Binding ChatViewModel.EffortOptions}"
                                               SelectedItem="{Binding ChatViewModel.ReasoningEffortName}"
                                               ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"

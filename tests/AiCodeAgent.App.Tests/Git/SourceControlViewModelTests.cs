@@ -47,6 +47,8 @@ public class SourceControlViewModelTests : IDisposable
             Git(dir, "config", "user.email", "t@example.com");
             Git(dir, "config", "user.name", "Test");
             Git(dir, "config", "commit.gpgsign", "false");
+            // Byte-exact files regardless of the machine's git config (Windows runners use autocrlf=true).
+            Git(dir, "config", "core.autocrlf", "false");
         }
         return dir;
     }

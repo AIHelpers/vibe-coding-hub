@@ -59,6 +59,21 @@ public record SubagentContext
     /// <summary>Extra directories the subagent may touch besides <see cref="WorkingDirectory"/>.</summary>
     public List<string> AllowedPaths { get; init; } = new();
 
+    /// <summary>Character running the subagent (persona/tools/skills already resolved into the other fields).</summary>
+    public string? CharacterId { get; init; }
+
+    /// <summary>Role/persona instructions for the subagent's system prompt.</summary>
+    public string? RoleSystemPrompt { get; init; }
+
+    /// <summary>Skills the subagent may load; null = all model-visible skills. Inherited from the parent unless a character sets it.</summary>
+    public List<string>? AllowedSkills { get; init; }
+
+    /// <summary>Skills injected in full into the subagent's system prompt.</summary>
+    public List<string> PinnedSkills { get; init; } = new();
+
+    /// <summary>Extra tools the subagent must not use (spawn_subagent is always disabled).</summary>
+    public List<string> DisabledTools { get; init; } = new();
+
     /// <summary>Overall hard timeout for the subagent session.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(10);
-}
+}
