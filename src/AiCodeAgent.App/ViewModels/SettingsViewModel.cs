@@ -105,7 +105,11 @@ public partial class SettingsViewModel : ObservableObject
             ? config.Agent.WorkingDirectory
             : Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
+        // Intentional: set the backing field directly so the loaded value is not previewed/applied
+        // via OnSelectedThemeChanged; the change notification is raised manually below.
+#pragma warning disable MVVMTK0034
         _selectedTheme = ThemeLabel(config.Ui?.Theme);
+#pragma warning restore MVVMTK0034
         OnPropertyChanged(nameof(SelectedTheme));
 
         // Models are loaded lazily — only when the user opens the model
