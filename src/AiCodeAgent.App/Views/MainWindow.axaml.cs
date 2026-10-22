@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.ReactiveUI;
 using AiCodeAgent.App.CommandPalette;
+using AiCodeAgent.App.Services;
 using AiCodeAgent.App.ViewModels;
 using ReactiveUI;
 using System;
@@ -32,6 +33,60 @@ public partial class MainWindow : Window
         // window after our clamp and leave its bottom (and any page footer)
         // below the visible screen area.
         Opened += (_, _) => Dispatcher.UIThread.Post(FitToScreen, DispatcherPriority.Loaded);
+        CrashReporter.NoticeRaised += ShowCrashNotice;
+        Closed += (_, _) => CrashReporter.NoticeRaised -= ShowCrashNotice;
+    }
+
+    /// <summary>
+    /// Shows a non-blocking error toast with a "Copy details" action. The window keeps running.
+    /// </summary>
+    private void ShowCrashNotice(CrashNotice notice)
+    {
+        var root = this.FindControl<Grid>("RootGrid");
+        if (root is null)
+            return;
+
+        var copy = new Button { Content = "Copy details", Margin = new Thickness(8, 0, 0, 0) };
+        var close = new Button { Content = "✕", Margin = new Thickness(8, 0, 0, 0) };
+        var toast = new Border
+        {
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brushes.Gray,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 8),
+            Margin = new Thickness(16),
+            MaxWidth = 520,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = notice.Message,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center
+                    },
+                    copy,
+                    close
+                }
+            }
+        };
+        if (this.TryFindResource("SystemControlBackgroundChromeMediumBrush", out var bg) && bg is IBrush brush)
+            toast.Background = brush;
+        Grid.SetRowSpan(toast, 3);
+
+        copy.Click += async (_, _) =>
+        {
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard is not null)
+                await clipboard.SetTextAsync(notice.Details);
+        };
+        close.Click += (_, _) => root.Children.Remove(toast);
+
+        root.Children.Add(toast);
     }
 
     /// <summary>
