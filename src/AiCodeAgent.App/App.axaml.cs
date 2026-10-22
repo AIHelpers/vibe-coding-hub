@@ -50,6 +50,8 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        CrashReporter.InstallUiHandler();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var services = new ServiceCollection();

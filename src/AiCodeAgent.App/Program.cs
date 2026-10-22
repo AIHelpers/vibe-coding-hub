@@ -3,6 +3,7 @@ using Avalonia.ReactiveUI;
 using System;
 using System.Runtime.InteropServices;
 using Serilog;
+using AiCodeAgent.App.Services;
 
 namespace AiCodeAgent.App;
 
@@ -15,6 +16,7 @@ class Program
             .MinimumLevel.Debug()
             .WriteTo.File("logs/aiagent-.log", rollingInterval: RollingInterval.Day)
             .CreateLogger();
+        CrashReporter.InstallProcessHandlers();
 
         try
         {
