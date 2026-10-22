@@ -214,6 +214,9 @@ public class GitRepoIntegrationTests : IDisposable
     public async Task Explorer_ShowsBadgesChangesListAndBaseline()
     {
         if (!_gitAvailable) return;
+        // Avalonia.Headless's UI-thread pump throws PlatformNotSupportedException on Linux CI
+        // (Dispatcher.PushFrame), so this end-to-end test runs on Windows and macOS only.
+        if (OperatingSystem.IsLinux()) return;
         MakeChanges();
         var vm = new FileExplorerViewModel { EnableWatching = false, RootPath = _repo };
 

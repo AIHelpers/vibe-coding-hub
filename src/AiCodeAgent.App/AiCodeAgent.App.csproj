@@ -23,7 +23,11 @@
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+    <!-- Pinned to override the vulnerable Tmds.DBus.Protocol that Avalonia.FreeDesktop 11.2.x pulls in transitively.
+         Must stay API-compatible with the 0.20.x line Avalonia.FreeDesktop 11.2.0 was compiled against: 0.21.x is OK;
+         0.9x removed Tmds.DBus.Protocol.Connection and crashes Linux startup with TypeLoadException.
+         Revisit (or drop the pin) when upgrading Avalonia to 11.3.x. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AiCodeAgent.App.Tests" />
