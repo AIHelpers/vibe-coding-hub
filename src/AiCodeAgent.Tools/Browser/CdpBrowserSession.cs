@@ -265,7 +265,8 @@ internal static class CdpBrowserSession
     private static async Task<string> WaitForBrowserEndpointAsync(string profile, Process proc, CancellationToken ct)
     {
         var file = Path.Combine(profile, "DevToolsActivePort");
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        var timeout = DevToolsStartupTimeout;
+        var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
@@ -282,8 +283,16 @@ internal static class CdpBrowserSession
             }
             await Task.Delay(50, ct);
         }
-        throw new TimeoutException("Browser did not open its DevTools port within 20s.");
+        throw new TimeoutException($"Browser did not open its DevTools port within {timeout.TotalSeconds:0}s. Set AIAGENT_BROWSER_STARTUP_SECONDS to allow more time.");
     }
+
+    /// <summary>How long to wait for a freshly started browser to publish its DevTools port. Cold starts on slow CI
+    /// runners (or first launch of a browser) can take well over 20s, so the default is generous; override with
+    /// AIAGENT_BROWSER_STARTUP_SECONDS.</summary>
+    private static TimeSpan DevToolsStartupTimeout =>
+        int.TryParse(Environment.GetEnvironmentVariable("AIAGENT_BROWSER_STARTUP_SECONDS"), out var s) && s > 0
+            ? TimeSpan.FromSeconds(s)
+            : TimeSpan.FromSeconds(60);
 
     internal static string MapConsoleType(string? type) => type switch
     {
