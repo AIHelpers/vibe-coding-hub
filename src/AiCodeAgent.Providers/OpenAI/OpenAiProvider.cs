@@ -73,11 +73,8 @@ public class OpenAiProvider : BaseHttpProvider
 
         var toolCallsAccumulator = new Dictionary<int, ToolCallAccumulator>();
 
-        // When include_usage is true, OpenAI sends a final chunk with the usage
-        // populated but an empty choices array. The orchestrator stops as soon as
-        // it sees IsFinished, so we buffer the finished state and keep reading
-        // until the usage chunk arrives (or the stream ends), then emit a single
-        // finished StreamChunk carrying both the finish reason and the usage.
+        // The finish is buffered until a usage chunk arrives or the stream ends, so the caller gets
+        // exactly one finished StreamChunk carrying the finish reason, the tool calls and the usage.
         StreamChunk? pendingFinishedChunk = null;
 
         await foreach (var line in ReadSseStreamAsync(response, cancellationToken))
@@ -96,8 +93,8 @@ public class OpenAiProvider : BaseHttpProvider
                 continue;
             }
 
-            // Terminal usage chunk: choices is empty, usage is populated.
-            // Merge it into the buffered finished chunk and emit it.
+            // Terminal usage chunk: choices is empty, usage is populated. Merge it into the buffered
+            // finished chunk, or emit a finished chunk with the usage if no finish came before it.
             if (chunk?.Usage != null)
             {
                 var usage = new TokenUsage
@@ -106,22 +103,20 @@ public class OpenAiProvider : BaseHttpProvider
                     CompletionTokens = chunk.Usage.CompletionTokens
                 };
 
-                if (pendingFinishedChunk != null)
-                {
-                    yield return pendingFinishedChunk with { Usage = usage };
-                    pendingFinishedChunk = null;
-                }
-                else
-                {
-                    yield return new StreamChunk { IsFinished = true, Usage = usage };
-                }
+                yield return pendingFinishedChunk != null
+                    ? pendingFinishedChunk with { Usage = usage }
+                    : BuildFinishedChunk(null, string.Empty, toolCallsAccumulator, usage);
+                pendingFinishedChunk = null;
                 continue;
             }
 
             if (chunk?.Choices is not { Count: > 0 }) continue;
             var choice = chunk.Choices[0];
 
-            // Accumulate tool calls
+            // Accumulate tool-call deltas. The same chunk can also carry finish_reason (some
+            // OpenAI-compatible servers send it that way), so the finish is evaluated below
+            // instead of skipping the chunk.
+            var hasToolCallDelta = choice.Delta?.ToolCalls is { Count: > 0 };
             if (choice.Delta?.ToolCalls != null)
             {
                 foreach (var tc in choice.Delta.ToolCalls)
@@ -138,51 +133,18 @@ public class OpenAiProvider : BaseHttpProvider
                     if (!string.IsNullOrEmpty(tc.Id))
                         acc.Id = tc.Id;
                 }
-                continue;
             }
 
             var delta = choice.Delta?.Content ?? string.Empty;
-            var isFinished = choice.FinishReason != null;
 
-            if (isFinished)
+            if (choice.FinishReason != null)
             {
-                StreamChunk finishedChunk;
-                if (toolCallsAccumulator.Count > 0)
-                {
-                    var toolCalls = toolCallsAccumulator.Values
-                        .Select(acc => new ToolCall
-                        {
-                            Id = acc.Id,
-                            Name = acc.Name,
-                            Arguments = ParseArguments(acc.Arguments)
-                        })
-                        .ToList();
-
-                    finishedChunk = new StreamChunk
-                    {
-                        IsFinished = true,
-                        ToolCalls = toolCalls,
-                        FinishReason = choice.FinishReason
-                    };
-                }
-                else
-                {
-                    finishedChunk = new StreamChunk
-                    {
-                        Delta = delta,
-                        IsFinished = true,
-                        FinishReason = choice.FinishReason
-                    };
-                }
-
-                // Buffer the finished chunk: a usage chunk may follow. If the
-                // stream ends without one, we still need to emit it.
-                if (pendingFinishedChunk != null)
-                    yield return pendingFinishedChunk;
-                pendingFinishedChunk = finishedChunk;
+                // Replace any earlier finish rather than stacking a second one: exactly one finished chunk goes out.
+                pendingFinishedChunk = BuildFinishedChunk(choice.FinishReason, delta, toolCallsAccumulator);
             }
-            else
+            else if (!hasToolCallDelta || delta.Length > 0)
             {
+                // Tool-call-only deltas produce no text, so they yield nothing here.
                 yield return new StreamChunk
                 {
                     Delta = delta,
@@ -191,9 +153,34 @@ public class OpenAiProvider : BaseHttpProvider
             }
         }
 
-        // Stream ended without a separate usage chunk; emit the buffered finish.
+        // No usage chunk followed the finish: emit it now. If the server sent no finish at all but
+        // accumulated tool calls before closing the stream, emit those calls as the finish.
         if (pendingFinishedChunk != null)
             yield return pendingFinishedChunk;
+        else if (toolCallsAccumulator.Count > 0)
+            yield return BuildFinishedChunk("tool_calls", string.Empty, toolCallsAccumulator);
+    }
+
+    /// <summary>Builds the single finished chunk: the accumulated tool calls, or the text when there are none.</summary>
+    private static StreamChunk BuildFinishedChunk(
+        string? finishReason,
+        string delta,
+        IReadOnlyDictionary<int, ToolCallAccumulator> accumulator,
+        TokenUsage? usage = null)
+    {
+        if (accumulator.Count == 0)
+            return new StreamChunk { Delta = delta, IsFinished = true, FinishReason = finishReason, Usage = usage };
+
+        var toolCalls = accumulator.Values
+            .Select(acc => new ToolCall
+            {
+                Id = acc.Id,
+                Name = acc.Name,
+                Arguments = ParseArguments(acc.Arguments)
+            })
+            .ToList();
+
+        return new StreamChunk { IsFinished = true, ToolCalls = toolCalls, FinishReason = finishReason, Usage = usage };
     }
 
     /// <summary>
