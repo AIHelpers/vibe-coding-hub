@@ -8,6 +8,9 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <!-- StreamJsonRpc 2.25.29 pulls MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h, NU1902).
+         2.5.303 is the fixed 2.x release; a direct reference makes NuGet use it everywhere. -->
+    <PackageReference Include="MessagePack" Version="2.5.303" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
   </ItemGroup>
 </Project>

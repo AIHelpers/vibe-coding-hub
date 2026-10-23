@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Interfaces;
 
 namespace AiCodeAgent.Core.Characters;
@@ -12,6 +13,7 @@ public static class SkillDoctor
     public static async Task<IReadOnlyList<DoctorCheck>> DiagnoseAsync(
         ISkillRegistry skills,
         ICharacterRegistry? characters = null,
+        RolePresetLoader? presets = null,
         CancellationToken cancellationToken = default)
     {
         var checks = new List<DoctorCheck>();
@@ -34,6 +36,11 @@ public static class SkillDoctor
         foreach (var s in all.Where(s => s.IsValid && s.Warnings.Count > 0))
             checks.Add(new DoctorCheck($"Skill '{s.Name}'", DoctorStatus.Warning, string.Join(" ", s.Warnings), s.FilePath));
 
+        if (presets != null)
+            foreach (var (role, tools) in presets.UnknownToolsByRole.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                checks.Add(new DoctorCheck($"Preset {role}", DoctorStatus.Error, KnownToolNames.Describe(tools),
+                    $"Run `aiagent skills doctor --fix`, or edit {presets.UserPresetFiles.GetValueOrDefault(role)}."));
+
         if (characters == null) return checks;
 
         var list = await characters.ListAsync(cancellationToken).ConfigureAwait(false);
@@ -47,6 +54,20 @@ public static class SkillDoctor
 
         foreach (var c in custom.Where(c => c.IsValid && c.Warnings.Count > 0))
             checks.Add(new DoctorCheck($"Character '{c.Id}'", DoctorStatus.Warning, string.Join(" ", c.Warnings), c.FilePath));
+
+        foreach (var c in custom)
+        {
+            var unknown = KnownToolNames.Unknown((c.Tools ?? Array.Empty<string>()).Concat(c.ToolsAdd).Concat(c.ToolsRemove));
+            if (unknown.Count > 0)
+                checks.Add(new DoctorCheck($"Character '{c.Id}'", DoctorStatus.Error, KnownToolNames.Describe(unknown),
+                    c.FilePath == null ? "Fix the tool names in the character's tools list." : $"Fix the tool names in {c.FilePath}."));
+        }
+
+        if (presets != null)
+            foreach (var ch in list.Where(x => presets.UnknownToolsFor(x.BaseRole).Count > 0))
+                checks.Add(new DoctorCheck($"Character '{ch.Id}'", DoctorStatus.Warning,
+                    $"Base role '{ch.BaseRole}' has {KnownToolNames.Describe(presets.UnknownToolsFor(ch.BaseRole))}",
+                    "Run `aiagent skills doctor --fix`."));
 
         var templates = custom.Count(c => c.IsTemplate);
         if (templates > 0)

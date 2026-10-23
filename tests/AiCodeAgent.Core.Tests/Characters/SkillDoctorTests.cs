@@ -1,4 +1,4 @@
-using AiCodeAgent.Core.Agent;
+﻿using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
@@ -79,4 +79,19 @@ public class SkillDoctorTests : IDisposable
         new(new ToolCall { Id = "1", Name = tool, Arguments = args },
             new ToolResult { ToolName = tool, Content = "x", IsError = error },
             TimeSpan.FromMilliseconds(5));
+
+    [Fact]
+    public async Task UnknownTools_ReportedWithSuggestion()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "presets"));
+        File.WriteAllText(Path.Combine(_root, "presets", "tester.json"),
+            """{"role":"tester","systemPrompt":"custom","allowedTools":["ReadFile","read_file"]}""");
+        var presets = new RolePresetLoader(NullLogger<RolePresetLoader>.Instance, _root);
+
+        var checks = await SkillDoctor.DiagnoseAsync(Skills(), null, presets);
+
+        var check = Assert.Single(checks, c => c.Name == "Preset tester");
+        Assert.Equal(DoctorStatus.Error, check.Status);
+        Assert.Equal("unknown tools ReadFile → did you mean read_file?", check.Detail);
+    }
 }
