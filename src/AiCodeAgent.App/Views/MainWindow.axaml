@@ -840,9 +840,9 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Feature 8: Requirements Summary Card (shown when CurrentRequirements is set and not awaiting) -->
+                            <!-- Requirements status: one formatted line, never the raw object -->
                             <Border Grid.Row="3"
-                                    IsVisible="{Binding ChatViewModel.CurrentRequirements, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    IsVisible="{Binding ChatViewModel.RequirementsLine, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Background="{DynamicResource AppSuccessBrush}"
                                     BorderBrush="{DynamicResource AppSuccessBorderBrush}"
                                     BorderThickness="1"
@@ -850,9 +850,8 @@
                                     Padding="8"
                                     Margin="16,4,16,4"
                                     IsEnabled="False">
-                                <TextBlock Text="{Binding ChatViewModel.CurrentRequirements}"
-                                           FontSize="11"
-                                           FontFamily="Consolas"
+                                <TextBlock Text="{Binding ChatViewModel.RequirementsLine}"
+                                           FontSize="12"
                                            TextWrapping="Wrap"/>
                             </Border>
 

@@ -64,6 +64,29 @@ public sealed record AppRequirements
             : string.Empty;
     }
 
+    /// <summary>One line for the chat, e.g. "Requirements: web · JWT auth · PostgreSQL"; null when nothing is set.</summary>
+    public string? ToStatusLine()
+    {
+        var parts = new List<string>();
+        AddStatusPart(parts, Platform);
+        if (!IsUnset(Auth)) parts.Add(Auth!.Trim() + " auth");
+        AddStatusPart(parts, DataModel);
+        AddStatusPart(parts, Integrations);
+        AddStatusPart(parts, Deployment);
+        return parts.Count == 0 ? null : "Requirements: " + string.Join(" · ", parts);
+    }
+
+    /// <summary>Never the record dump: the status line, or a short fallback.</summary>
+    public override string ToString() => ToStatusLine() ?? "Requirements: none";
+
+    private static void AddStatusPart(List<string> parts, string? value)
+    {
+        if (!IsUnset(value)) parts.Add(value!.Trim());
+    }
+
+    private static bool IsUnset(string? value) =>
+        string.IsNullOrWhiteSpace(value) || value.Trim().Equals("none", StringComparison.OrdinalIgnoreCase);
+
     private static string FormatValue(string? v) =>
         string.IsNullOrWhiteSpace(v) ? "_(unspecified)_" : v!;
 }

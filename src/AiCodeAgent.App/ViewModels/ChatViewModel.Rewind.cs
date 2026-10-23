@@ -150,6 +150,16 @@ public partial class ChatViewModel
                 await ApplyRewindAsync(f, RewindAction.Fork).ConfigureAwait(true);
                 return true;
 
+            case "/requirements":
+                if (_requirementsClarifier == null) { Note("The requirements clarifier is not available."); return true; }
+                if (IsProcessing) { Note("Wait for the agent to finish before running `/requirements`."); return true; }
+                var idea = text.Length > parts[0].Length ? text[parts[0].Length..].Trim() : string.Empty;
+                if (idea.Length == 0) { Note("Usage: `/requirements <what you want to build>`"); return true; }
+                // Same clarification loop as the automatic trigger; the result applies to your next task.
+                _pendingRequirements = await RunClarificationFlowAsync(idea).ConfigureAwait(true);
+                if (_pendingRequirements != null) Note("Requirements saved. They apply to your next task.");
+                return true;
+
             case "/effort":
                 if (parts.Length == 1) { Note($"Reasoning effort: **{ReasoningEffortName}**. Use `/effort off|low|medium|high|default`."); return true; }
                 var wanted = EffortOptions.FirstOrDefault(o => o.Equals(parts[1], StringComparison.OrdinalIgnoreCase));

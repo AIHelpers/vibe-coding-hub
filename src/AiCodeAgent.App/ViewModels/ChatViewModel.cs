@@ -178,6 +178,20 @@ public partial class ChatViewModel : ObservableObject
     private bool _isAwaitingClarification;
     [ObservableProperty]
     private AppRequirements? _currentRequirements;
+    private bool _requirementsSummaryShown;
+    private AppRequirements? _pendingRequirements;
+
+    /// <summary>One-line requirements status under the chat, or null when none are confirmed.</summary>
+    public string? RequirementsLine => CurrentRequirements?.ToStatusLine();
+
+    partial void OnCurrentRequirementsChanged(AppRequirements? value) => OnPropertyChanged(nameof(RequirementsLine));
+
+    private AppRequirements? TakePendingRequirements()
+    {
+        var pending = _pendingRequirements;
+        _pendingRequirements = null;
+        return pending;
+    }
     [ObservableProperty]
     private string _currentClarificationQuestion = "";
     [ObservableProperty]
@@ -256,7 +270,7 @@ public partial class ChatViewModel : ObservableObject
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help",
         // Feature 6: In-Chat Branch / PR Workflow
         "/branch", "/commit", "/pr",
-        "/rewind", "/fork", "/effort",
+        "/rewind", "/fork", "/effort", "/requirements",
         // Characters & skills
         "/character", "/characters", "/skill", "/skills"
     };
@@ -329,6 +343,7 @@ public partial class ChatViewModel : ObservableObject
         SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "💡" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/test", Description = "Generate tests", Icon = "🧪" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/fix", Description = "Fix issues in code", Icon = "🔧" });
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/requirements", Description = "Clarify requirements for the next app", Icon = "📋" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "🔄" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "❓" });
         // Add welcome message
@@ -548,10 +563,14 @@ public partial class ChatViewModel : ObservableObject
         // before kicking off the orchestrator when the prompt looks vague and
         // a requirements clarifier is available.
         AppRequirements? requirements = null;
-        if (_requirementsClarifier != null && IsVaguePrompt(userMessage))
+        var clarifierMode = _configurationService?.Config.Agent?.RequirementsClarifier ?? RequirementsClarifierMode.Auto;
+        if (_requirementsClarifier != null &&
+            ClarifierTrigger.ShouldClarify(userMessage, () => ClarifierTrigger.HasSourceFiles(WorkingDirectory), clarifierMode))
         {
             requirements = await RunClarificationFlowAsync(userMessage).ConfigureAwait(true);
         }
+        // Requirements confirmed with /requirements apply to the task that follows them.
+        requirements ??= TakePendingRequirements();
         // Add user message
         Messages.Add(new ChatMessage
         {
@@ -1024,35 +1043,6 @@ public partial class ChatViewModel : ObservableObject
         }
     }
     /// <summary>
-    /// Heuristic for deciding whether a prompt is vague enough to warrant the
-    /// clarification loop. Avoids running it for slash commands, very short
-    /// inputs, or prompts that already mention multiple requirement dimensions.
-    /// </summary>
-    private static bool IsVaguePrompt(string prompt)
-    {
-        if (string.IsNullOrWhiteSpace(prompt) || prompt.Length < 12)
-            return false;
-        if (prompt.StartsWith('/'))
-            return false;
-        var lower = prompt.ToLowerInvariant();
-        var dimensionsHit = 0;
-        if (lower.Contains("web") || lower.Contains("mobile") || lower.Contains("desktop") || lower.Contains("cli") || lower.Contains("api"))
-            dimensionsHit++;
-        if (lower.Contains("auth") || lower.Contains("login") || lower.Contains("jwt") || lower.Contains("oauth"))
-            dimensionsHit++;
-        if (lower.Contains("database") || lower.Contains("postgres") || lower.Contains("mongo") || lower.Contains("entity"))
-            dimensionsHit++;
-        if (lower.Contains("tailwind") || lower.Contains("material") || lower.Contains("css") || lower.Contains("styled"))
-            dimensionsHit++;
-        if (lower.Contains("stripe") || lower.Contains("sendgrid") || lower.Contains("aws") || lower.Contains("integration"))
-            dimensionsHit++;
-        if (lower.Contains("docker") || lower.Contains("vercel") || lower.Contains("deploy") || lower.Contains("serverless"))
-            dimensionsHit++;
-        // If the prompt already specifies 3+ dimensions, treat it as detailed.
-        return dimensionsHit < 3;
-    }
-
-    /// <summary>
     /// Runs the requirements clarification loop, surfacing questions as
     /// assistant chat messages and collecting answers via InputText submission.
     /// Shows a summary card when done. Returns the confirmed AppRequirements
@@ -1067,13 +1057,17 @@ public partial class ChatViewModel : ObservableObject
                 AskUserAsync,
                 CancellationToken.None).ConfigureAwait(true);
 
-            // Show the summary card as a System message
-            Messages.Add(new ChatMessage
+            // The summary card appears once per session; later confirmations only update the status line.
+            if (!_requirementsSummaryShown)
             {
-                Role = "System",
-                Content = requirements.ToSummaryCard(),
-                Timestamp = DateTime.Now
-            });
+                _requirementsSummaryShown = true;
+                Messages.Add(new ChatMessage
+                {
+                    Role = "System",
+                    Content = requirements.ToSummaryCard(),
+                    Timestamp = DateTime.Now
+                });
+            }
 
             CurrentRequirements = requirements;
             return requirements;
