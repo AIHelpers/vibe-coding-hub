@@ -294,6 +294,17 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Folder where the app writes its log files (shown read-only in Settings).</summary>
+    public string LogFolder { get; } = LogPathResolver.ResolveDefault();
+
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        Directory.CreateDirectory(LogFolder);
+        // UseShellExecute opens a folder in the platform file manager (Explorer, Finder or the desktop default).
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(LogFolder) { UseShellExecute = true });
+    }
+
     [RelayCommand]
     private Task RefreshModels()
     {

@@ -176,11 +176,8 @@ public partial class App : Application
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.File("logs/aiagent-.log", rollingInterval: RollingInterval.Day)
-                .CreateLogger();
-            builder.AddSerilog(Log.Logger);
+            // Log.Logger is configured once in Program.Main; this only forwards to it.
+            builder.AddSerilog(Log.Logger, dispose: false);
         });
 
         // HTTP clients

@@ -17,6 +17,9 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
+    <PackageReference Include="Serilog" Version="4.2.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <ProjectReference Include="..\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Tools\AiCodeAgent.Tools.csproj" />
