@@ -67,6 +67,9 @@ public class AgentConfiguration
     /// description is kept out of context until the user invokes it.
     /// </summary>
     public Dictionary<string, string> SkillOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>When the requirements clarifier asks questions before a task (Off, Auto or Always).</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    public RequirementsClarifierMode RequirementsClarifier { get; set; } = RequirementsClarifierMode.Auto;
 }
 
 public class UiConfiguration

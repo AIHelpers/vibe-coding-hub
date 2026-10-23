@@ -55,6 +55,12 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedTheme = "Dark";
 
+    /// <summary>Requirements questions: "Off" never asks, "Auto" asks before a new app, "Always" asks before every build task.</summary>
+    public string[] RequirementsClarifierOptions { get; } = { "Off", "Auto", "Always" };
+
+    [ObservableProperty]
+    private string _selectedRequirementsClarifier = "Auto";
+
     // Preview the theme immediately; it is persisted by Save.
     partial void OnSelectedThemeChanged(string value) => AiCodeAgent.App.Services.ThemeService.Apply(value);
 
@@ -105,6 +111,7 @@ public partial class SettingsViewModel : ObservableObject
             ? config.Agent.WorkingDirectory
             : Directory.GetCurrentDirectory();
         AutoApprove = config.Agent?.AutoApprove ?? false;
+        SelectedRequirementsClarifier = (config.Agent?.RequirementsClarifier ?? RequirementsClarifierMode.Auto).ToString();
         // Intentional: set the backing field directly so the loaded value is not previewed/applied
         // via OnSelectedThemeChanged; the change notification is raised manually below.
 #pragma warning disable MVVMTK0034
@@ -337,6 +344,7 @@ public partial class SettingsViewModel : ObservableObject
         config.DefaultProvider = SelectedProvider.ToLowerInvariant();
         config.Agent ??= new AgentConfiguration();
         config.Agent.AutoApprove = AutoApprove;
+        config.Agent.RequirementsClarifier = System.Enum.Parse<RequirementsClarifierMode>(SelectedRequirementsClarifier);
         config.Agent.WorkingDirectory = WorkingDirectory;
         config.Ui ??= new UiConfiguration();
         config.Ui.Theme = AiCodeAgent.App.Services.ThemeService.Normalize(SelectedTheme);

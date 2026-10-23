@@ -126,6 +126,16 @@
                     </Grid>
                 </StackPanel>
 
+                <!-- Requirements questions -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Requirements questions" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding RequirementsClarifierOptions}"
+                              SelectedItem="{Binding SelectedRequirementsClarifier}"
+                              Width="300"/>
+                    <TextBlock Text="Off: never ask · Auto: ask before a new app or feature · Always: ask before every build task"
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Permission Mode -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>
