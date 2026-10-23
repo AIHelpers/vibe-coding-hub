@@ -53,11 +53,11 @@
                                 </ItemsControl>
 
                                 <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="4" Margin="0,4,0,0">
-                                    <Button Content="Select" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).SelectSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
-                                    <Button Content="Pause" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).PauseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
-                                    <Button Content="Resume" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).ResumeSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
-                                    <Button Content="Cancel" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).CancelSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
-                                    <Button Content="Close" Command="{Binding $parent[ItemsControl].((vm:SessionDashboardViewModel)DataContext).CloseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Select" Command="{Binding $parent[UserControl].DataContext.SelectSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Pause" Command="{Binding $parent[UserControl].DataContext.PauseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Resume" Command="{Binding $parent[UserControl].DataContext.ResumeSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Cancel" Command="{Binding $parent[UserControl].DataContext.CancelSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
+                                    <Button Content="Close" Command="{Binding $parent[UserControl].DataContext.CloseSessionCommand}" CommandParameter="{Binding Id}" Padding="6,2"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
