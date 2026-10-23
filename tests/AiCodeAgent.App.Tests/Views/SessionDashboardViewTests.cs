@@ -2,6 +2,7 @@ using System.Linq;
 using AiCodeAgent.App.ViewModels;
 using AiCodeAgent.App.Views;
 using AiCodeAgent.Core.Agent;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -12,6 +13,14 @@ namespace AiCodeAgent.App.Tests.Views;
 
 public class SessionDashboardViewTests
 {
+    /// <summary>Measures and arranges the window so the item templates are realised.</summary>
+    private static void LayoutWindow(Window window)
+    {
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+        Dispatcher.UIThread.RunJobs();
+    }
+
     [AvaloniaFact]
     public void CreateSession_ShowsItem_AndButtonsWork()
     {
@@ -27,7 +36,7 @@ public class SessionDashboardViewTests
 
         vm.NewTask = "Add logging";
         vm.CreateSessionCommand.Execute(null);
-        window.LayoutManager.ExecuteLayoutPass();
+        LayoutWindow(window);
         Dispatcher.UIThread.RunJobs();
 
         var session = Assert.Single(manager.Sessions);
@@ -36,7 +45,7 @@ public class SessionDashboardViewTests
         // The session's buttons only exist once the item template is realised. Before the fix their bindings
         // could not be resolved and the whole dashboard threw; here each command must be bound and runnable.
         Button FindButton(string label) =>
-            Assert.Single(window.GetVisualDescendants().OfType<Button>().Where(b => (string?)b.Content == label));
+            Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => (string?)b.Content == label);
 
         foreach (var label in new[] { "Select", "Pause", "Resume", "Cancel", "Close" })
         {
@@ -74,7 +83,7 @@ public class SessionDashboardViewTests
 
         var first = manager.CreateSession("first");
         var second = manager.CreateSession("second");
-        window.LayoutManager.ExecuteLayoutPass();
+        LayoutWindow(window);
         Dispatcher.UIThread.RunJobs();
 
         var select = window.GetVisualDescendants().OfType<Button>()
