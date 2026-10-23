@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text;
 using System.Text.RegularExpressions;
 using AiCodeAgent.Core.Interfaces;
@@ -29,8 +30,7 @@ public class AutoMemoryStore : IAutoMemory
 
     private static string GetDefaultFilePath()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var dir = string.IsNullOrEmpty(home) ? ".aiagent" : Path.Combine(home, ".aiagent");
+        var dir = AppPaths.UserRoot;
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "MEMORY.md");
     }

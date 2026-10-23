@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Collections.Concurrent;
 using AiCodeAgent.Core.Diffing;
 using AiCodeAgent.Core.Interfaces;
@@ -20,9 +21,7 @@ public class CheckpointManager : ICheckpointManager
     public CheckpointManager(ILogger<CheckpointManager> logger, string? checkpointDir = null)
     {
         _logger = logger;
-        _checkpointDir = checkpointDir ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent", "checkpoints");
+        _checkpointDir = checkpointDir ?? AppPaths.Checkpoints;
         Directory.CreateDirectory(_checkpointDir);
         LoadPersisted();
     }

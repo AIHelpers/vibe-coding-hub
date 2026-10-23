@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -24,9 +25,7 @@ public sealed class JsonlSessionStore : ISessionStore
     /// </param>
     public JsonlSessionStore(string? rootDirectory = null, ILogger<JsonlSessionStore>? logger = null)
     {
-        _rootDirectory = rootDirectory ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent", "sessions");
+        _rootDirectory = rootDirectory ?? AppPaths.Sessions;
         _logger = logger;
         Directory.CreateDirectory(_rootDirectory);
     }

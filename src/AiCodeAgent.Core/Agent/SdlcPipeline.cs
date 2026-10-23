@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Interfaces;
@@ -118,9 +119,7 @@ public class SdlcPipelineLoader
     public SdlcPipelineLoader(ILogger<SdlcPipelineLoader> logger, string? pipelinesDirectory = null)
     {
         _logger = logger;
-        _pipelinesDirectory = pipelinesDirectory ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent", "pipelines");
+        _pipelinesDirectory = pipelinesDirectory ?? AppPaths.Pipelines;
         Directory.CreateDirectory(_pipelinesDirectory);
 
         LoadBuiltInPipelines();

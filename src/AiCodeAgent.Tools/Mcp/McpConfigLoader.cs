@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using AiCodeAgent.Core.Mcp;
 using Microsoft.Extensions.Logging;
@@ -27,8 +28,7 @@ public static class McpConfigLoader
         var configs = new Dictionary<string, McpServerConfig>(StringComparer.OrdinalIgnoreCase);
 
         // User-level config: ~/.aiagent/mcp.json
-        var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var userConfigPath = Path.Combine(userHome, ".aiagent", "mcp.json");
+        var userConfigPath = Path.Combine(AppPaths.UserRoot, "mcp.json");
         LoadFile(userConfigPath, configs, logger);
 
         // Project-level config: <projectRoot>/.aiagent/mcp.json

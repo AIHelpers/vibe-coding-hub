@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Interfaces;
@@ -61,9 +62,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
     /// <summary>Default global directory: <c>~/.aiagent/characters</c>.</summary>
     public static string GetDefaultGlobalCharactersDir()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var dir = string.IsNullOrEmpty(home) ? ".aiagent" : Path.Combine(home, ".aiagent");
-        return Path.Combine(dir, "characters");
+        return AppPaths.Characters;
     }
 
     /// <summary>Default project directory: <c>&lt;workdir&gt;/.aiagent/characters</c>.</summary>

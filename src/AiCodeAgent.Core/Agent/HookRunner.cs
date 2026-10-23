@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
@@ -27,10 +28,7 @@ public class HookRegistry : IHookRegistry
     {
         _logger = logger;
         _requireProjectTrust = requireProjectTrust;
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        _trustFilePath = trustFilePath ?? (string.IsNullOrEmpty(home)
-            ? Path.Combine(".aiagent", "trusted-hook-projects.json")
-            : Path.Combine(home, ".aiagent", "trusted-hook-projects.json"));
+        _trustFilePath = trustFilePath ?? Path.Combine(AppPaths.UserRoot, "trusted-hook-projects.json");
     }
 
     public IReadOnlyList<HookDefinition> Hooks => _hooks;
@@ -87,10 +85,7 @@ public class HookRegistry : IHookRegistry
         var merged = new Dictionary<string, HookDefinition>(StringComparer.OrdinalIgnoreCase);
 
         // Global settings
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var globalSettingsPath = string.IsNullOrEmpty(home)
-            ? Path.Combine(".aiagent", "settings.json")
-            : Path.Combine(home, ".aiagent", "settings.json");
+        var globalSettingsPath = Path.Combine(AppPaths.UserRoot, "settings.json");
 
         await LoadFileIntoAsync(globalSettingsPath, merged, cancellationToken).ConfigureAwait(false);
 
