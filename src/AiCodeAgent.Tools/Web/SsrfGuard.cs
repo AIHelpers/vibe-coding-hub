@@ -91,7 +91,10 @@ public static class SsrfGuard
     /// Used as the initial pre-check before a request is even attempted.
     /// Blocks on resolution failure — fail closed, not open.
     /// </summary>
-    public static async Task<bool> IsBlockedHostAsync(string host, CancellationToken ct = default)
+    public static Task<bool> IsBlockedHostAsync(string host, CancellationToken ct = default) =>
+        IsBlockedHostAsync(host, DnsHostResolver.Default, ct);
+
+    public static async Task<bool> IsBlockedHostAsync(string host, IHostResolver resolver, CancellationToken ct = default)
     {
         if (IsBlockedHostName(host))
             return true;
@@ -101,7 +104,7 @@ public static class SsrfGuard
 
         try
         {
-            var addresses = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
+            var addresses = await resolver.ResolveAsync(host, ct).ConfigureAwait(false);
             return addresses.Length == 0 || addresses.Any(IsBlockedAddress);
         }
         catch

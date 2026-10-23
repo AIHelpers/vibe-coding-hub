@@ -13,11 +13,13 @@ public class WebFetchTool : BaseTool
     private const int MaxContentChars = 50_000;
 
     private readonly HttpClient _httpClient;
+    private readonly IHostResolver _resolver;
 
-    public WebFetchTool(ILogger<WebFetchTool> logger, IHttpClientFactory factory)
+    public WebFetchTool(ILogger<WebFetchTool> logger, IHttpClientFactory factory, IHostResolver? resolver = null)
         : base(logger)
     {
         _httpClient = factory.CreateClient("WebFetch");
+        _resolver = resolver ?? DnsHostResolver.Default;
     }
 
     public override string Name => "web_fetch";
@@ -160,7 +162,7 @@ public class WebFetchTool : BaseTool
         if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             return Error($"URL scheme '{uri.Scheme}' is not allowed. Only http and https are permitted.");
 
-        if (await SsrfGuard.IsBlockedHostAsync(uri.Host, ct))
+        if (await SsrfGuard.IsBlockedHostAsync(uri.Host, _resolver, ct))
             return Error($"Access to '{uri.Host}' is blocked for security reasons.");
 
         return null;
