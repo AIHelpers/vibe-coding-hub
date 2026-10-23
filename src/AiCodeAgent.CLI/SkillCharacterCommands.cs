@@ -194,10 +194,19 @@ public static class SkillCharacterCommands
 
         // skills doctor
         var doctor = new Command("doctor", "Check skills and characters for problems");
-        doctor.SetHandler(async dir =>
+        var fixOption = new Option<bool>("--fix", "Repair preset files that list unknown tool names: rewrite misspelt names and delete the old test fixture (asks first)");
+        var doctorYes = new Option<bool>("--yes", "With --fix, delete the old test fixture without asking");
+        doctor.AddOption(fixOption);
+        doctor.AddOption(doctorYes);
+        doctor.SetHandler(async (dir, fix, yes) =>
         {
             var r = await OpenAsync(dir);
-            var checks = await SkillDoctor.DiagnoseAsync(r.Skills, r.Characters);
+            if (fix)
+            {
+                RepairPresets(r.Presets, yes);
+                r = await OpenAsync(dir); // read the files as they are now
+            }
+            var checks = await SkillDoctor.DiagnoseAsync(r.Skills, r.Characters, r.Presets);
             foreach (var c in checks)
             {
                 var tag = c.Status switch { DoctorStatus.Ok => "OK  ", DoctorStatus.Warning => "WARN", _ => "FAIL" };
@@ -205,7 +214,7 @@ public static class SkillCharacterCommands
                 if (!string.IsNullOrEmpty(c.FixHint)) Console.WriteLine($"        Fix: {c.FixHint}");
             }
             if (checks.Any(c => c.Status == DoctorStatus.Error)) Environment.ExitCode = 1;
-        }, dirOption);
+        }, dirOption, fixOption, doctorYes);
 
         cmd.AddCommand(list);
         cmd.AddCommand(show);
@@ -262,6 +271,11 @@ public static class SkillCharacterCommands
             Console.WriteLine($"Permission:  {CharacterRegistry.FormatPermissionMode(resolved.PermissionMode)}");
             Console.WriteLine($"Tools:       {(resolved.EnabledTools.Count == 0 ? "(all)" : string.Join(", ", resolved.EnabledTools))}" +
                               (resolved.DisabledTools.Count > 0 ? $"  minus {string.Join(", ", resolved.DisabledTools)}" : ""));
+            var badTools = c.BaseRole == null ? Array.Empty<string>() : r.Presets.UnknownToolsFor(c.BaseRole);
+            if (badTools.Count > 0)
+                Console.WriteLine($"Warning:     base role '{c.BaseRole}' has {KnownToolNames.Describe(badTools)}");
+            if (badTools.Count > 0)
+                Console.WriteLine("             Fix: aiagent skills doctor --fix");
             if (c.IsTemplate) Console.WriteLine("Template:    yes (a base for other characters)");
             if (c.Extends != null) Console.WriteLine($"Extends:     {string.Join(" → ", c.InheritanceChain.DefaultIfEmpty(c.Extends))}");
             PrintSkillSources(c);
@@ -524,6 +538,26 @@ public static class SkillCharacterCommands
     {
         Console.Error.WriteLine(message);
         Environment.ExitCode = 1;
+    }
+
+    private static void RepairPresets(RolePresetLoader presets, bool yes)
+    {
+        var actions = PresetRepair.Plan(presets);
+        if (actions.Count == 0)
+        {
+            Console.WriteLine("Nothing to fix: no preset file lists unknown tools.");
+            return;
+        }
+        foreach (var action in actions)
+        {
+            if (action.Kind == PresetRepair.RepairKind.DeleteFixture && !yes && !Confirm(action.Description + " Delete it?"))
+            {
+                Console.WriteLine($"Skipped: {action.Description}");
+                continue;
+            }
+            PresetRepair.Apply(action);
+            Console.WriteLine($"Fixed: {action.Description}");
+        }
     }
 
     private static bool Confirm(string question)

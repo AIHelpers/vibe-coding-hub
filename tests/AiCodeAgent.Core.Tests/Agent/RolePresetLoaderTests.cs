@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.Core.Agent;
@@ -106,4 +106,30 @@ public class RolePresetLoaderTests
         Assert.Equal(PermissionMode.AutoEdit, loaded.DefaultPermissionMode);
         Assert.Contains("ExecuteCommand", loaded.AllowedTools);
     }
+
+    [Fact]
+    public void AllUnknownTools_FallsBackToBuiltIn()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "preset-fallback-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "presets"));
+            File.WriteAllText(Path.Combine(root, "presets", "tester.json"),
+                """{"role":"tester","systemPrompt":"custom","allowedTools":["ReadFile","ExecuteCommand","RunDiagnostics"]}""");
+
+            var loader = new RolePresetLoader(CreateLogger(), root);
+
+            var tester = loader.GetPreset("tester");
+            Assert.NotNull(tester);
+            Assert.Contains("read_file", tester!.AllowedTools);
+            Assert.DoesNotContain("ReadFile", tester.AllowedTools);
+            Assert.Equal(3, loader.UnknownToolsFor("tester").Count);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    private static ILogger<RolePresetLoader> CreateLogger() => Substitute.For<ILogger<RolePresetLoader>>();
 }

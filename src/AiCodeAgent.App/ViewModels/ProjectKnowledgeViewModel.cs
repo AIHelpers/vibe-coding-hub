@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.App.Services;
@@ -55,6 +56,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
     private readonly ISkillRegistry? _skillRegistry;
     private readonly AgentService? _agentService;
     private readonly ILogger<ProjectKnowledgeViewModel>? _logger;
+    private readonly RolePresetLoader? _presets;
 
     [ObservableProperty]
     private bool _isVisible;
@@ -189,9 +191,11 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
         ILogger<ProjectKnowledgeViewModel>? logger = null,
         ICharacterRegistry? characterRegistry = null,
         SkillMaintenance? maintenance = null,
-        CharactersViewModel? characters = null)
+        CharactersViewModel? characters = null,
+        RolePresetLoader? presets = null)
     {
         _memoryLoader = memoryLoader;
+        _presets = presets;
         _skillRegistry = skillRegistry;
         _agentService = agentService;
         _logger = logger;
@@ -342,7 +346,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
                 DoctorChecks.Add(check);
             if (_skillRegistry != null)
             {
-                foreach (var check in await SkillDoctor.DiagnoseAsync(_skillRegistry, _characterRegistry))
+                foreach (var check in await SkillDoctor.DiagnoseAsync(_skillRegistry, _characterRegistry, _presets))
                     DoctorChecks.Add(check);
             }
         }

@@ -899,7 +899,7 @@ public class TerminalUI
             var report = await _memoryLoader.DiagnoseAsync(_options.WorkingDirectory);
             var checks = report.Checks.ToList();
             if (_skillRegistry != null)
-                checks.AddRange(await AiCodeAgent.Core.Characters.SkillDoctor.DiagnoseAsync(_skillRegistry, _characters));
+                checks.AddRange(await AiCodeAgent.Core.Characters.SkillDoctor.DiagnoseAsync(_skillRegistry, _characters, _presets));
             var allOk = checks.All(c => c.Status == DoctorStatus.Ok);
             WriteColored($"\nProject Doctor Report ({(allOk ? "ALL OK" : "ISSUES FOUND")}):\n",
                 allOk ? Colors.Success : Colors.Error);

@@ -18,10 +18,23 @@ public class RolePresetLoader
 
     public IReadOnlyDictionary<string, AgentRolePreset> Presets => _presets;
 
-    public RolePresetLoader(ILogger<RolePresetLoader> logger)
+    private readonly Dictionary<string, IReadOnlyList<string>> _unknownTools = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _userPresetFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Role → tool names in its user file that do not exist (see <see cref="KnownToolNames"/>).</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> UnknownToolsByRole => _unknownTools;
+
+    /// <summary>Role → the user JSON file that defines it.</summary>
+    public IReadOnlyDictionary<string, string> UserPresetFiles => _userPresetFiles;
+
+    /// <summary>Unknown tool names in a role's user file; empty when there are none.</summary>
+    public IReadOnlyList<string> UnknownToolsFor(string? role) =>
+        role != null && _unknownTools.TryGetValue(role, out var tools) ? tools : Array.Empty<string>();
+
+    public RolePresetLoader(ILogger<RolePresetLoader> logger, string? userRoot = null)
     {
         _logger = logger;
-        var configDir = AppPaths.UserRoot;
+        var configDir = userRoot ?? AppPaths.UserRoot;
         _presetsDirectory = Path.Combine(configDir, "presets");
         Directory.CreateDirectory(_presetsDirectory);
 
@@ -191,6 +204,19 @@ public class RolePresetLoader
                         continue;
                     }
 
+                    _userPresetFiles[preset.Role] = file;
+                    var unknown = KnownToolNames.Unknown(preset.AllowedTools);
+                    if (unknown.Count > 0)
+                    {
+                        _unknownTools[preset.Role] = unknown;
+                        _logger.LogWarning("Role preset '{Role}' in {File}: {Problem}", preset.Role, file, KnownToolNames.Describe(unknown));
+                        // Only unknown tools: keep the built-in preset rather than an empty tool list.
+                        if (unknown.Count == preset.AllowedTools.Count && _presets.ContainsKey(preset.Role))
+                        {
+                            _logger.LogWarning("Using the built-in '{Role}' preset because no tool in {File} exists", preset.Role, file);
+                            continue;
+                        }
+                    }
                     _presets[preset.Role] = preset;
                     _logger.LogInformation("Loaded role preset '{Role}' from {File}", preset.Role, file);
                 }
@@ -217,6 +243,10 @@ public class RolePresetLoader
         });
         await File.WriteAllTextAsync(filePath, json);
         _presets[preset.Role] = preset;
+        _userPresetFiles[preset.Role] = filePath;
+        var unknown = KnownToolNames.Unknown(preset.AllowedTools);
+        if (unknown.Count > 0) _unknownTools[preset.Role] = unknown;
+        else _unknownTools.Remove(preset.Role);
         _logger.LogInformation("Saved role preset '{Role}' to {File}", preset.Role, filePath);
     }
 }
