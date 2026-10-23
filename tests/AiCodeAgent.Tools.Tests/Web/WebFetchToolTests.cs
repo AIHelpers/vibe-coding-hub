@@ -33,7 +33,8 @@ public class WebFetchToolTests : TestHelpers.TempDirTestBase
         _httpClient = new HttpClient(_messageHandler);
         _httpClientFactory = Substitute.For<IHttpClientFactory>();
         _httpClientFactory.CreateClient("WebFetch").Returns(_httpClient);
-        _tool = new WebFetchTool(_logger, _httpClientFactory);
+        // Fake DNS: these tests must pass on machines without network access.
+        _tool = new WebFetchTool(_logger, _httpClientFactory, new FakeHostResolver());
     }
 
     [Fact]
