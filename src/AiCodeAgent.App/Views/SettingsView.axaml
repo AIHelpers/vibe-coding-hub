@@ -134,6 +134,21 @@
                               FontSize="13"/>
                 </StackPanel>
 
+                <!-- Log folder (read-only): logs are written here, never into a project -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Log folder" FontSize="13" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding LogFolder}"
+                                 IsReadOnly="True"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="1"
+                                Content="Open"
+                                Command="{Binding OpenLogFolderCommand}"
+                                Width="90" Height="28"/>
+                    </Grid>
+                </StackPanel>
+
                 <!-- Breathing room so the last row can be scrolled clear of the footer -->
                 <Border Height="56"/>
             </StackPanel>

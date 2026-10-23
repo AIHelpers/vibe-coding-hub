@@ -62,7 +62,7 @@ chatCommand.SetHandler(async context =>
     var resume = p.GetValueForOption(resumeOption);
     var forkFrom = p.GetValueForOption(forkSessionOption);
     var characterId = p.GetValueForOption(characterOption);
-    var services = await BuildServiceProvider(provider, model, dir);
+    var services = await BuildServiceProvider(provider, model, dir, verbose);
     var sessionManager = services.GetRequiredService<SessionPersistenceManager>();
     var store = services.GetRequiredService<ISessionStore>();
     var worktree = dir ?? Directory.GetCurrentDirectory();
@@ -462,7 +462,7 @@ var exitCode = await rootCommand.InvokeAsync(args);
 return exitCode != 0 ? exitCode : Environment.ExitCode;
 
 static async Task<ServiceProvider> BuildServiceProvider(
-    string? provider, string? model, string? dir)
+    string? provider, string? model, string? dir, bool verbose = false)
 {
     var services = new ServiceCollection();
 
@@ -470,7 +470,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddLogging(builder =>
     {
         builder.ClearProviders();
-        builder.AddConsole();
+        CliLogging.Configure(builder, verbose);
     });
 
     // HTTP clients
