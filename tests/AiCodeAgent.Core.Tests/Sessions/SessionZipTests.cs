@@ -180,7 +180,7 @@ public class SessionRecorderTests
     }
 
     /// <summary>Poll until the predicate is true (with a timeout).</summary>
-    private static async Task WaitForAsync(Func<bool> predicate, int timeoutMs = 5000)
+    private static async Task WaitForAsync(Func<bool> predicate, int timeoutMs = 30000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (!predicate())

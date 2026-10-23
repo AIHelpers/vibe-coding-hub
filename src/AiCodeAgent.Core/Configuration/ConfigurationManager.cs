@@ -21,9 +21,7 @@ public class ConfigurationService
     public ConfigurationService(string? configDir = null, ILogger<ConfigurationService>? logger = null)
     {
         _logger = logger;
-        configDir ??= Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent");
+        configDir ??= AppPaths.UserRoot;
         Directory.CreateDirectory(configDir);
         _configPath = Path.Combine(configDir, "config.json");
     }

@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
@@ -276,7 +277,6 @@ public class PermissionManager : IPermissionManager
 
     private static string DefaultSettingsPath()
     {
-        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".aiagent", "settings.json");
+        return Path.Combine(AppPaths.UserRoot, "settings.json");
     }
 }

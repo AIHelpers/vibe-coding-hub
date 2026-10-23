@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -60,11 +61,10 @@ public class TaskHistoryStore
 
     public string StoreDirectory => _storeDir;
 
-    /// <summary>Default storage location: ~/.aicodeagent/tasks</summary>
+    /// <summary>Default storage location: ~/.aiagent/tasks (or $AIAGENT_HOME/tasks).</summary>
     public static string DefaultStoreDir()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".aicodeagent", "tasks");
+        return Path.Combine(AppPaths.UserRoot, "tasks");
     }
 
     /// <summary>Save (create or update) a task entry.</summary>

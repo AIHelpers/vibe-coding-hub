@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text;
 using System.Text.RegularExpressions;
 using AiCodeAgent.Core.Interfaces;
@@ -40,12 +41,8 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
         foreach (var name in CandidateFileNames)
             candidates.Add(Path.Combine(workingDirectory, name));
 
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-        {
-            foreach (var name in CandidateFileNames)
-                candidates.Add(Path.Combine(home, GlobalMemoryDir, name));
-        }
+        foreach (var name in CandidateFileNames)
+            candidates.Add(Path.Combine(AppPaths.UserRoot, name));
 
         string? foundPath = FindExisting(candidates);
 
@@ -148,15 +145,11 @@ public class ProjectMemoryLoader : IProjectMemoryLoader
         }
 
         // 3. Global memory file
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrEmpty(home))
-        {
-            var globalCandidates = CandidateFileNames.Select(name => Path.Combine(home, GlobalMemoryDir, name)).ToList();
-            var globalPath = FindExisting(globalCandidates);
-            checks.Add(globalPath != null
-                ? new DoctorCheck("Global Project Memory", DoctorStatus.Ok, $"Found {Path.GetFileName(globalPath)} at {globalPath}")
-                : new DoctorCheck("Global Project Memory", DoctorStatus.Ok, "Not present (optional)."));
-        }
+        var globalCandidates = CandidateFileNames.Select(name => Path.Combine(AppPaths.UserRoot, name)).ToList();
+        var globalPath = FindExisting(globalCandidates);
+        checks.Add(globalPath != null
+            ? new DoctorCheck("Global Project Memory", DoctorStatus.Ok, $"Found {Path.GetFileName(globalPath)} at {globalPath}")
+            : new DoctorCheck("Global Project Memory", DoctorStatus.Ok, "Not present (optional)."));
 
         // 4. Git repository
         var gitDir = Path.Combine(workingDirectory, ".git");

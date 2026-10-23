@@ -55,9 +55,7 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
     /// <summary>Default global skills directory: <c>~/.aiagent/skills</c>.</summary>
     public static string GetDefaultGlobalSkillsDir()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var dir = string.IsNullOrEmpty(home) ? ".aiagent" : Path.Combine(home, ".aiagent");
-        return Path.Combine(dir, "skills");
+        return AppPaths.Skills;
     }
 
     /// <summary>Default project skills directory: <c>.aiagent/skills</c>.</summary>

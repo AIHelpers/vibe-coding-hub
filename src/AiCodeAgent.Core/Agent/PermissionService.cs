@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Collections.Concurrent;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
@@ -29,9 +30,7 @@ public class PermissionService : IPermissionService
     public PermissionService(ILogger<PermissionService> logger)
     {
         _logger = logger;
-        var configDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent");
+        var configDir = AppPaths.UserRoot;
         Directory.CreateDirectory(configDir);
         _allowlistPath = Path.Combine(configDir, "allowlist.json");
         LoadAllowlist();

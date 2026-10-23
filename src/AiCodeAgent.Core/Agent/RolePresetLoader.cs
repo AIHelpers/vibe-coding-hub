@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -20,9 +21,7 @@ public class RolePresetLoader
     public RolePresetLoader(ILogger<RolePresetLoader> logger)
     {
         _logger = logger;
-        var configDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".aiagent");
+        var configDir = AppPaths.UserRoot;
         _presetsDirectory = Path.Combine(configDir, "presets");
         Directory.CreateDirectory(_presetsDirectory);
 

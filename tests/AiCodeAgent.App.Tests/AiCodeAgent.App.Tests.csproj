@@ -28,4 +28,7 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\HermeticTestHome.cs" Link="HermeticTestHome.cs" />
+  </ItemGroup>
 </Project>

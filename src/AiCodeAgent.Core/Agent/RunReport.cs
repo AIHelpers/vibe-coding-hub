@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text;
 using AiCodeAgent.Core.Models;
 
@@ -113,8 +114,7 @@ public sealed class RunReportBuilder
     {
         try
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aiagent", "runs");
+            var dir = AppPaths.Runs;
             Directory.CreateDirectory(dir);
             var safeSession = string.Concat(_sessionId.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_'));
             var path = Path.Combine(dir, $"{_started:yyyyMMdd-HHmmss}-{safeSession}.md");

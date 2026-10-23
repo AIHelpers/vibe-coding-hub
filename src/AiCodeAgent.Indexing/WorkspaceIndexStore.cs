@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using AiCodeAgent.Indexing.Models;
@@ -15,7 +16,6 @@ namespace AiCodeAgent.Indexing;
 /// </summary>
 public sealed class WorkspaceIndexStore : IDisposable
 {
-    private const string DefaultDirectoryName = ".aiagent";
 
     private readonly string _dbPath;
     private readonly string _workspaceId;
@@ -35,10 +35,7 @@ public sealed class WorkspaceIndexStore : IDisposable
         _logger = logger;
         _workspaceId = AiCodeAgent.Indexing.WorkspaceId.Compute(workspaceRoot);
 
-        var root = indexRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            DefaultDirectoryName,
-            "index");
+        var root = indexRoot ?? AppPaths.Index;
 
         Directory.CreateDirectory(root);
         _dbPath = Path.Combine(root, $"{_workspaceId}.db");

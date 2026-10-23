@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Configuration;
 using System.Text.Json;
 using AiCodeAgent.Core.Models;
 
@@ -29,8 +30,7 @@ public static class ModelPricing
     private static Dictionary<string, ModelPrice>? _overrides;
     private static readonly object Gate = new();
 
-    public static string DefaultOverridePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aiagent", "pricing.json");
+    public static string DefaultOverridePath => AppPaths.Pricing;
 
     /// <summary>Returns the price for a model id, or null when unknown.</summary>
     public static ModelPrice? Lookup(string? model)
