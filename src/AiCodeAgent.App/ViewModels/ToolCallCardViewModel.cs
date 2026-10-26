@@ -117,7 +117,7 @@ public static class ToolCallCardList
     }
 
     public static ToolCallCardViewModel OnEnded(
-        IList<ToolCallCardViewModel> cards, ToolCall call, ToolResult result, TimeSpan duration,
+        IList<ToolCallCardViewModel> cards, ToolCall call, ToolResult result, TimeSpan? duration,
         string? agentId = null, string? agentRole = null)
     {
         var card = Find(cards, call, agentId, runningOnly: true);
