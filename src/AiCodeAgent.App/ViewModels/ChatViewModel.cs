@@ -132,11 +132,16 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     private readonly Queue<PendingApprovalRequest> _approvalQueue = new();
     private sealed record PendingApprovalRequest(
-        TaskCompletionSource<bool> Completion, string Risk, string ToolName, string Args, string Agent, string Role);
+        TaskCompletionSource<bool> Completion, string Risk, string ToolName, string Args, string Agent, string Role,
+        ApprovalItem? Item);
 
-    private void EnqueueApproval(TaskCompletionSource<bool> completion, string risk, string toolName, string args, string agent = "", string role = "")
+    /// <summary>The timeline entry of the approval shown in the dialog right now.</summary>
+    private ApprovalItem? _currentApprovalItem;
+
+    private void EnqueueApproval(TaskCompletionSource<bool> completion, string risk, string toolName, string args,
+        string agent = "", string role = "", ApprovalItem? item = null)
     {
-        _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role));
+        _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role, item));
         if (_pendingApproval is null)
             ShowNextApproval();
     }
@@ -147,7 +152,11 @@ public partial class ChatViewModel : ObservableObject
         {
             var next = _approvalQueue.Dequeue();
             if (next.Completion.Task.IsCompleted)
-                continue; // already answered / timed out while waiting
+            {
+                // Already answered / timed out while waiting.
+                next.Item?.Resolve(next.Completion.Task.IsCompletedSuccessfully && next.Completion.Task.Result);
+                continue;
+            }
 
             ApprovalRisk = next.Risk;
             ApprovalToolName = next.ToolName;
@@ -155,11 +164,13 @@ public partial class ChatViewModel : ObservableObject
             ApprovalAgent = next.Agent;
             ApprovalRole = next.Role;
             _pendingApproval = next.Completion;
+            _currentApprovalItem = next.Item;
             ShowApprovalDialog = true;
             return;
         }
 
         _pendingApproval = null;
+        _currentApprovalItem = null;
         ShowApprovalDialog = false;
     }
 
@@ -167,8 +178,14 @@ public partial class ChatViewModel : ObservableObject
     {
         _pendingApproval?.TrySetResult(false);
         _pendingApproval = null;
+        _currentApprovalItem?.Resolve(false);
+        _currentApprovalItem = null;
         while (_approvalQueue.Count > 0)
-            _approvalQueue.Dequeue().Completion.TrySetResult(false);
+        {
+            var queued = _approvalQueue.Dequeue();
+            queued.Completion.TrySetResult(false);
+            queued.Item?.Resolve(false);
+        }
         ShowApprovalDialog = false;
     }
     // Feature 8: Conversational Requirements Clarification
@@ -206,8 +223,11 @@ public partial class ChatViewModel : ObservableObject
     /// in-flight UI-thread event dispatch.
     /// </summary>
     private TaskCompletionSource? _eventProcessingComplete;
-    public ObservableCollection<ChatMessage> Messages { get; } = new();
-    public ObservableCollection<ToolCallCardViewModel> ToolCallCards { get; } = new();
+    /// <summary>
+    /// The chat as one chronological timeline: user messages, assistant text per step, tool cards, approvals and
+    /// notices in the order they happened. The view renders it with a single ItemsControl.
+    /// </summary>
+    public ChatTimeline Timeline { get; } = new();
 
     /// <summary>Live "what is the agent doing now" line with elapsed time, shown above the input box.</summary>
     public AgentActivityTracker Activity { get; } = new();
@@ -347,7 +367,7 @@ public partial class ChatViewModel : ObservableObject
         SlashCommandItems.Add(new SlashCommandItem { Name = "/refactor", Description = "Refactor code", Icon = "🔄" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/help", Description = "Show available commands", Icon = "❓" });
         // Add welcome message
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "Assistant",
             Content = "Hello! I'm your AI Code Assistant. I can help you read, write, and edit files, " +
@@ -406,7 +426,7 @@ public partial class ChatViewModel : ObservableObject
               }
             : null;
 
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = content,
@@ -417,20 +437,13 @@ public partial class ChatViewModel : ObservableObject
         IsCancellable = true;
         StatusText = "Processing annotation...";
 
-        var assistantMessage = new ChatMessage
-        {
-            Role = "Assistant",
-            Content = string.Empty,
-            Timestamp = DateTime.Now
-        };
-        Messages.Add(assistantMessage);
-        ToolCallCards.Clear();
+        var run = Timeline.BeginRun();
 
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
+        var processingTask = ProcessEventsAsync(run, token, SessionId);
         try
         {
             await _agentService.StreamMessageAsync(
@@ -454,11 +467,11 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            assistantMessage.Content += "\n\n*Cancelled*";
+            run.AppendNote("\n\n*Cancelled*");
         }
         catch (Exception ex)
         {
-            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            run.AppendNote($"\n\n**Error:** {ex.Message}");
         }
         finally
         {
@@ -473,7 +486,7 @@ public partial class ChatViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+                run.AppendNote($"\n\n**Error:** {ex.Message}");
             }
         }
 
@@ -483,10 +496,7 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
 
-        if (string.IsNullOrEmpty(assistantMessage.Content))
-        {
-            assistantMessage.Content = "*(No response generated)*";
-        }
+        run.Complete();
     }
 
     /// <summary>
@@ -572,7 +582,7 @@ public partial class ChatViewModel : ObservableObject
         // Requirements confirmed with /requirements apply to the task that follows them.
         requirements ??= TakePendingRequirements();
         // Add user message
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = userMessage,
@@ -581,16 +591,7 @@ public partial class ChatViewModel : ObservableObject
         IsProcessing = true;
         IsCancellable = true;
         StatusText = "Processing...";
-        // Create assistant message placeholder
-        var assistantMessage = new ChatMessage
-        {
-            Role = "Assistant",
-            Content = string.Empty,
-            Timestamp = DateTime.Now
-        };
-        Messages.Add(assistantMessage);
-        // Clear previous tool call cards
-        ToolCallCards.Clear();
+        var run = Timeline.BeginRun();
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -600,7 +601,7 @@ public partial class ChatViewModel : ObservableObject
         // SynchronizationContext.Current is null — causing
         // TaskScheduler.FromCurrentSynchronizationContext() to throw, so no
         // events were ever applied and the assistant message stayed empty.
-        var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
+        var processingTask = ProcessEventsAsync(run, token, SessionId);
         try
         {
             // Start streaming
@@ -625,11 +626,11 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            assistantMessage.Content += "\n\n*Cancelled*";
+            run.AppendNote("\n\n*Cancelled*");
         }
         catch (Exception ex)
         {
-            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            run.AppendNote($"\n\n**Error:** {ex.Message}");
         }
         finally
         {
@@ -644,7 +645,7 @@ public partial class ChatViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+                run.AppendNote($"\n\n**Error:** {ex.Message}");
             }
         }
         IsProcessing = false;
@@ -652,11 +653,7 @@ public partial class ChatViewModel : ObservableObject
         StatusText = "Ready";
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
-        // Ensure the assistant message has content
-        if (string.IsNullOrEmpty(assistantMessage.Content))
-        {
-            assistantMessage.Content = "*(No response generated)*";
-        }
+        run.Complete();
     }
     /// <summary>
     /// True when an event from <paramref name="eventSessionId"/> belongs to the run <paramref name="runSessionId"/>:
@@ -698,7 +695,7 @@ public partial class ChatViewModel : ObservableObject
         if (_pipelineRunner == null || _pipelineLoader == null)
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the SDLC pipeline services are not registered.");
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = "⚠️ SDLC pipeline services are not available. Please check the application configuration.",
@@ -711,7 +708,7 @@ public partial class ChatViewModel : ObservableObject
         {
             System.Diagnostics.Debug.WriteLine("RunPipeline: skipped because the input text is empty.");
             StatusText = "Enter a task before running a pipeline.";
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = "Please enter a task description before running a pipeline.",
@@ -722,7 +719,7 @@ public partial class ChatViewModel : ObservableObject
         var pipeline = _pipelineLoader.GetPipeline(SelectedPipeline);
         if (pipeline == null)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = $"*Unknown pipeline '{SelectedPipeline}'.*",
@@ -734,7 +731,7 @@ public partial class ChatViewModel : ObservableObject
         InputText = string.Empty;
         ShowMentionPopup = false;
         ShowSlashCommands = false;
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"**Run pipeline: {pipeline.Name}**\n{task}",
@@ -744,14 +741,7 @@ public partial class ChatViewModel : ObservableObject
         IsPipelineRunning = true;
         IsCancellable = true;
         StatusText = $"Running pipeline '{pipeline.Name}'...";
-        var assistantMessage = new ChatMessage
-        {
-            Role = "Assistant",
-            Content = string.Empty,
-            Timestamp = DateTime.Now
-        };
-        Messages.Add(assistantMessage);
-        ToolCallCards.Clear();
+        var run = Timeline.BeginRun();
         AgentSessions.Clear();
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
@@ -759,7 +749,7 @@ public partial class ChatViewModel : ObservableObject
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // Start the event-processing loop on the calling (UI) thread so it
         // captures the real SynchronizationContext (see SendAsync for rationale).
-        var processingTask = ProcessEventsAsync(assistantMessage, token, pipelineSessionId);
+        var processingTask = ProcessEventsAsync(run, token, pipelineSessionId);
         try
         {
             // Drive the pipeline to completion; events are consumed via the event bus subscription above.
@@ -775,11 +765,11 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            assistantMessage.Content += "\n\n*Cancelled*";
+            run.AppendNote("\n\n*Cancelled*");
         }
         catch (Exception ex)
         {
-            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            run.AppendNote($"\n\n**Error:** {ex.Message}");
         }
         finally
         {
@@ -794,7 +784,7 @@ public partial class ChatViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+                run.AppendNote($"\n\n**Error:** {ex.Message}");
             }
         }
         IsProcessing = false;
@@ -803,12 +793,9 @@ public partial class ChatViewModel : ObservableObject
         StatusText = "Ready";
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
-        if (string.IsNullOrEmpty(assistantMessage.Content))
-        {
-            assistantMessage.Content = "*(No response generated)*";
-        }
+        run.Complete();
     }
-    private async Task ProcessEventsAsync(ChatMessage assistantMessage, CancellationToken token, string sessionId = "default")
+    private async Task ProcessEventsAsync(AssistantRun run, CancellationToken token, string sessionId = "default")
     {
         var uiScheduler = TaskScheduler.FromCurrentSynchronizationContext();
         try
@@ -835,7 +822,7 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
-                                assistantMessage.Content += delta.Delta;
+                                run.AppendText(delta.Delta);
                                 Activity.ClearBlocking();
                                 Activity.SetPhase("Writing response…");
                             },
@@ -847,7 +834,7 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
-                                ToolCallCardList.OnStarted(ToolCallCards, start.Call);
+                                Timeline.ToolStarted(start.Call);
                                 Activity.ToolStarted(start.Call.Id, start.Call.Name, start.Call.Arguments);
                             },
                             token,
@@ -859,7 +846,7 @@ public partial class ChatViewModel : ObservableObject
                             () =>
                             {
                                 Activity.ToolFinished(end.Call.Id, end.Call.Name, end.Result.IsError);
-                                ToolCallCardList.OnEnded(ToolCallCards, end.Call, end.Result, end.Duration);
+                                Timeline.ToolEnded(end.Call, end.Result, end.Duration);
                             },
                             token,
                             TaskCreationOptions.None,
@@ -869,21 +856,12 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
+                                // An explicit approval entry in the timeline, at the point where the agent
+                                // asked, so the user sees that a decision is needed (and later, what it was).
+                                var approvalItem = Timeline.AddApproval(approval.Call, approval.Risk.ToString());
                                 EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
-                                    FormatArguments(approval.Call.Arguments));
+                                    FormatArguments(approval.Call.Arguments), item: approvalItem);
                                 Activity.SetBlocking($"⏸ Waiting for your approval: {AgentActivityTracker.DescribeTool(approval.Call.Name, approval.Call.Arguments)}");
-                                // Show an explicit, user-visible approval request in the
-                                // chat transcript so the user knows a decision is needed
-                                // and where to approve/decline — previously the agent
-                                // could appear to hang with no visible prompt.
-                                Messages.Add(new ChatMessage
-                                {
-                                    Role = "System",
-                                    Content = $"🔔 **Approval required** — `{approval.Call.Name}` (risk: {approval.Risk})\n" +
-                                              $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
-                                              "Use the approval dialog below to **Approve** or **Decline**.",
-                                    Timestamp = DateTime.Now
-                                });
                             },
                             token,
                             TaskCreationOptions.None,
@@ -906,7 +884,7 @@ public partial class ChatViewModel : ObservableObject
                     case AgentTaggedEvent tagged:
                         // Handle agent-tagged events from multi-agent sessions
                         await Task.Factory.StartNew(
-                            () => HandleAgentTaggedEvent(tagged, assistantMessage),
+                            () => HandleAgentTaggedEvent(tagged, run),
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
@@ -931,11 +909,11 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 var stepList = plan.Steps.ToList();
                                 PlanVM.LoadPlan(stepList);
-                                assistantMessage.Content += $"**Plan generated** ({stepList.Count} steps):\n" +
+                                run.AppendNote($"**Plan generated** ({stepList.Count} steps):\n" +
                                     string.Join("\n", stepList.Select(s =>
                                         $"{s.Index}. {s.Description}" +
                                         (s.FilesLikelyTouched.Count == 0 ? "" :
-                                            $" — `{string.Join("`, `", s.FilesLikelyTouched)}`")));
+                                            $" — `{string.Join("`, `", s.FilesLikelyTouched)}`"))));
                                 StatusText = "Executing plan...";
                             },
                             token,
@@ -961,7 +939,7 @@ public partial class ChatViewModel : ObservableObject
                                 if (stepFinished.Step.Status == PlanStepStatus.Failed &&
                                     !string.IsNullOrEmpty(stepFinished.Step.FailureReason))
                                 {
-                                    assistantMessage.Content += $"\n\n**Step {stepFinished.StepIndex + 1} failed:** {stepFinished.Step.FailureReason}";
+                                    run.AppendNote($"\n\n**Step {stepFinished.StepIndex + 1} failed:** {stepFinished.Step.FailureReason}");
                                 }
                             },
                             token,
@@ -1001,7 +979,7 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 if (finished.Response.WasCancelled)
                                 {
-                                    assistantMessage.Content += "\n\n*Cancelled*";
+                                    run.AppendNote("\n\n*Cancelled*");
                                 }
                                 StatusText = "Done";
                             },
@@ -1014,7 +992,7 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
-                                assistantMessage.Content += $"\n\n**Error:** {error.Error.Message}";
+                                run.AppendNote($"\n\n**Error:** {error.Error.Message}");
                                 StatusText = "Error";
                             },
                             token,
@@ -1049,7 +1027,7 @@ public partial class ChatViewModel : ObservableObject
             if (!_requirementsSummaryShown)
             {
                 _requirementsSummaryShown = true;
-                Messages.Add(new ChatMessage
+                Timeline.Add(new ChatMessage
                 {
                     Role = "System",
                     Content = requirements.ToSummaryCard(),
@@ -1074,7 +1052,7 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     private async Task<string?> AskUserAsync(string dimension, string question)
     {
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "Assistant",
             Content = $"📝 **Requirements clarification** ({dimension})\n{question}\n\n_Type your answer, or \"just build it\" to skip._",
@@ -1115,6 +1093,8 @@ public partial class ChatViewModel : ObservableObject
     {
         _pendingApproval?.TrySetResult(true);
         _pendingApproval = null;
+        _currentApprovalItem?.Resolve(true);
+        _currentApprovalItem = null;
         Activity.ClearBlocking();
         ShowNextApproval();
         // No card is added here: the orchestrator emits ToolCallStartEvent right after approval,
@@ -1125,6 +1105,8 @@ public partial class ChatViewModel : ObservableObject
     {
         _pendingApproval?.TrySetResult(false);
         _pendingApproval = null;
+        _currentApprovalItem?.Resolve(false);
+        _currentApprovalItem = null;
         Activity.ClearBlocking();
         ShowNextApproval();
     }
@@ -1138,7 +1120,7 @@ public partial class ChatViewModel : ObservableObject
     {
         IsAgentSidebarOpen = !IsAgentSidebarOpen;
     }
-    private void HandleAgentTaggedEvent(AgentTaggedEvent tagged, ChatMessage assistantMessage)
+    private void HandleAgentTaggedEvent(AgentTaggedEvent tagged, AssistantRun run)
     {
         // Track active agents in the sidebar
         var existing = AgentSessions.FirstOrDefault(a => a.AgentId == tagged.AgentId);
@@ -1162,28 +1144,19 @@ public partial class ChatViewModel : ObservableObject
         switch (tagged.Inner)
         {
             case TextDeltaEvent delta:
-                assistantMessage.Content += delta.Delta;
+                run.AppendText(delta.Delta, tagged.AgentId, tagged.Role);
                 break;
             case ToolCallStartEvent start:
-                ToolCallCardList.OnStarted(ToolCallCards, start.Call, tagged.AgentId, tagged.Role);
+                Timeline.ToolStarted(start.Call, tagged.AgentId, tagged.Role);
                 break;
             case ToolCallEndEvent end:
-                ToolCallCardList.OnEnded(ToolCallCards, end.Call, end.Result, end.Duration, tagged.AgentId, tagged.Role);
+                Timeline.ToolEnded(end.Call, end.Result, end.Duration, tagged.AgentId, tagged.Role);
                 break;
             case ApprovalRequestEvent approval:
+                // The approval entry sits in the timeline where the agent asked, for multi-agent sessions too.
+                var approvalItem = Timeline.AddApproval(approval.Call, approval.Risk.ToString(), tagged.Role ?? tagged.AgentId);
                 EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
-                    FormatArguments(approval.Call.Arguments), tagged.AgentId ?? "", tagged.Role ?? "");
-                // Show an explicit, user-visible approval request in the
-                // chat transcript for multi-agent sessions too.
-                Messages.Add(new ChatMessage
-                {
-                    Role = "System",
-                    Content = $"🔔 **Approval required** from `{tagged.AgentId}` ({tagged.Role ?? "agent"}) — " +
-                              $"`{approval.Call.Name}` (risk: {approval.Risk})\n" +
-                              $"Arguments: {FormatArguments(approval.Call.Arguments)}\n" +
-                              "Use the approval dialog below to **Approve** or **Decline**.",
-                    Timestamp = DateTime.Now
-                });
+                    FormatArguments(approval.Call.Arguments), tagged.AgentId ?? "", tagged.Role ?? "", approvalItem);
                 break;
             case StatusUpdateEvent status:
                 StatusText = $"[{tagged.AgentId}] {status.Status}";
@@ -1194,7 +1167,7 @@ public partial class ChatViewModel : ObservableObject
             case AgentFinishedEvent finished:
                 if (finished.Response.WasCancelled)
                 {
-                    assistantMessage.Content += "\n\n*Cancelled*";
+                    run.AppendNote("\n\n*Cancelled*");
                 }
                 if (existing != null)
                 {
@@ -1204,7 +1177,7 @@ public partial class ChatViewModel : ObservableObject
                 _eventProcessingComplete?.TrySetResult();
                 break;
             case AgentErrorEvent error:
-                assistantMessage.Content += $"\n\n**Error ({tagged.AgentId}):** {error.Error.Message}";
+                run.AppendNote($"\n\n**Error ({tagged.AgentId}):** {error.Error.Message}");
                 if (existing != null)
                 {
                     existing.Status = "Error";
@@ -1497,9 +1470,8 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private void ClearChat()
     {
-        Messages.Clear();
-        ToolCallCards.Clear();
-        Messages.Add(new ChatMessage
+        Timeline.Clear();
+        Timeline.Add(new ChatMessage
         {
             Role = "Assistant",
             Content = "Chat cleared. How can I help you?",
@@ -1539,7 +1511,7 @@ public partial class ChatViewModel : ObservableObject
     }
     private async Task SendCodebaseQueryAsync(string question)
     {
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"@codebase " + question,
@@ -1547,7 +1519,7 @@ public partial class ChatViewModel : ObservableObject
         });
         if (_semanticIndex == null || _retriever == null)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = "Warning: Semantic codebase Q&A is not available. " +
@@ -1570,7 +1542,7 @@ public partial class ChatViewModel : ObservableObject
                 .ConfigureAwait(true);
             if (retrieval.Chunks.Count == 0)
             {
-                Messages.Add(new ChatMessage
+                Timeline.Add(new ChatMessage
                 {
                     Role = "Assistant",
                     Content = "No indexed code chunks were found. Try re-indexing the workspace.",
@@ -1580,17 +1552,10 @@ public partial class ChatViewModel : ObservableObject
             }
             var contextBlock = retrieval.ContextBlock;
             var groundedPrompt = AiCodeAgent.Indexing.Semantic.Retriever.BuildPrompt(question, contextBlock);
-            var assistantMessage = new ChatMessage
-            {
-                Role = "Assistant",
-                Content = string.Empty,
-                Timestamp = DateTime.Now
-            };
-            Messages.Add(assistantMessage);
-            ToolCallCards.Clear();
+            var run = Timeline.BeginRun();
             StatusText = "Answering...";
             _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var processingTask = ProcessEventsAsync(assistantMessage, token, SessionId);
+            var processingTask = ProcessEventsAsync(run, token, SessionId);
             try
             {
                 await _agentService.StreamMessageAsync(
@@ -1613,11 +1578,11 @@ public partial class ChatViewModel : ObservableObject
             }
             catch (OperationCanceledException)
             {
-                assistantMessage.Content += "\n\n*Cancelled*";
+                run.AppendNote("\n\n*Cancelled*");
             }
             catch (Exception ex)
             {
-                assistantMessage.Content += "\n\n**Error:** " + ex.Message;
+                run.AppendNote("\n\n**Error:** " + ex.Message);
             }
             finally
             {
@@ -1632,14 +1597,11 @@ public partial class ChatViewModel : ObservableObject
                 }
                 catch (Exception ex)
                 {
-                    assistantMessage.Content += "\n\n**Error:** " + ex.Message;
+                    run.AppendNote("\n\n**Error:** " + ex.Message);
                 }
             }
-            if (string.IsNullOrEmpty(assistantMessage.Content))
-            {
-                assistantMessage.Content = "*(No response generated)*";
-            }
-            Messages.Add(new ChatMessage
+            run.Complete();
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "Retrieved context (top " + retrieval.Chunks.Count + " chunks):\n" +
@@ -1652,7 +1614,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = "*Cancelled.*",
@@ -1661,7 +1623,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "Assistant",
                 Content = "Codebase query failed: " + ex.Message,
@@ -1689,7 +1651,7 @@ public partial class ChatViewModel : ObservableObject
             return;
         if (_planGenerator == null || _autonomousRunner == null)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "⚠️ Autonomous agent is not configured (IPlanGenerator/IAutonomousAgentRunner not registered).",
@@ -1697,7 +1659,7 @@ public partial class ChatViewModel : ObservableObject
             });
             return;
         }
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"/plan {task}",
@@ -1706,19 +1668,12 @@ public partial class ChatViewModel : ObservableObject
         IsProcessing = true;
         IsCancellable = true;
         StatusText = "Planning...";
-        var assistantMessage = new ChatMessage
-        {
-            Role = "Assistant",
-            Content = string.Empty,
-            Timestamp = DateTime.Now
-        };
-        Messages.Add(assistantMessage);
-        ToolCallCards.Clear();
+        var run = Timeline.BeginRun();
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         _eventProcessingComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var sessionId = Guid.NewGuid().ToString("N");
-        var processingTask = ProcessEventsAsync(assistantMessage, token, sessionId);
+        var processingTask = ProcessEventsAsync(run, token, sessionId);
         try
         {
             var steps = await _planGenerator.GenerateAsync(task, WorkingDirectory, token)
@@ -1741,17 +1696,17 @@ public partial class ChatViewModel : ObservableObject
             var log = await _autonomousRunner.RunAsync(steps, task, sessionId, options, token)
                 .ConfigureAwait(true);
             if (!string.IsNullOrEmpty(log.FailureSummary))
-                assistantMessage.Content += $"\n\n**Plan result:** {log.FailureSummary}";
+                run.AppendNote($"\n\n**Plan result:** {log.FailureSummary}");
             else
-                assistantMessage.Content += "\n\n**Plan completed successfully.**";
+                run.AppendNote("\n\n**Plan completed successfully.**");
         }
         catch (OperationCanceledException)
         {
-            assistantMessage.Content += "\n\n*Cancelled*";
+            run.AppendNote("\n\n*Cancelled*");
         }
         catch (Exception ex)
         {
-            assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+            run.AppendNote($"\n\n**Error:** {ex.Message}");
         }
         finally
         {
@@ -1766,7 +1721,7 @@ public partial class ChatViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                assistantMessage.Content += $"\n\n**Error:** {ex.Message}";
+                run.AppendNote($"\n\n**Error:** {ex.Message}");
             }
             IsProcessing = false;
             IsCancellable = false;
@@ -1774,8 +1729,7 @@ public partial class ChatViewModel : ObservableObject
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
         }
-        if (string.IsNullOrEmpty(assistantMessage.Content))
-            assistantMessage.Content = "*(No response generated)*";
+        run.Complete();
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -1800,14 +1754,14 @@ public partial class ChatViewModel : ObservableObject
         // short list of project files so the user can pick one.
         if (string.IsNullOrEmpty(rawArgs))
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "User",
                 Content = userMessage,
                 Timestamp = DateTime.Now
             });
             var sample = GetProjectFiles().Take(15).Select(f => $"- `{f}`");
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "✏️ **Usage:** `/edit <file_path>`\n\n" +
@@ -1826,7 +1780,7 @@ public partial class ChatViewModel : ObservableObject
         filePath = Path.GetFullPath(filePath);
 
         // Echo the user's command into the transcript.
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = userMessage,
@@ -1835,7 +1789,7 @@ public partial class ChatViewModel : ObservableObject
 
         if (!File.Exists(filePath))
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"⚠️ File not found: `{filePath}`\n" +
@@ -1850,7 +1804,7 @@ public partial class ChatViewModel : ObservableObject
             StatusText = $"Opening {Path.GetFileName(filePath)}...";
             await _editorPane.OpenFileAsync(filePath).ConfigureAwait(true);
             _editorPane.IsVisible = true;
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"✏️ Opened `{filePath}` in the editor. Make your changes and press **Ctrl+S** to save.",
@@ -1859,7 +1813,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"**Error opening file:** {ex.Message}",
@@ -1911,7 +1865,7 @@ public partial class ChatViewModel : ObservableObject
 
     private async Task HandleBranchCommandAsync(string branchName)
     {
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"/branch {branchName}",
@@ -1920,7 +1874,7 @@ public partial class ChatViewModel : ObservableObject
 
         if (string.IsNullOrWhiteSpace(branchName))
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "⚠️ Usage: `/branch <name>` — please provide a branch name.",
@@ -1934,7 +1888,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             var result = await _gitService!.CreateBranchAsync(branchName).ConfigureAwait(true);
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = FormatGitResultCard("🌿 Branch", result,
@@ -1946,7 +1900,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"**Error creating branch:** {ex.Message}",
@@ -1962,7 +1916,7 @@ public partial class ChatViewModel : ObservableObject
 
     private async Task HandleCommitCommandAsync(string message)
     {
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"/commit {message}",
@@ -1971,7 +1925,7 @@ public partial class ChatViewModel : ObservableObject
 
         if (string.IsNullOrWhiteSpace(message))
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "⚠️ Usage: `/commit <message>` — please provide a commit message.",
@@ -1987,7 +1941,7 @@ public partial class ChatViewModel : ObservableObject
             var status = await _gitService!.GetStatusAsync().ConfigureAwait(true);
             if (status.ChangedFiles.Count == 0)
             {
-                Messages.Add(new ChatMessage
+                Timeline.Add(new ChatMessage
                 {
                     Role = "System",
                     Content = "ℹ️ Working tree is clean — nothing to commit.",
@@ -1997,7 +1951,7 @@ public partial class ChatViewModel : ObservableObject
             }
 
             var result = await _gitService!.CommitAsync(message).ConfigureAwait(true);
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = FormatGitResultCard("📦 Commit", result,
@@ -2009,7 +1963,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"**Error committing:** {ex.Message}",
@@ -2025,7 +1979,7 @@ public partial class ChatViewModel : ObservableObject
 
     private async Task HandlePrCommandAsync(string title)
     {
-        Messages.Add(new ChatMessage
+        Timeline.Add(new ChatMessage
         {
             Role = "User",
             Content = $"/pr {title}",
@@ -2034,7 +1988,7 @@ public partial class ChatViewModel : ObservableObject
 
         if (string.IsNullOrWhiteSpace(title))
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "⚠️ Usage: `/pr <title>` — please provide a PR title.",
@@ -2047,7 +2001,7 @@ public partial class ChatViewModel : ObservableObject
             $"This will **push** the current branch to the remote and **open a pull request** titled `{title}`. Proceed?");
         if (!confirm)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = "Cancelled — no changes pushed.",
@@ -2063,7 +2017,7 @@ public partial class ChatViewModel : ObservableObject
             var body = await BuildPrBodyAsync(title).ConfigureAwait(true);
             StatusText = "Pushing branch and creating pull request...";
             var result = await _gitService!.PushAndCreatePullRequestAsync(title, body).ConfigureAwait(true);
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = FormatGitResultCard("🔗 Pull Request", result,
@@ -2075,7 +2029,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Messages.Add(new ChatMessage
+            Timeline.Add(new ChatMessage
             {
                 Role = "System",
                 Content = $"**Error creating PR:** {ex.Message}",
@@ -2182,15 +2136,10 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     private async Task<bool> RequestUserConfirmationAsync(string message)
     {
-        Messages.Add(new ChatMessage
-        {
-            Role = "System",
-            Content = $"🔔 **Confirmation required**\n{message}\nUse the approval dialog below to **Approve** or **Decline**.",
-            Timestamp = DateTime.Now
-        });
+        var approvalItem = Timeline.AddApproval("git", message, message, "Write");
 
         var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        EnqueueApproval(confirmation, "Write", "git", message);
+        EnqueueApproval(confirmation, "Write", "git", message, item: approvalItem);
         // Approve/Deny (and DenyAllApprovals on cancel) resolve the task and advance the queue.
         return await confirmation.Task.ConfigureAwait(true);
     }

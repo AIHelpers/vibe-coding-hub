@@ -49,7 +49,7 @@ public partial class ChatViewModel
     }
 
     private void Note(string text) =>
-        Messages.Add(new ChatMessage { Role = "Assistant", Content = text, Timestamp = DateTime.Now });
+        Timeline.Add(new ChatMessage { Role = "Assistant", Content = text, Timestamp = DateTime.Now });
 
     /// <summary>Opens the rewind dialog (also bound to the header button and /rewind).</summary>
     [RelayCommand]
@@ -104,23 +104,16 @@ public partial class ChatViewModel
         }
     }
 
-    /// <summary>Rebuilds the visible chat from the session's stored messages (keeps the welcome message).</summary>
+    /// <summary>
+    /// Rebuilds the visible timeline from the session's stored messages (keeps the welcome message): user messages,
+    /// assistant text and tool cards in stored order. User messages carry the number <c>/rewind N</c> and
+    /// <c>/fork N</c> use, so the timeline lines up with the rewind points.
+    /// </summary>
     private async Task ReloadTranscriptAsync()
     {
         if (_rewinder == null) return;
         var transcript = await _rewinder.GetTranscriptAsync(SessionId).ConfigureAwait(true);
-
-        var welcome = Messages.FirstOrDefault();
-        Messages.Clear();
-        ToolCallCards.Clear();
-        if (welcome is { Role: "Assistant" }) Messages.Add(welcome);
-
-        foreach (var m in transcript)
-        {
-            if (string.IsNullOrWhiteSpace(m.Content)) continue; // tool-call-only assistant turns
-            if (m.Role == MessageRole.User) Messages.Add(new ChatMessage { Role = "User", Content = m.Content, Timestamp = m.Timestamp });
-            else if (m.Role == MessageRole.Assistant) Messages.Add(new ChatMessage { Role = "Assistant", Content = m.Content, Timestamp = m.Timestamp });
-        }
+        Timeline.LoadTranscript(transcript, keepWelcome: true);
     }
 
     /// <summary>Handles /rewind, /fork and /effort typed in the chat box. Returns true when the input was consumed.</summary>

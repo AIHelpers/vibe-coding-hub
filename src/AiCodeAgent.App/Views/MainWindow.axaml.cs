@@ -557,18 +557,6 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private async void CopyMessageButton_ClickAsync(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button button && button.DataContext is ChatMessage chatMessage)
-        {
-            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-            if (clipboard != null && !string.IsNullOrEmpty(chatMessage.Content))
-            {
-                await clipboard.SetTextAsync(chatMessage.Content);
-            }
-        }
-    }
-
     private void OnPaletteKeyDown(object? sender, KeyEventArgs e)
     {
         var palette = GetCommandPalette();
