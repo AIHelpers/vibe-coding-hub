@@ -847,13 +847,7 @@ public partial class ChatViewModel : ObservableObject
                         await Task.Factory.StartNew(
                             () =>
                             {
-                                var card = new ToolCallCardViewModel
-                                {
-                                    ToolName = start.Call.Name,
-                                    Arguments = FormatArguments(start.Call.Arguments),
-                                    IsExpanded = false
-                                };
-                                ToolCallCards.Add(card);
+                                ToolCallCardList.OnStarted(ToolCallCards, start.Call);
                                 Activity.ToolStarted(start.Call.Id, start.Call.Name, start.Call.Arguments);
                             },
                             token,
@@ -865,13 +859,7 @@ public partial class ChatViewModel : ObservableObject
                             () =>
                             {
                                 Activity.ToolFinished(end.Call.Id, end.Call.Name, end.Result.IsError);
-                                var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name);
-                                if (existingCard != null)
-                                {
-                                    existingCard.Output = TruncateOutput(end.Result.Content, 500);
-                                    existingCard.Duration = end.Duration;
-                                    existingCard.IsError = end.Result.IsError;
-                                }
+                                ToolCallCardList.OnEnded(ToolCallCards, end.Call, end.Result, end.Duration);
                             },
                             token,
                             TaskCreationOptions.None,
@@ -1125,21 +1113,12 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private void ApproveTool()
     {
-        var approvedTool = ApprovalToolName;
-        var approvedArgs = ApprovalArgs;
         _pendingApproval?.TrySetResult(true);
         _pendingApproval = null;
         Activity.ClearBlocking();
         ShowNextApproval();
-        if (!string.IsNullOrEmpty(approvedTool))
-        {
-            ToolCallCards.Add(new ToolCallCardViewModel
-            {
-                ToolName = approvedTool,
-                Arguments = approvedArgs,
-                IsExpanded = true
-            });
-        }
+        // No card is added here: the orchestrator emits ToolCallStartEvent right after approval,
+        // and that event creates the (single) card for this call.
     }
     [RelayCommand]
     private void DenyTool()
@@ -1186,24 +1165,10 @@ public partial class ChatViewModel : ObservableObject
                 assistantMessage.Content += delta.Delta;
                 break;
             case ToolCallStartEvent start:
-                var card = new ToolCallCardViewModel
-                {
-                    ToolName = start.Call.Name,
-                    Arguments = FormatArguments(start.Call.Arguments),
-                    IsExpanded = false,
-                    AgentId = tagged.AgentId,
-                    AgentRole = tagged.Role
-                };
-                ToolCallCards.Add(card);
+                ToolCallCardList.OnStarted(ToolCallCards, start.Call, tagged.AgentId, tagged.Role);
                 break;
             case ToolCallEndEvent end:
-                var existingCard = ToolCallCards.FirstOrDefault(c => c.ToolName == end.Call.Name && c.AgentId == tagged.AgentId);
-                if (existingCard != null)
-                {
-                    existingCard.Output = TruncateOutput(end.Result.Content, 500);
-                    existingCard.Duration = end.Duration;
-                    existingCard.IsError = end.Result.IsError;
-                }
+                ToolCallCardList.OnEnded(ToolCallCards, end.Call, end.Result, end.Duration, tagged.AgentId, tagged.Role);
                 break;
             case ApprovalRequestEvent approval:
                 EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
@@ -1546,16 +1511,7 @@ public partial class ChatViewModel : ObservableObject
         card.IsExpanded = !card.IsExpanded;
     }
     private static string FormatArguments(Dictionary<string, object?> args)
-    {
-        if (args == null || args.Count == 0) return "{}";
-        return string.Join(", ", args.Select(kv => $"{kv.Key}={kv.Value}"));
-    }
-    private static string TruncateOutput(string output, int maxLength)
-    {
-        if (string.IsNullOrEmpty(output) || output.Length <= maxLength)
-            return output;
-        return output[..maxLength] + "\n...[truncated]";
-    }
+        => ToolCallCardFormatting.FormatArguments(args);
     private static Core.Models.PermissionMode ParsePermissionMode(string mode) => mode switch
     {
         "AutoEdit" => Core.Models.PermissionMode.AutoEdit,
@@ -2265,47 +2221,6 @@ public class ChatMessage : INotifyPropertyChanged
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-}
-
-public partial class ToolCallCardViewModel : ObservableObject
-{
-    [ObservableProperty]
-    private string _toolName = string.Empty;
-
-    [ObservableProperty]
-    private string _arguments = string.Empty;
-
-    [ObservableProperty]
-    private string? _output;
-
-    [ObservableProperty]
-    private TimeSpan? _duration;
-
-    [ObservableProperty]
-    private bool _isError;
-
-    [ObservableProperty]
-    private bool _isExpanded;
-
-    [ObservableProperty]
-    private DateTime _timestamp = DateTime.UtcNow;
-
-    [ObservableProperty]
-    private bool _needsApproval;
-
-    [ObservableProperty]
-    private string? _approvalId;
-
-    [ObservableProperty]
-    private string? _agentId;
-
-    [ObservableProperty]
-    private string? _agentRole;
-
-    public void ToggleExpand()
-    {
-        IsExpanded = !IsExpanded;
-    }
 }
 
 public partial class AgentSessionItem : ObservableObject

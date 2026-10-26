@@ -1,0 +1,98 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.ToolCallCardView"
+             x:DataType="vm:ToolCallCardViewModel">
+    <!-- One tool call. Never bind a bool to Text: state is shown with IsVisible badges only. -->
+    <Border Margin="0,4" Padding="10"
+            Background="{DynamicResource AppHeaderBrush}"
+            CornerRadius="8"
+            BorderThickness="1">
+        <StackPanel Spacing="4">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Name="TitleText"
+                           Text="{Binding TitleText}"
+                           ToolTip.Tip="{Binding ToolName}"
+                           FontWeight="Bold"
+                           FontSize="13"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Name="SubtitleText"
+                           Text="{Binding Subtitle, StringFormat='· {0}'}"
+                           IsVisible="{Binding HasSubtitle}"
+                           ToolTip.Tip="{Binding Arguments}"
+                           FontSize="12"
+                           Opacity="0.75"
+                           Margin="6,0,0,0"
+                           MaxWidth="460"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2"
+                           Name="DurationText"
+                           Text="{Binding DurationText, StringFormat='· {0}'}"
+                           IsVisible="{Binding HasDuration}"
+                           FontSize="11"
+                           Opacity="0.6"
+                           Margin="6,0,0,0"
+                           VerticalAlignment="Center"/>
+
+                <!-- Badges: only while running, or on error. Nothing for a plain success. -->
+                <Border Grid.Column="4"
+                        Name="RunningBadge"
+                        IsVisible="{Binding IsRunning}"
+                        CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
+                        Background="{DynamicResource AppBadgeBrush}"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ProgressBar IsIndeterminate="{Binding IsRunning}"
+                                     Width="24" MinWidth="24" Height="4" MinHeight="4"
+                                     VerticalAlignment="Center"/>
+                        <TextBlock Text="running…" FontSize="10" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="4"
+                        Name="ErrorBadge"
+                        IsVisible="{Binding IsError}"
+                        CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
+                        Background="#C62828"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="error" FontSize="10" Foreground="White"/>
+                </Border>
+
+                <Button Grid.Column="5"
+                        Content="{Binding ExpandGlyph}"
+                        Command="{Binding ToggleExpandCommand}"
+                        ToolTip.Tip="Show arguments and output"
+                        Margin="8,0,0,0"
+                        Width="20" Height="20" Padding="0" FontSize="10"/>
+            </Grid>
+
+            <!-- The error text is always visible on a failed call, not only when expanded. -->
+            <TextBlock Name="ErrorText"
+                       Text="{Binding Output}"
+                       IsVisible="{Binding IsError}"
+                       Foreground="#E53935"
+                       FontSize="11"
+                       TextWrapping="Wrap"
+                       MaxLines="4"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <StackPanel Spacing="4" IsVisible="{Binding IsExpanded}">
+                <TextBlock Text="{Binding Arguments}"
+                           FontSize="11"
+                           Opacity="0.5"
+                           TextWrapping="Wrap"/>
+                <Border Background="{DynamicResource AppDeepBrush}"
+                        CornerRadius="4"
+                        Padding="8"
+                        IsVisible="{Binding HasOutput}">
+                    <SelectableTextBlock Text="{Binding Output}"
+                                         FontSize="11"
+                                         FontFamily="Consolas"
+                                         TextWrapping="Wrap"/>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

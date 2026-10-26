@@ -557,26 +557,6 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private void OnToolCardExpandToggle(object? sender, PointerPressedEventArgs e)
-    {
-        // Find the ToolCallCardViewModel from the data context
-        if (sender is Button button)
-        {
-            // Navigate up the visual tree to find the parent Border with the DataContext
-            var parent = button.Parent;
-            while (parent != null)
-            {
-                if (parent is Border border && border.DataContext is ToolCallCardViewModel card)
-                {
-                    card.ToggleExpand();
-                    e.Handled = true;
-                    return;
-                }
-                parent = parent.Parent;
-            }
-        }
-    }
-
     private async void CopyMessageButton_ClickAsync(object? sender, RoutedEventArgs e)
     {
         if (sender is Button button && button.DataContext is ChatMessage chatMessage)
