@@ -704,48 +704,7 @@
                                     <ItemsControl ItemsSource="{Binding ChatViewModel.ToolCallCards}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="vm:ToolCallCardViewModel">
-                                                <Border Margin="0,4" Padding="10" 
-                                                        Background="{DynamicResource AppHeaderBrush}" 
-                                                        CornerRadius="8" 
-                                                        BorderThickness="1">
-                                                    <StackPanel Spacing="4">
-                                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding ToolName, StringFormat='🔧 {}{0}'}" 
-                                                                           FontWeight="Bold" 
-                                                                           FontSize="13"/>
-                                                                <Border CornerRadius="3" Padding="3,1" 
-                                                                        Background="{DynamicResource AppBadgeBrush}">
-                                                                    <TextBlock Text="{Binding IsError}" 
-                                                                               FontSize="10"/>
-                                                                </Border>
-                                                            </StackPanel>
-                                                            <TextBlock Grid.Column="2" 
-                                                                       Text="{Binding Duration}" 
-                                                                       FontSize="11" 
-                                                                       Opacity="0.6"
-                                                                       VerticalAlignment="Center"
-                                                                       Margin="8,0"/>
-                                                            <Button Grid.Column="3" 
-                                                                    Content="▶" 
-                                                                    PointerPressed="OnToolCardExpandToggle"
-                                                                    Width="20" Height="20" Padding="0" FontSize="10"/>
-                                                        </Grid>
-                                                        <TextBlock Text="{Binding Arguments}" 
-                                                                   FontSize="11" 
-                                                                   Opacity="0.5" 
-                                                                   TextWrapping="Wrap"/>
-                                                        <Border Background="{DynamicResource AppDeepBrush}" 
-                                                                CornerRadius="4" 
-                                                                Padding="8" 
-                                                                IsVisible="{Binding IsExpanded}">
-                                                            <TextBlock Text="{Binding Output}" 
-                                                                       FontSize="11" 
-                                                                       FontFamily="Consolas" 
-                                                                       TextWrapping="Wrap"/>
-                                                        </Border>
-                                                    </StackPanel>
-                                                </Border>
+                                                <views:ToolCallCardView/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -762,19 +721,7 @@
                                     MaxHeight="400">
                                 <Grid RowDefinitions="Auto,*">
                                     <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="8,4" CornerRadius="4,4,0,0">
-                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                                            <TextBlock Grid.Column="0" Text="💻 Terminal" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="2" 
-                                                       Text="{Binding Terminal.IsRunning}" 
-                                                       FontSize="11" 
-                                                       Opacity="0.5" 
-                                                       VerticalAlignment="Center"
-                                                       Margin="0,0,8,0"/>
-                                            <Button Grid.Column="3" 
-                                                    Content="🗑️" 
-                                                    Command="{Binding Terminal.ClearCommand}"
-                                                    Width="20" Height="20" Padding="0" FontSize="10"/>
-                                        </Grid>
+                                        <views:TerminalHeaderView DataContext="{Binding Terminal}"/>
                                     </Border>
                                     <ScrollViewer Grid.Row="1" Margin="4">
                                         <ItemsControl ItemsSource="{Binding Terminal.Entries}">
