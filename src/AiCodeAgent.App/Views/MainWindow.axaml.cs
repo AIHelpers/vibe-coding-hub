@@ -40,6 +40,9 @@ public partial class MainWindow : Window
         // First start with nothing to chat with: open the setup wizard (it covers the chat).
         Opened += (_, _) => Dispatcher.UIThread.Post(
             () => (DataContext as MainViewModel)?.StartFirstRunCheck(), DispatcherPriority.Background);
+        // Look for a newer release (at most once a day, unless turned off in Settings).
+        Opened += (_, _) => Dispatcher.UIThread.Post(
+            () => (DataContext as MainViewModel)?.StartUpdateCheck(), DispatcherPriority.Background);
         // Run again once the first layout pass has completed: at Opened time the
         // platform may still be applying CenterScreen, which could re-place the
         // window after our clamp and leave its bottom (and any page footer)

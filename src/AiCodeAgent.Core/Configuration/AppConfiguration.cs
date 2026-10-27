@@ -102,4 +102,13 @@ public class UiConfiguration
 
     /// <summary>Progress of the sample project's "Fix this test" tour (null until the sample was tried).</summary>
     public AiCodeAgent.Core.Samples.SampleGuideState? SampleGuide { get; set; }
+
+    /// <summary>Look for a newer release when the app starts (at most once a day). Settings → "Check for updates automatically".</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>When the last update check got an answer from the server (UTC); null if it never did.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; set; }
+
+    /// <summary>The release version whose banner the user dismissed; that version is not announced again.</summary>
+    public string? DismissedUpdateVersion { get; set; }
 }
