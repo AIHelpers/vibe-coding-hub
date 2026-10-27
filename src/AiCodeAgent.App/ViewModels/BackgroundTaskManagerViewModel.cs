@@ -104,7 +104,10 @@ public partial class BackgroundTaskItemViewModel : ObservableObject
         _ => "#9AA0A6"
     };
 
-    public bool HasOutput => !string.IsNullOrEmpty(Output);
+    /// <summary>The result as Markdown for display and copying: <see cref="Output"/> without internal status lines.</summary>
+    public string OutputMarkdown => AgentOutputText.StripInternalLines(Output);
+
+    public bool HasOutput => !string.IsNullOrWhiteSpace(OutputMarkdown);
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
     partial void OnStatusChanged(BackgroundTaskStatus value)
@@ -114,7 +117,11 @@ public partial class BackgroundTaskItemViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusColor));
     }
 
-    partial void OnOutputChanged(string value) => OnPropertyChanged(nameof(HasOutput));
+    partial void OnOutputChanged(string value)
+    {
+        OnPropertyChanged(nameof(OutputMarkdown));
+        OnPropertyChanged(nameof(HasOutput));
+    }
 
     partial void OnErrorMessageChanged(string? value) => OnPropertyChanged(nameof(HasError));
 
@@ -230,6 +237,16 @@ public partial class BackgroundTaskManagerViewModel : ObservableObject
 
     [RelayCommand]
     private void AddProject() => AddProjectRequested?.Invoke();
+
+    /// <summary>Raised by "Open in chat": (title, Markdown). The host shows it in the chat.</summary>
+    public event Action<string, string>? OpenInChatRequested;
+
+    [RelayCommand]
+    private void OpenTaskInChat(BackgroundTaskItemViewModel? task)
+    {
+        if (task is { HasOutput: true })
+            OpenInChatRequested?.Invoke($"Background task: {task.Prompt}", task.OutputMarkdown.Trim());
+    }
 
     [RelayCommand]
     private void SelectAllProjects()

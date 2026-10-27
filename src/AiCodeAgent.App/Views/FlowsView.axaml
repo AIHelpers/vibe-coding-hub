@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:AiCodeAgent.App.ViewModels"
              xmlns:conv="using:AiCodeAgent.App.Converters"
+             xmlns:views="using:AiCodeAgent.App.Views"
              xmlns:flows="using:AiCodeAgent.Core.Flows"
              x:Class="AiCodeAgent.App.Views.FlowsView"
              x:DataType="vm:FlowEditorViewModel"
@@ -307,9 +308,24 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedOutput, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap"
-                         FontFamily="Consolas,Menlo,monospace" FontSize="11" MinHeight="60"
-                         IsVisible="{Binding SelectedOutput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*"
+                      IsVisible="{Binding SelectedOutput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,4">
+                        <!-- Run state as a badge instead of status text inside the output -->
+                        <Border Grid.Column="0" CornerRadius="8" Padding="8,1" Background="#22888888"
+                                IsVisible="{Binding SelectedNode.HasRunState, FallbackValue=False}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{Binding SelectedNode.StateGlyph, FallbackValue=''}" FontSize="10"/>
+                                <TextBlock Text="{Binding SelectedNode.StateText, FallbackValue=''}" FontSize="10" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                        <Button Grid.Column="2" Content="Copy" Click="OnCopyOutputClick" FontSize="10" Padding="8,2" Margin="0,0,6,0"
+                                ToolTip.Tip="Copy the output as Markdown"/>
+                        <Button Grid.Column="3" Content="Open in chat" Command="{Binding OpenSelectedOutputInChatCommand}"
+                                FontSize="10" Padding="8,2"/>
+                    </Grid>
+                    <views:MarkdownOutputView Grid.Row="1" Markdown="{Binding SelectedOutput}" MinHeight="60"/>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

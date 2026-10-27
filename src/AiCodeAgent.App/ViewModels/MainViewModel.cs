@@ -113,6 +113,8 @@ public partial class MainViewModel : ObservableObject
         Flows = flows ?? new FlowEditorViewModel();
         BackgroundTasks = backgroundTasks;
         BackgroundTasks.AddProjectRequested += OnBackgroundTaskAddProjectRequested;
+        BackgroundTasks.OpenInChatRequested += OnOpenOutputInChatRequested;
+        Flows.OpenInChatRequested += OnOpenOutputInChatRequested;
         SourceControl = sourceControl;
         SourceControl.DiffRequested += OnSourceControlDiffRequested;
         SourceControl.OpenFileRequested += OnSourceControlOpenFileRequested;
@@ -202,6 +204,8 @@ public partial class MainViewModel : ObservableObject
         }
         CheckpointBrowser.ViewDiffRequested -= OnCheckpointViewDiffRequested;
         BackgroundTasks.AddProjectRequested -= OnBackgroundTaskAddProjectRequested;
+        BackgroundTasks.OpenInChatRequested -= OnOpenOutputInChatRequested;
+        Flows.OpenInChatRequested -= OnOpenOutputInChatRequested;
         SourceControl.DiffRequested -= OnSourceControlDiffRequested;
         SourceControl.OpenFileRequested -= OnSourceControlOpenFileRequested;
         SourceControl.PropertyChanged -= OnSourceControlPropertyChanged;
@@ -582,6 +586,16 @@ public partial class MainViewModel : ObservableObject
         BackgroundTasks.WorkingDirectory = WorkingDirectory;
         RefreshBackgroundTaskProjects();
         BackgroundTasks.IsVisible = true;
+    }
+
+    /// <summary>"Open in chat" on a flow step or background task result: shows it in the chat as a message.</summary>
+    private void OnOpenOutputInChatRequested(string title, string markdown)
+    {
+        var chat = GetOrCreateChatViewModel();
+        CloseOverlays();
+        IsSettingsMode = false;
+        GoToScreen(AppScreen.Chat);
+        chat.Timeline.Add(new ChatMessage { Role = "Assistant", Content = $"**{title}**\n\n{markdown}", Timestamp = DateTime.Now });
     }
 
     /// <summary>Feeds the Background Tasks panel's project picker: the main folder plus every folder added to the task.</summary>

@@ -68,6 +68,13 @@ public partial class FlowsView : UserControl
 
     // ============================================================ palette drag & drop
 
+    private async void OnCopyOutputClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not FlowEditorViewModel { SelectedOutput: { Length: > 0 } output }) return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(output.Trim());
+    }
+
     private async void OnPaletteItemPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control { DataContext: FlowPaletteItem item } || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
