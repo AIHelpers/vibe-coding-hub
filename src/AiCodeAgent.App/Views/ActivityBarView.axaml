@@ -60,7 +60,7 @@
         <DataTemplate x:Key="ActivityGroupTemplate" x:DataType="vm:ActivityBarGroup">
             <StackPanel>
                 <TextBlock Text="{Binding Title}" IsVisible="{Binding ShowTitle}"
-                           FontSize="10" FontWeight="SemiBold" Opacity="0.55" Margin="14,10,0,2"/>
+                           FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="14,10,0,2"/>
                 <Border IsVisible="{Binding ShowSeparator}" Height="1" Margin="10,6" Background="#33808080"/>
                 <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource ActivityItemTemplate}"/>
             </StackPanel>

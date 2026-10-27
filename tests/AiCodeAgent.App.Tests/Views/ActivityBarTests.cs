@@ -165,7 +165,7 @@ public class ActivityBarTests
         Assert.Equal("Flows", bar.Find(ActivityBarIds.Flows)!.ToolTip);
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void EveryIcon_IsAVectorPath_NotAnEmoji()
     {
         var (bar, _) = CreateBar();

@@ -59,10 +59,9 @@ public partial class ActivityBarItem : ObservableObject
         Id = id;
         Label = label;
         IconData = iconData;
-        Icon = StreamGeometry.Parse(iconData);
         Command = command;
         Shortcut = shortcut;
-        BadgeBrush = Brush.Parse(badgeColor);
+        _badgeColor = badgeColor;
         var text = string.IsNullOrWhiteSpace(description) ? label : $"{label} — {description}";
         ToolTip = string.IsNullOrEmpty(shortcut) ? text : $"{text} ({shortcut})";
     }
@@ -70,14 +69,19 @@ public partial class ActivityBarItem : ObservableObject
     public string Id { get; }
     public string Label { get; }
     public string IconData { get; }
-    public Geometry Icon { get; }
+    private readonly string _badgeColor;
+    private Geometry? _icon;
+    private IBrush? _badgeBrush;
+
+    /// <summary>The icon geometry, parsed on first use: Avalonia objects need the UI thread, plain unit tests never touch them.</summary>
+    public Geometry Icon => _icon ??= StreamGeometry.Parse(IconData);
     public ICommand Command { get; }
     public string Shortcut { get; }
 
     /// <summary>Tooltip, e.g. "Changes — stage, diff and commit (Ctrl+Shift+G)". It is the only label while the bar is collapsed.</summary>
     public string ToolTip { get; }
 
-    public IBrush BadgeBrush { get; }
+    public IBrush BadgeBrush => _badgeBrush ??= Brush.Parse(_badgeColor);
 
     /// <summary>True while the panel or page this entry opens is showing.</summary>
     [ObservableProperty]

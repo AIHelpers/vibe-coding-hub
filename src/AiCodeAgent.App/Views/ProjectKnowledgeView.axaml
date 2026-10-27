@@ -30,7 +30,7 @@
                     <Button Content="💾 Save" Command="{Binding SaveMemoryCommand}"
                             IsEnabled="{Binding MemoryIsDirty}" FontSize="11" Padding="8,3"/>
                     <Button Content="🩺 Doctor" Command="{Binding RunDoctorCommand}" FontSize="11" Padding="8,3"/>
-                    <TextBlock Text="{Binding MemoryStatusText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding MemoryStatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
                 <!-- Skills toolbar -->
                 <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsSkillsTabActive}">
@@ -42,7 +42,7 @@
                             IsEnabled="{Binding HasSelectedSkill}" FontSize="11" Padding="8,3"/>
                     <Button Content="🗑 Delete" Command="{Binding RequestDeleteSkillCommand}"
                             IsEnabled="{Binding HasSelectedSkill}" FontSize="11" Padding="8,3"/>
-                    <TextBlock Text="{Binding SkillsStatusText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding SkillsStatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
                 <!-- Characters toolbar -->
                 <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsCharactersTabActive}">
@@ -52,7 +52,7 @@
                             IsEnabled="{Binding Characters.SelectedIsDirty}" FontSize="11" Padding="8,3"/>
                     <Button Content="🗑 Delete" Command="{Binding Characters.RequestDeleteCommand}"
                             IsEnabled="{Binding Characters.CanEditSelected}" FontSize="11" Padding="8,3"/>
-                    <TextBlock Text="{Binding Characters.StatusText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBlock Text="{Binding Characters.StatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -74,9 +74,9 @@
                             <DataTemplate DataType="core:DoctorCheck">
                                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
                                     <TextBlock Text="{Binding Status}" FontSize="10" Width="60"
-                                               Foreground="#9AA0A6"/>
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                     <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Width="140"/>
-                                    <TextBlock Text="{Binding Detail}" FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -103,10 +103,10 @@
                                         CommandParameter="{Binding}">
                                     <StackPanel Spacing="1">
                                         <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Description}" FontSize="10" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding TagsLabel}" FontSize="9" Opacity="0.5"
+                                        <TextBlock Text="{Binding Description}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding TagsLabel}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                    IsVisible="{Binding TagsLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                                        <TextBlock Text="{Binding ScopeLabel}" FontSize="9" Opacity="0.4"/>
+                                        <TextBlock Text="{Binding ScopeLabel}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
@@ -137,7 +137,7 @@
                         <TextBox Text="{Binding RenameSkillName}" MinWidth="200" FontSize="11"/>
                         <Button Content="Rename" Command="{Binding ConfirmRenameSkillCommand}" FontSize="11" Padding="10,4"/>
                         <Button Content="Cancel" Command="{Binding CancelRenameSkillCommand}" FontSize="11" Padding="10,4"/>
-                        <TextBlock Text="Characters using it are updated." FontSize="10" Opacity="0.6" VerticalAlignment="Center"/>
+                        <TextBlock Text="Characters using it are updated." FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
@@ -160,9 +160,9 @@
                         VerticalAlignment="Top">
                     <StackPanel Spacing="8">
                         <TextBlock Text="New Skill" FontSize="13" FontWeight="SemiBold"/>
-                        <TextBlock Text="Name (kebab-case)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Name (kebab-case)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding NewSkillName}" Watermark="e.g. release-notes"/>
-                        <TextBlock Text="Description (one line — shown to the model)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Description (one line — shown to the model)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding NewSkillDescription}" Watermark="When should the agent use this skill?"/>
                         <CheckBox Content="Project skill (.aiagent/skills — unchecked = global, ~/.aiagent/skills)"
                                   IsChecked="{Binding NewSkillIsProject}" FontSize="11"/>
@@ -177,7 +177,7 @@
                 <Border Grid.Row="3" Background="{DynamicResource AppDeepBrush}" Padding="8" MaxHeight="110"
                         IsVisible="{Binding SelectedSkillDetails, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                     <ScrollViewer>
-                        <TextBlock Text="{Binding SelectedSkillDetails}" FontSize="11" Opacity="0.75" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedSkillDetails}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                     </ScrollViewer>
                 </Border>
             </Grid>
@@ -198,8 +198,8 @@
                                     CommandParameter="{Binding}">
                                 <StackPanel Spacing="1">
                                     <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Description}" FontSize="10" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding ScopeLabel}" FontSize="9" Opacity="0.4"/>
+                                    <TextBlock Text="{Binding Description}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding ScopeLabel}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 </StackPanel>
                             </Button>
                         </DataTemplate>
@@ -231,7 +231,7 @@
                 </Border>
                 </StackPanel>
 
-                <TextBlock Grid.Row="1" Text="{Binding Characters.SelectedSummary}" FontSize="11" Opacity="0.8"
+                <TextBlock Grid.Row="1" Text="{Binding Characters.SelectedSummary}" FontSize="11"
                            TextWrapping="Wrap" Margin="0,4,0,6" IsVisible="{Binding !Characters.IsCreating}"/>
 
                 <TextBox Grid.Row="2"
@@ -251,17 +251,17 @@
                         HorizontalAlignment="Left" VerticalAlignment="Top">
                     <StackPanel Spacing="8">
                         <TextBlock Text="New Character" FontSize="13" FontWeight="SemiBold"/>
-                        <TextBlock Text="Display name" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Display name" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding Characters.NewDisplayName}" Watermark="e.g. Alex — Architect"/>
-                        <TextBlock Text="Id (kebab-case, file name)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Id (kebab-case, file name)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding Characters.NewId}" Watermark="e.g. alex-architect"/>
-                        <TextBlock Text="Avatar (emoji or initials, optional)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Avatar (emoji or initials, optional)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding Characters.NewAvatar}" Watermark="🧭"/>
-                        <TextBlock Text="Description (what this character is for)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Description (what this character is for)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <TextBox Text="{Binding Characters.NewDescription}" Watermark="Designs solutions and writes ADRs; never edits code"/>
-                        <TextBlock Text="Base role (tools and permissions it starts from; empty = generic agent)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Base role (tools and permissions it starts from; empty = generic agent)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <ComboBox ItemsSource="{Binding Characters.BaseRoles}" SelectedItem="{Binding Characters.NewBaseRole}" MinWidth="200"/>
-                        <TextBlock Text="Start from template (inherits role, persona and skills; add the specialty afterwards)" FontSize="10" Opacity="0.6"/>
+                        <TextBlock Text="Start from template (inherits role, persona and skills; add the specialty afterwards)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                         <ComboBox ItemsSource="{Binding Characters.ExtendsOptions}" SelectedItem="{Binding Characters.NewExtends}" MinWidth="200"/>
                         <CheckBox Content="Create as a template (e.g. software-developer) for other characters to extend"
                                   IsChecked="{Binding Characters.NewIsTemplate}" FontSize="11"/>
@@ -277,7 +277,7 @@
                 <Border Grid.Row="3" Background="{DynamicResource AppDeepBrush}" Padding="8" MaxHeight="110"
                         IsVisible="{Binding Characters.SelectedProblems, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                     <ScrollViewer>
-                        <TextBlock Text="{Binding Characters.SelectedProblems}" FontSize="11" Opacity="0.75" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Characters.SelectedProblems}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                     </ScrollViewer>
                 </Border>
             </Grid>
@@ -294,7 +294,7 @@
                                 ToolTip.Tip="Pick a skill from the library or create a new one for this character"
                                 FontSize="11" Padding="8,3"/>
                     </Grid>
-                    <TextBlock Grid.Row="1" FontSize="10" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,4"
+                    <TextBlock Grid.Row="1" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,4"
                                Text="Each character has its own skills, picked from the shared skill library. 📌 keeps a skill's full instructions in context; otherwise it is loaded on demand."/>
 
                     <!-- Add skill panel -->
@@ -318,12 +318,12 @@
                                         <DataTemplate DataType="vm:LibrarySkillItem">
                                             <StackPanel Spacing="0">
                                                 <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="SemiBold"/>
-                                                <TextBlock Text="{Binding Description}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Description}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                                <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding !Characters.HasAvailableSkills}"
+                                <TextBlock FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap" IsVisible="{Binding !Characters.HasAvailableSkills}"
                                            Text="No other library skills match. Choose &quot;Create new&quot;."/>
                             </StackPanel>
 
@@ -338,7 +338,7 @@
                             </StackPanel>
 
                             <CheckBox Content="📌 Pin (always in context)" IsChecked="{Binding Characters.AddSkillPinned}" FontSize="11"/>
-                            <TextBlock Text="{Binding Characters.AddSkillNote}" FontSize="10" Foreground="#E0A040" TextWrapping="Wrap"
+                            <TextBlock Text="{Binding Characters.AddSkillNote}" FontSize="10" Foreground="{DynamicResource ThemeWarningBrush}" TextWrapping="Wrap"
                                        IsVisible="{Binding Characters.SelectedUsesAllSkills}"/>
                             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                                 <Button Content="Cancel" Command="{Binding Characters.CancelAddSkillCommand}" FontSize="11" Padding="10,4"/>
@@ -349,9 +349,9 @@
 
                     <ScrollViewer Grid.Row="3" Margin="0,4,0,0">
                         <StackPanel Spacing="4">
-                            <TextBlock FontSize="10" Foreground="#E0A040" TextWrapping="Wrap" IsVisible="{Binding Characters.SelectedUsesAllSkills}"
+                            <TextBlock FontSize="10" Foreground="{DynamicResource ThemeWarningBrush}" TextWrapping="Wrap" IsVisible="{Binding Characters.SelectedUsesAllSkills}"
                                        Text="This character can use every skill in the library. Add a skill to give it its own list."/>
-                            <TextBlock FontSize="10" Opacity="0.6" TextWrapping="Wrap"
+                            <TextBlock FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"
                                        IsVisible="{Binding !Characters.HasSkillChoices}"
                                        Text="No skills yet. Click &quot;＋ Add skill&quot;."/>
                             <ItemsControl ItemsSource="{Binding Characters.SkillChoices}">
@@ -360,7 +360,7 @@
                                         <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2">
                                             <StackPanel Grid.Column="0" Spacing="0" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold"/>
-                                                <TextBlock Text="{Binding Hint}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"
+                                                <TextBlock Text="{Binding Hint}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"
                                                            ToolTip.Tip="{Binding Hint}"/>
                                             </StackPanel>
                                             <ToggleButton Grid.Column="1" Content="📌" IsChecked="{Binding IsPinned}" IsEnabled="{Binding CanTogglePin}"

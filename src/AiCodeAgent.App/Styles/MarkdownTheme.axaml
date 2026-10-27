@@ -1,0 +1,17 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctxt="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia">
+    <!-- Markdown colours from the theme tokens (E4-S2): inline code and code blocks readable in both themes.
+         Included by every MarkdownScrollViewer, whose own styles would otherwise win over App.axaml. -->
+    <Style Selector="ctxt|CCode">
+        <Setter Property="Foreground" Value="{DynamicResource ThemeCodeFgBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource ThemeCodeBgBrush}"/>
+    </Style>
+    <Style Selector="Border.CodeBlock">
+        <Setter Property="Background" Value="{DynamicResource ThemeCodeBgBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.CodeBlock">
+        <Setter Property="Foreground" Value="{DynamicResource ThemeCodeFgBrush}"/>
+    </Style>
+</Styles>

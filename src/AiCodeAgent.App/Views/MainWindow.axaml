@@ -78,7 +78,7 @@
             <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
                 <!-- App Logo/Title -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <PathIcon Data="M7 2v11h3v9l7-12h-4l4-8z" Width="18" Height="18" VerticalAlignment="Center" Foreground="#FFB900"/>
+                    <PathIcon Data="M7 2v11h3v9l7-12h-4l4-8z" Width="18" Height="18" VerticalAlignment="Center" Foreground="{DynamicResource ThemeWarningBrush}"/>
                     <TextBlock Text="Vibe Coding Hub" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
 
@@ -146,7 +146,7 @@
                                    Text="{Binding WorkingDirectory}" 
                                    FontSize="11" 
                                    VerticalAlignment="Center" 
-                                   Opacity="0.8" 
+                                   
                                    TextTrimming="CharacterEllipsis" 
                                    MaxWidth="260"
                                    FontFamily="Consolas"/>
@@ -209,7 +209,7 @@
                         IsVisible="{Binding ChatViewModel.IsCancellable}"
                         Command="{Binding ChatViewModel.CancelCommand}"
                         ToolTip.Tip="Stop generating (Esc)"
-                        Background="#FF4444" 
+                        Background="{DynamicResource ThemeDangerSolidBrush}" 
                         Foreground="White"
                         Width="32" Height="28" Padding="0" Margin="4,0">
                     <PathIcon Data="M6 6h12v12H6z" Width="14" Height="14"/>
@@ -230,7 +230,7 @@
                     <PathIcon Grid.Column="0" Data="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7"/>
+                        <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                     </StackPanel>
                     <Button Grid.Column="2" Content="{Binding NotesButtonText}" Command="{Binding ToggleNotesCommand}"
                             IsVisible="{Binding HasNotes}" Padding="10,3" Margin="8,0,0,0" Background="Transparent"/>
@@ -243,7 +243,7 @@
                 <ScrollViewer MaxHeight="180" IsVisible="{Binding IsNotesOpen}">
                     <TextBlock Text="{Binding Notes}" FontSize="12" TextWrapping="Wrap"/>
                 </ScrollViewer>
-                <TextBlock Text="{Binding Message}" FontSize="12" Foreground="#E05555" TextWrapping="Wrap"
+                <TextBlock Text="{Binding Message}" FontSize="12" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap"
                            IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
             </StackPanel>
         </Border>
@@ -388,14 +388,14 @@
                                                            Foreground="{Binding GitColor}"
                                                            ToolTip.Tip="{Binding GitTooltip}"
                                                            IsVisible="{Binding HasGitChange}"/>
-                                                <TextBlock Text="●" FontSize="8" Foreground="#E5A100"
+                                                <TextBlock Text="●" FontSize="8" Foreground="{DynamicResource ThemeWarningBrush}"
                                                            VerticalAlignment="Center"
                                                            ToolTip.Tip="Contains uncommitted changes"
                                                            IsVisible="{Binding ShowGitFolderDot}"/>
                                                 <TextBlock Text="⏳" 
                                                            IsVisible="{Binding IsLoading}" 
                                                            FontSize="10" 
-                                                           Foreground="#888"/>
+                                                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                                 <Button Content="✕"
                                                         IsVisible="{Binding IsExtraRoot}"
                                                         Command="{Binding $parent[Window].DataContext.RemoveFolderFromTaskCommand}"
@@ -440,11 +440,11 @@
                                 <StackPanel Spacing="2">
                                     <TextBlock Text="{Binding FileExplorer.RootPath}"
                                                FontSize="10"
-                                               Opacity="0.5"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                TextTrimming="CharacterEllipsis"/>
                                     <TextBlock Text="{Binding FileExplorer.ExtraFoldersSummary}"
                                                FontSize="10"
-                                               Opacity="0.7"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
                             </Border>
@@ -504,14 +504,14 @@
                                     BorderBrush="{DynamicResource AppInfoBorderBrush}" BorderThickness="1"
                                     BoxShadow="0 4 12 0 #44000000">
                                 <Border.Styles>
-                                    <Style Selector="TextBlock.done"><Setter Property="Opacity" Value="0.55"/></Style>
+                                    <Style Selector="TextBlock.done"><Setter Property="Foreground" Value="{DynamicResource ThemeTextMutedBrush}"/></Style>
                                     <Style Selector="TextBlock.current"><Setter Property="FontWeight" Value="SemiBold"/></Style>
-                                    <Style Selector="TextBlock.mark.done"><Setter Property="Foreground" Value="#4CAF50"/><Setter Property="Opacity" Value="1"/></Style>
+                                    <Style Selector="TextBlock.mark.done"><Setter Property="Foreground" Value="{DynamicResource ThemeSuccessBrush}"/><Setter Property="Opacity" Value="1"/></Style>
                                 </Border.Styles>
                                 <StackPanel Spacing="8" DataContext="{Binding SampleGuide}">
                                     <Grid ColumnDefinitions="*,Auto,Auto">
                                         <TextBlock Grid.Column="0" Text="Your first task" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Progress}" FontSize="12" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Progress}" FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                         <Button Grid.Column="2" Content="✕" Padding="6,2" Background="Transparent"
                                                 Command="{Binding HideCommand}"
                                                 ToolTip.Tip="Hide this checklist for good"/>
@@ -526,7 +526,7 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <TextBlock Text="{Binding Hint}" FontSize="12" Opacity="0.8" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Hint}" FontSize="12" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
 
@@ -605,7 +605,7 @@
                                                     <StackPanel Spacing="2">
                                                         <TextBlock Text="{Binding Dimension, StringFormat='Dimension: {}'}"
                                                                    FontSize="10"
-                                                                   Opacity="0.6"/>
+                                                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                                         <TextBlock Text="{Binding Question}"
                                                                    FontSize="12"
                                                                    TextWrapping="Wrap"/>
@@ -616,7 +616,7 @@
                                     </ItemsControl>
                                     <TextBlock Text="Type your answer in the input box below and press Enter, or click Just Build It to skip."
                                                FontSize="10"
-                                               Opacity="0.5"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
@@ -654,7 +654,7 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center"/>
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding ChatViewModel.Activity.StepElapsedText, StringFormat='step {0}'}" FontSize="11" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding ChatViewModel.Activity.StepElapsedText, StringFormat='step {0}'}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                             <TextBlock Text="{Binding ChatViewModel.Activity.ElapsedText, StringFormat='⏱ {0}'}" FontSize="12" FontFamily="Consolas" FontWeight="SemiBold"/>
                                         </StackPanel>
                                     </Grid>
@@ -662,7 +662,7 @@
                                                   IsVisible="{Binding ChatViewModel.Activity.HasRecentSteps}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding}" FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -690,7 +690,7 @@
                                                                 <Grid ColumnDefinitions="Auto,*,Auto">
                                                                     <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" Margin="0,0,8,0"/>
                                                                     <TextBlock Grid.Column="1" Text="{Binding FileName}" FontSize="12" FontWeight="SemiBold"/>
-                                                                    <TextBlock Grid.Column="2" Text="{Binding FilePath}" FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+                                                                    <TextBlock Grid.Column="2" Text="{Binding FilePath}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
                                                                 </Grid>
                                                             </Border>
                                                         </DataTemplate>
@@ -718,7 +718,7 @@
                                                                     <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" Margin="0,0,8,0"/>
                                                                     <StackPanel Grid.Column="1" Orientation="Vertical">
                                                                         <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Bold"/>
-                                                                        <TextBlock Text="{Binding Description}" FontSize="10" Opacity="0.6"/>
+                                                                        <TextBlock Text="{Binding Description}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                                                     </StackPanel>
                                                                 </Grid>
                                                             </Border>
@@ -744,13 +744,13 @@
                                                Name="InputHint"
                                                Text="Enter to send · Shift+Enter for a new line"
                                                FontSize="10"
-                                               Opacity="0.4"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                HorizontalAlignment="Left"
                                                Margin="4,2,0,0"/>
                                     <TextBlock Grid.Row="1" 
                                                Text="{Binding ChatViewModel.TokenCount}" 
                                                FontSize="10" 
-                                               Opacity="0.4" 
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}" 
                                                HorizontalAlignment="Right"
                                                Margin="0,2,4,0"/>
                                 </Grid>
@@ -772,7 +772,7 @@
                                               Margin="12,0,0,0"/>
                                     <TextBlock Text="{Binding ChatViewModel.PendingSkillsText}"
                                                IsVisible="{Binding ChatViewModel.PendingSkillsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                               FontSize="10" Opacity="0.6" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                               FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                     <ComboBox ItemsSource="{Binding ChatViewModel.EffortOptions}"
                                               SelectedItem="{Binding ChatViewModel.ReasoningEffortName}"
                                               ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"
@@ -836,10 +836,10 @@
                                                         <Grid ColumnDefinitions="Auto,*,Auto">
                                                             <TextBlock Grid.Column="0" Text="🤖" FontSize="12" Margin="0,0,6,0"/>
                                                             <TextBlock Grid.Column="1" Text="{Binding AgentId}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                            <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="10" Opacity="0.6"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                                         </Grid>
-                                                        <TextBlock Text="{Binding Role}" FontSize="10" Opacity="0.5"/>
-                                                        <TextBlock Text="{Binding PermissionMode, StringFormat='Mode: {}{0}'}" FontSize="10" Opacity="0.4"/>
+                                                        <TextBlock Text="{Binding Role}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                                        <TextBlock Text="{Binding PermissionMode, StringFormat='Mode: {}{0}'}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                                     </StackPanel>
                                                 </Border>
                                             </DataTemplate>
@@ -946,9 +946,9 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="This project's sessions"
                                            FontSize="11"
-                                           Opacity="0.6"
+                                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                                            Margin="2,0,0,4"/>
-                                <TextBlock Text="{Binding SessionManager.StatusText}" FontSize="10" Opacity="0.7" TextWrapping="Wrap"
+                                <TextBlock Text="{Binding SessionManager.StatusText}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SessionManager.StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                 <ItemsControl ItemsSource="{Binding SessionManager.Sessions}">
                                     <ItemsControl.ItemTemplate>
@@ -959,7 +959,7 @@
                                                     <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsRenaming}">
                                                         <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
                                                                    TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Grid.Column="1" Text="current" FontSize="10" Opacity="0.6" Margin="6,0,0,0"
+                                                        <TextBlock Grid.Column="1" Text="current" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="6,0,0,0"
                                                                    IsVisible="{Binding IsCurrent}"/>
                                                     </Grid>
                                                     <TextBox Text="{Binding RenameText}" IsVisible="{Binding IsRenaming}" FontSize="12">
@@ -972,7 +972,7 @@
                                                                         CommandParameter="{Binding}"/>
                                                         </TextBox.KeyBindings>
                                                     </TextBox>
-                                                    <TextBlock Text="{Binding Details}" FontSize="10" Opacity="0.6"/>
+                                                    <TextBlock Text="{Binding Details}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
 
                                                     <!-- Actions -->
                                                     <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsBrowsing}">
@@ -1012,12 +1012,12 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="No stored sessions for this project yet." FontSize="11" Opacity="0.6" Margin="2,4,0,0"
+                                <TextBlock Text="No stored sessions for this project yet." FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="2,4,0,0"
                                            IsVisible="{Binding SessionManager.HasNoSessions}"/>
 
                                 <TextBlock Text="Recently Exported"
                                            FontSize="11"
-                                           Opacity="0.6"
+                                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                                            Margin="2,12,0,4"/>
                                 <ItemsControl ItemsSource="{Binding SessionManager.ExportedSessions}">
                                     <ItemsControl.ItemTemplate>
@@ -1026,7 +1026,7 @@
                                                        FontSize="10"
                                                        FontFamily="Consolas"
                                                        TextWrapping="Wrap"
-                                                       Opacity="0.7"
+                                                       Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                        Margin="2,2"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -1037,7 +1037,7 @@
                         <TextBlock Grid.Row="2"
                                    Text="{Binding SessionManager.StatusText}"
                                    FontSize="10"
-                                   Opacity="0.6"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"
                                    TextWrapping="Wrap"
                                    Margin="0,8,0,0"
                                    MaxHeight="48"/>
@@ -1094,14 +1094,14 @@
                         <TextBlock Grid.Column="1"
                                    Text="Ctrl+Shift+P"
                                    FontSize="11"
-                                   Opacity="0.5"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"
                                    VerticalAlignment="Center"
                                    Margin="8,0,0,0"/>
                     </Grid>
                     <TextBlock Grid.Row="1"
                                Text="{Binding CommandPalette.FilteredEntries.Count, StringFormat='{}{0} commands'}"
                                FontSize="11"
-                               Opacity="0.5"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                Margin="0,0,0,8"/>
                     <ListBox Grid.Row="2"
                              ItemsSource="{Binding CommandPalette.FilteredEntries}"
@@ -1115,7 +1115,7 @@
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Category}"
                                                FontSize="10"
-                                               Opacity="0.6"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                VerticalAlignment="Center"
                                                Margin="0,0,8,0"/>
                                     <TextBlock Grid.Column="1"
@@ -1126,7 +1126,7 @@
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding KeybindingHint}"
                                                FontSize="11"
-                                               Opacity="0.5"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                VerticalAlignment="Center"
                                                Margin="8,0,0,0"/>
                                 </Grid>
@@ -1165,14 +1165,14 @@
                         <TextBlock Grid.Column="1"
                                    Text="Ctrl+P / Ctrl+T"
                                    FontSize="11"
-                                   Opacity="0.5"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"
                                    VerticalAlignment="Center"
                                    Margin="8,0,0,0"/>
                     </Grid>
                     <TextBlock Grid.Row="1"
                                Text="{Binding QuickOpen.Results.Count, StringFormat='{}{0} results'}"
                                FontSize="11"
-                               Opacity="0.5"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                Margin="0,0,0,8"/>
                     <ListBox Grid.Row="2"
                              ItemsSource="{Binding QuickOpen.Results}"
@@ -1191,7 +1191,7 @@
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding SubText}"
                                                FontSize="11"
-                                               Opacity="0.5"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                VerticalAlignment="Center"
                                                TextTrimming="CharacterEllipsis"/>
                                 </Grid>

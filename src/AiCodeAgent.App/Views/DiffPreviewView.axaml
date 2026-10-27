@@ -12,11 +12,11 @@
             <TextBlock Grid.Column="0" Text="{Binding FilePath}" FontFamily="Consolas,Menlo,monospace"
                        FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
             <TextBlock Grid.Column="1" Name="ChangeSummary" Text="{Binding ChangeSummary}" FontSize="11"
-                       Opacity="0.75" Margin="8,0,0,0"/>
+                       Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="8,0,0,0"/>
         </Grid>
 
         <TextBlock Text="No changes: the file would stay exactly the same." IsVisible="{Binding HasNoChanges}"
-                   FontSize="12" Opacity="0.6"/>
+                   FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
 
         <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="0,4">
             <ItemsControl Name="DiffLines" ItemsSource="{Binding VisibleLines}">
@@ -24,10 +24,10 @@
                     <DataTemplate DataType="vm:UnifiedDiffLine">
                         <Panel>
                             <Grid ColumnDefinitions="40,40,16,*" Background="{Binding Background}" IsVisible="{Binding IsLine}">
-                                <TextBlock Grid.Column="0" Text="{Binding OldNumberText}" Opacity="0.45" FontSize="11"
+                                <TextBlock Grid.Column="0" Text="{Binding OldNumberText}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11"
                                            FontFamily="Consolas,Menlo,monospace" HorizontalAlignment="Right"
                                            VerticalAlignment="Top" Margin="0,1,6,0"/>
-                                <TextBlock Grid.Column="1" Text="{Binding NewNumberText}" Opacity="0.45" FontSize="11"
+                                <TextBlock Grid.Column="1" Text="{Binding NewNumberText}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="11"
                                            FontFamily="Consolas,Menlo,monospace" HorizontalAlignment="Right"
                                            VerticalAlignment="Top" Margin="0,1,6,0"/>
                                 <TextBlock Grid.Column="2" Text="{Binding Marker}" Foreground="{Binding MarkerColor}"
@@ -42,10 +42,10 @@
                                                         Margin="0,1,6,1"/>
                             </Grid>
                             <TextBlock IsVisible="{Binding IsHunkHeader}" Text="{Binding Text}"
-                                       Background="{Binding Background}" Foreground="#4A9EFF" FontSize="11"
+                                       Background="{Binding Background}" Foreground="{DynamicResource ThemeAccentBrush}" FontSize="11"
                                        FontFamily="Consolas,Menlo,monospace" Padding="8,2"/>
                             <TextBlock IsVisible="{Binding IsGap}" Text="{Binding Text}"
-                                       FontSize="11" Opacity="0.6" Padding="12,2"/>
+                                       FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" Padding="12,2"/>
                         </Panel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

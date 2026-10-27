@@ -16,16 +16,16 @@
             <Setter Property="BorderThickness" Value="1.5"/>
             <Setter Property="CornerRadius" Value="8"/>
         </Style>
-        <Style Selector="Border.node.warning"><Setter Property="BorderBrush" Value="#E0A040"/></Style>
-        <Style Selector="Border.node.error"><Setter Property="BorderBrush" Value="#E05050"/></Style>
+        <Style Selector="Border.node.warning"><Setter Property="BorderBrush" Value="{DynamicResource ThemeWarningBrush}"/></Style>
+        <Style Selector="Border.node.error"><Setter Property="BorderBrush" Value="{DynamicResource ThemeDangerBrush}"/></Style>
         <Style Selector="Border.node.waiting"><Setter Property="Opacity" Value="0.85"/></Style>
-        <Style Selector="Border.node.running"><Setter Property="BorderBrush" Value="#4A9EFF"/><Setter Property="BorderThickness" Value="2.5"/></Style>
-        <Style Selector="Border.node.done"><Setter Property="BorderBrush" Value="#3FB950"/></Style>
-        <Style Selector="Border.node.failed"><Setter Property="BorderBrush" Value="#E05050"/><Setter Property="BorderThickness" Value="2.5"/></Style>
+        <Style Selector="Border.node.running"><Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}"/><Setter Property="BorderThickness" Value="2.5"/></Style>
+        <Style Selector="Border.node.done"><Setter Property="BorderBrush" Value="{DynamicResource ThemeSuccessBrush}"/></Style>
+        <Style Selector="Border.node.failed"><Setter Property="BorderBrush" Value="{DynamicResource ThemeDangerBrush}"/><Setter Property="BorderThickness" Value="2.5"/></Style>
         <Style Selector="Border.node.skipped"><Setter Property="Opacity" Value="0.45"/></Style>
         <Style Selector="Border.node.disabled"><Setter Property="Opacity" Value="0.5"/></Style>
-        <Style Selector="Border.node.selected"><Setter Property="BorderBrush" Value="#4A9EFF"/><Setter Property="BorderThickness" Value="3"/></Style>
-        <Style Selector="Border.node.approval"><Setter Property="BorderBrush" Value="#E5A100"/><Setter Property="BorderThickness" Value="3"/></Style>
+        <Style Selector="Border.node.selected"><Setter Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}"/><Setter Property="BorderThickness" Value="3"/></Style>
+        <Style Selector="Border.node.approval"><Setter Property="BorderBrush" Value="{DynamicResource ThemeWarningBrush}"/><Setter Property="BorderThickness" Value="3"/></Style>
 
         <!-- Ports -->
         <Style Selector="Ellipse.port">
@@ -35,7 +35,7 @@
             <Setter Property="Stroke" Value="#888888"/>
             <Setter Property="StrokeThickness" Value="2"/>
         </Style>
-        <Style Selector="Ellipse.outport:pointerover"><Setter Property="Fill" Value="#4A9EFF"/><Setter Property="Cursor" Value="Cross"/></Style>
+        <Style Selector="Ellipse.outport:pointerover"><Setter Property="Fill" Value="{DynamicResource ThemeAccentBrush}"/><Setter Property="Cursor" Value="Cross"/></Style>
 
         <!-- Edges -->
         <Style Selector="Path.edge">
@@ -43,14 +43,14 @@
             <Setter Property="StrokeThickness" Value="2"/>
         </Style>
         <Style Selector="Path.edge.loop"><Setter Property="StrokeDashArray" Value="5,3"/><Setter Property="Stroke" Value="#B07CE0"/></Style>
-        <Style Selector="Path.edge.taken"><Setter Property="Stroke" Value="#3FB950"/><Setter Property="StrokeThickness" Value="3"/></Style>
-        <Style Selector="Path.edge.error"><Setter Property="Stroke" Value="#E05050"/></Style>
-        <Style Selector="Path.edge.selected"><Setter Property="Stroke" Value="#4A9EFF"/><Setter Property="StrokeThickness" Value="3.5"/></Style>
+        <Style Selector="Path.edge.taken"><Setter Property="Stroke" Value="{DynamicResource ThemeSuccessBrush}"/><Setter Property="StrokeThickness" Value="3"/></Style>
+        <Style Selector="Path.edge.error"><Setter Property="Stroke" Value="{DynamicResource ThemeDangerBrush}"/></Style>
+        <Style Selector="Path.edge.selected"><Setter Property="Stroke" Value="{DynamicResource ThemeAccentBrush}"/><Setter Property="StrokeThickness" Value="3.5"/></Style>
         <Style Selector="Path.arrow"><Setter Property="Fill" Value="#888888"/></Style>
         <Style Selector="Path.arrow.loop"><Setter Property="Fill" Value="#B07CE0"/></Style>
-        <Style Selector="Path.arrow.taken"><Setter Property="Fill" Value="#3FB950"/></Style>
-        <Style Selector="Path.arrow.error"><Setter Property="Fill" Value="#E05050"/></Style>
-        <Style Selector="Path.arrow.selected"><Setter Property="Fill" Value="#4A9EFF"/></Style>
+        <Style Selector="Path.arrow.taken"><Setter Property="Fill" Value="{DynamicResource ThemeSuccessBrush}"/></Style>
+        <Style Selector="Path.arrow.error"><Setter Property="Fill" Value="{DynamicResource ThemeDangerBrush}"/></Style>
+        <Style Selector="Path.arrow.selected"><Setter Property="Fill" Value="{DynamicResource ThemeAccentBrush}"/></Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -71,7 +71,7 @@
                     <Button Content="✔ Validate" Command="{Binding ValidateCommand}" FontSize="11" Padding="8,3"/>
                     <Button Content="⌖" Click="OnResetView" FontSize="11" Padding="8,3" ToolTip.Tip="Reset zoom and position"/>
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Opacity="0.6" VerticalAlignment="Center"
+                <TextBlock Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"
                            Margin="12,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="Execution waves: steps joined by ∥ run in parallel"/>
                 <Button Grid.Column="2" Content="✕" Width="24" Height="24" Padding="0" FontSize="11" Command="{Binding CloseCommand}"/>
             </Grid>
@@ -83,7 +83,7 @@
                 <TextBox Grid.Column="0" Text="{Binding FlowName}" Width="170" FontSize="11" Watermark="flow-name" ToolTip.Tip="File name (kebab-case)"/>
                 <TextBox Grid.Column="1" Text="{Binding Description}" Width="260" FontSize="11" Margin="6,0" Watermark="What this flow does"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="Most characters working at the same time">
-                    <TextBlock Text="parallel" FontSize="11" Opacity="0.7" VerticalAlignment="Center"/>
+                    <TextBlock Text="parallel" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
                     <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" FormatString="0" Width="90" FontSize="11"/>
                 </StackPanel>
                 <TextBox Grid.Column="3" Text="{Binding RunTask}" FontSize="11" Margin="8,0" Watermark="Task for the flow, e.g. Add churn prediction to the customer API"/>
@@ -109,7 +109,7 @@
                                             <TextBlock Grid.Column="0" Text="{Binding Avatar}" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Hint}" FontSize="9" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Hint}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                             <Button Grid.Column="2" Content="＋" Padding="5,0" FontSize="11" VerticalAlignment="Center"
                                                     Command="{Binding DataContext.AddFromPaletteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -161,7 +161,7 @@
 
                         <!-- Arrow being dragged from an output handle -->
                         <Path Data="{Binding PendingEdgePath, Converter={x:Static conv:PathDataConverter.Instance}}"
-                              IsVisible="{Binding IsDrawingEdge}" Stroke="#4A9EFF" StrokeThickness="2" StrokeDashArray="4,3"
+                              IsVisible="{Binding IsDrawingEdge}" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeDashArray="4,3"
                               IsHitTestVisible="False"/>
 
                         <!-- Nodes -->
@@ -192,9 +192,9 @@
                                                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
                                                            TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding StateGlyph}" FontSize="13" Margin="4,0,0,0"/>
-                                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subtitle}" FontSize="10" Opacity="0.65"
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subtitle}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding OutcomesText}" FontSize="9" Opacity="0.5"
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding OutcomesText}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                            TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                                             </Grid>
                                         </Border>
@@ -210,7 +210,7 @@
 
                     <!-- Empty state -->
                     <TextBlock Text="Drag characters from the left onto the canvas, then drag from a step's right handle to the next step."
-                               IsVisible="{Binding !Nodes.Count}" Opacity="0.5" FontSize="12" TextWrapping="Wrap" MaxWidth="360"
+                               IsVisible="{Binding !Nodes.Count}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="360"
                                HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" IsHitTestVisible="False"/>
                 </Panel>
             </Border>
@@ -234,9 +234,9 @@
                             <!-- Nothing selected -->
                             <StackPanel IsVisible="{Binding !HasSelection}" Spacing="6">
                                 <TextBlock Text="Inspector" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock FontSize="10" Opacity="0.65" TextWrapping="Wrap"
+                                <TextBlock FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"
                                            Text="Select a step to set its character, prompt and outcomes, or an arrow to set its condition and loop limit. Steps not connected to each other run in parallel. Each step gets the task plus the results of the steps pointing into it."/>
-                                <TextBlock FontSize="10" Opacity="0.65" TextWrapping="Wrap" Foreground="#E0A040" IsVisible="{Binding WasLinear}"
+                                <TextBlock FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeWarningBrush}" IsVisible="{Binding WasLinear}"
                                            Text="This is a linear pipeline: its stages share one history. Saving it here adds arrows and turns it into a flow (each step then gets only its inputs)."/>
                             </StackPanel>
 
@@ -252,20 +252,20 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-                                <TextBlock Text="Name" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Text="Name" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <TextBox Text="{Binding SelectedNode.Name, FallbackValue=''}" FontSize="11"/>
-                                <TextBlock Text="{Binding SelectedNode.Id, StringFormat='id: {0}', FallbackValue=''}" FontSize="9" Opacity="0.5"/>
-                                <TextBlock Text="Character" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Text="{Binding SelectedNode.Id, StringFormat='id: {0}', FallbackValue=''}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Text="Character" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox ItemsSource="{Binding CharacterOptions}" SelectedItem="{Binding SelectedNode.CharacterId, FallbackValue={x:Null}}"
                                           HorizontalAlignment="Stretch" FontSize="11"/>
-                                <TextBlock Text="Prompt ({task} = the flow's task, {input:step-id} = that step's result)" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <TextBlock Text="Prompt ({task} = the flow's task, {input:step-id} = that step's result)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding SelectedNode.PromptTemplate, FallbackValue=''}" AcceptsReturn="True" TextWrapping="Wrap"
                                          MinHeight="90" MaxHeight="220" FontSize="11"/>
-                                <TextBlock Text="Outcomes (e.g. approved, rejected) — arrows can route on them" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <TextBlock Text="Outcomes (e.g. approved, rejected) — arrows can route on them" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding SelectedNode.OutcomesText, FallbackValue=''}" FontSize="11" Watermark="approved, rejected"/>
                                 <CheckBox Content="Ask me before this step starts" IsChecked="{Binding SelectedNode.RequireConfirmation, FallbackValue=False}" FontSize="11"/>
                                 <CheckBox Content="Enabled (unchecked = skipped, arrows pass through)" IsChecked="{Binding SelectedNode.Enabled, FallbackValue=True}" FontSize="11"/>
-                                <TextBlock Text="{Binding SelectedNode.ProblemText, FallbackValue=''}" FontSize="10" Foreground="#E05050" TextWrapping="Wrap"
+                                <TextBlock Text="{Binding SelectedNode.ProblemText, FallbackValue=''}" FontSize="10" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SelectedNode.ProblemText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"/>
                                 <Button Content="🗑 Remove step" Command="{Binding DeleteSelectedCommand}" FontSize="11" Padding="8,3" HorizontalAlignment="Left"/>
                             </StackPanel>
@@ -278,14 +278,14 @@
                                     <Run Text=" → "/>
                                     <Run Text="{Binding SelectedEdge.To.Name, FallbackValue=''}"/>
                                 </TextBlock>
-                                <TextBlock Text="Taken when" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Text="Taken when" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox ItemsSource="{Binding ConditionOptions}" SelectedItem="{Binding SelectedCondition}" HorizontalAlignment="Stretch" FontSize="11"/>
-                                <TextBlock Text="Loop limit (for an arrow that goes back; 0 = not a loop)" FontSize="10" Opacity="0.6" TextWrapping="Wrap"/>
+                                <TextBlock Text="Loop limit (for an arrow that goes back; 0 = not a loop)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <NumericUpDown x:Name="MaxLoopsBox" Value="{Binding SelectedEdge.MaxLoops, FallbackValue=0, Mode=OneWay}" Minimum="0" Maximum="20" Increment="1"
                                                FormatString="0" ValueChanged="OnMaxLoopsChanged" FontSize="11"/>
-                                <TextBlock Text="↺ This arrow goes back: the steps between run again." FontSize="10" Opacity="0.7" TextWrapping="Wrap"
+                                <TextBlock Text="↺ This arrow goes back: the steps between run again." FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SelectedEdge.IsLoop, FallbackValue=False}"/>
-                                <TextBlock Text="{Binding SelectedEdge.ProblemText, FallbackValue=''}" FontSize="10" Foreground="#E05050" TextWrapping="Wrap"
+                                <TextBlock Text="{Binding SelectedEdge.ProblemText, FallbackValue=''}" FontSize="10" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SelectedEdge.ProblemText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"/>
                                 <Button Content="🗑 Remove arrow" Command="{Binding DeleteSelectedCommand}" FontSize="11" Padding="8,3" HorizontalAlignment="Left"/>
                             </StackPanel>
@@ -298,12 +298,12 @@
         <!-- Bottom: status, problems, selected step's output -->
         <Border Grid.Row="3" Background="{DynamicResource AppSubBrush}" Padding="8,4" MaxHeight="220">
             <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,*">
-                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding StatusText}" FontSize="11" Opacity="0.8" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding StatusText}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4"/>
                 <ScrollViewer Grid.Row="1" Grid.Column="0" IsVisible="{Binding HasProblems}" Margin="0,0,6,0">
                     <ItemsControl ItemsSource="{Binding Problems}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="flows:FlowProblem">
-                                <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap" Opacity="0.85"/>
+                                <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

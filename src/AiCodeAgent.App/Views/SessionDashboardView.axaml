@@ -39,15 +39,15 @@
                                 PointerReleased="Session_Clicked">
                             <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Opacity="0.7" Margin="6,0,0,0"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StatusText}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" Margin="6,0,0,0"/>
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                           Text="{Binding Task}" FontSize="10" Opacity="0.55" TextWrapping="Wrap" MaxLines="2"/>
+                                           Text="{Binding Task}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap" MaxLines="2"/>
 
                                 <ItemsControl Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" ItemsSource="{Binding ChatHistory}" Margin="0,4,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="agent:SessionMessage">
-                                            <TextBlock Text="{Binding Content}" FontSize="9" Opacity="0.45" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                            <TextBlock Text="{Binding Content}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis" MaxLines="1"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
