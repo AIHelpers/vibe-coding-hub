@@ -117,6 +117,6 @@ public sealed class AvaloniaRewindPrompt : IRewindPrompt
     private static string Describe(RewindPoint p)
     {
         var files = p.FilesChanged switch { 0 => "no file changes", 1 => "1 file changed", var n => $"{n} files changed" };
-        return $"#{p.Number}  {p.Preview}   ·   {p.Timestamp:t}   ·   {files}";
+        return $"#{p.Number}  {p.Preview}   ·   {LocalTime.FormatShortTime(p.Timestamp)}   ·   {files}";
     }
 }

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using AiCodeAgent.App.Services;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
@@ -61,7 +62,7 @@ public partial class CheckpointBrowserViewModel : ObservableObject
                 var groupVm = new CheckpointGroupViewModel
                 {
                     TurnId = group.Key,
-                    Timestamp = group.Max(c => c.Timestamp),
+                    Timestamp = LocalTime.ToLocal(group.Max(c => c.Timestamp)),
                     FileCount = group.Select(c => c.FilePath).Distinct().Count()
                 };
 
@@ -72,7 +73,7 @@ public partial class CheckpointBrowserViewModel : ObservableObject
                         CheckpointId = checkpoint.CheckpointId,
                         FilePath = checkpoint.FilePath,
                         FileName = Path.GetFileName(checkpoint.FilePath),
-                        Timestamp = checkpoint.Timestamp,
+                        Timestamp = LocalTime.ToLocal(checkpoint.Timestamp),
                         OriginalContent = checkpoint.OriginalContent,
                         CanRestore = true
                     });
