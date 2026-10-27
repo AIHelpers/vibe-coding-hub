@@ -327,32 +327,30 @@ public partial class App : Application
         });
         services.AddSingleton<AiCodeAgent.Core.Characters.SkillMaintenance>();
 
-        // Register AI provider
+        // Register AI provider. ConfiguredAiProvider re-reads the settings on every call, so a provider or key chosen in
+        // the setup wizard or in Settings is used right away (no restart).
+        services.AddSingleton<ILocalProviderProbe, LocalProviderProbe>();
+        services.AddSingleton<IConnectionTester>(sp => new ConnectionTester());
         services.AddSingleton<IAiProvider>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var providerName = configSvc.Config.DefaultProvider;
-            var cfg = configSvc.GetProvider(providerName)
-                ?? throw new InvalidOperationException($"Provider not found: {providerName}");
-            // Normalize the provider name to lowercase so it matches the provider key casing
-            providerName = providerName.ToLowerInvariant();
-
-            // Try to get API key from environment (both legacy and new naming are supported)
-            var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";
-            var envKeyLegacy = $"AIAGENT_{providerName.ToUpper()}_API_KEY";
-            var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
-                      ?? Environment.GetEnvironmentVariable(envKeyLegacy)
-                      ?? cfg.ApiKey;
-            cfg = cfg with { ApiKey = apiKey };
-
-            if (string.IsNullOrEmpty(cfg.ApiKey))
+            return new ConfiguredAiProvider(() =>
             {
-                var logger = loggerFactory.CreateLogger("App");
-                logger.LogWarning("API key for provider '{Provider}' is not configured.", providerName);
-            }
+                var providerName = configSvc.Config.DefaultProvider;
+                var cfg = string.IsNullOrEmpty(providerName) ? null : configSvc.GetProvider(providerName);
+                if (cfg == null) return null;
+                // Normalize the provider name to lowercase so it matches the provider key casing
+                providerName = providerName.ToLowerInvariant();
 
-            return ProviderFactory.CreateOrFallback(providerName, cfg, loggerFactory);
+                // Try to get API key from environment (both legacy and new naming are supported)
+                var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";
+                var envKeyLegacy = $"AIAGENT_{providerName.ToUpper()}_API_KEY";
+                var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
+                          ?? Environment.GetEnvironmentVariable(envKeyLegacy)
+                          ?? cfg.ApiKey;
+                return (providerName, cfg with { ApiKey = apiKey });
+            }, loggerFactory);
         });
 
         // Backend primitives

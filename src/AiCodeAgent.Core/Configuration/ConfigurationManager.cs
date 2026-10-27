@@ -28,10 +28,17 @@ public class ConfigurationService
 
     public AppConfiguration Config => _config;
 
+    /// <summary>
+    /// True when <c>config.json</c> already existed when <see cref="LoadAsync"/> ran. False on a first start
+    /// (the file is created with defaults right after), which is what the first-run wizard keys on.
+    /// </summary>
+    public bool ConfigFileExisted { get; private set; } = true;
+
     public async Task LoadAsync()
     {
         if (!File.Exists(_configPath))
         {
+            ConfigFileExisted = false;
             await SaveAsync();
             return;
         }
@@ -106,8 +113,19 @@ public class ConfigurationService
                 encryptedProviders[key] = provider;
             }
         }
+        // Write the encrypted keys to disk but keep the plain ones in memory: code that reads Config after a save
+        // (the provider factory, Settings) needs the real key, not the DPAPI blob.
+        var plainProviders = _config.Providers;
+        string json;
         _config.Providers = encryptedProviders;
-        var json = JsonSerializer.Serialize(_config, JsonOptions.Pretty);
+        try
+        {
+            json = JsonSerializer.Serialize(_config, JsonOptions.Pretty);
+        }
+        finally
+        {
+            _config.Providers = plainProviders;
+        }
         await File.WriteAllTextAsync(_configPath, json);
 
         Saved?.Invoke(this, EventArgs.Empty);

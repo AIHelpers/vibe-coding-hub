@@ -70,6 +70,11 @@ public class AgentConfiguration
     /// <summary>When the requirements clarifier asks questions before a task (Off, Auto or Always).</summary>
     [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public RequirementsClarifierMode RequirementsClarifier { get; set; } = RequirementsClarifierMode.Auto;
+
+    /// <summary>
+    /// Permission mode a new chat starts in: Ask, AutoEdit, FullAuto or Plan. Chosen in the setup wizard.
+    /// </summary>
+    public string DefaultPermissionMode { get; set; } = "Ask";
 }
 
 public class UiConfiguration
@@ -88,4 +93,10 @@ public class UiConfiguration
     /// <summary>What to do on start when the last session of this working directory has messages: Ask, Always or Never resume.</summary>
     [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
     public ResumeLastSessionMode ResumeLastSession { get; set; } = ResumeLastSessionMode.Ask;
+
+    /// <summary>True once the first-run setup wizard was finished or skipped; it then never opens by itself again.</summary>
+    public bool SetupWizardDone { get; set; }
+
+    /// <summary>Project folders opened lately, newest first (see <see cref="RecentFolderList"/>).</summary>
+    public List<string> RecentFolders { get; set; } = new();
 }

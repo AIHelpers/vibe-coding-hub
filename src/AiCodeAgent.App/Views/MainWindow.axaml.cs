@@ -37,6 +37,9 @@ public partial class MainWindow : Window
         // Offer to continue the last session once the window is up (the setting decides: ask / always / never).
         Opened += (_, _) => Dispatcher.UIThread.Post(
             () => (DataContext as MainViewModel)?.ChatViewModel?.StartResumeCheck(), DispatcherPriority.Background);
+        // First start with nothing to chat with: open the setup wizard (it covers the chat).
+        Opened += (_, _) => Dispatcher.UIThread.Post(
+            () => (DataContext as MainViewModel)?.StartFirstRunCheck(), DispatcherPriority.Background);
         // Run again once the first layout pass has completed: at Opened time the
         // platform may still be applying CenterScreen, which could re-place the
         // window after our clamp and leave its bottom (and any page footer)
