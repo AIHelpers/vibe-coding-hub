@@ -440,32 +440,76 @@
 
                 <ScrollViewer Grid.Row="1">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="Session History"
+                        <TextBlock Text="This project's sessions"
                                    FontSize="11"
                                    Opacity="0.6"
                                    Margin="2,0,0,4"/>
-                        <ItemsControl ItemsSource="{Binding SessionManager.SessionHistory}">
+                        <TextBlock Text="{Binding SessionManager.StatusText}" FontSize="10" Opacity="0.7" TextWrapping="Wrap"
+                                   IsVisible="{Binding SessionManager.StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <ItemsControl ItemsSource="{Binding SessionManager.Sessions}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate DataType="vm:SessionListItemViewModel">
                                     <Border Margin="0,2" Padding="8" Background="{DynamicResource AppHeaderBrush}" CornerRadius="6">
-                                        <Grid ColumnDefinitions="*,Auto">
-                                            <TextBlock Grid.Column="0" 
-                                                       Text="{Binding}" 
-                                                       FontSize="12" 
-                                                       FontFamily="Consolas"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center"/>
-                                            <Button Grid.Column="1"
-                                                    Content="⬇ Export"
-                                                    FontSize="10"
-                                                    Padding="8,3"
-                                                    Command="{Binding $parent[Window].DataContext.SessionManager.ExportSessionCommand}"
-                                                    CommandParameter="{Binding}"/>
-                                        </Grid>
+                                        <StackPanel Spacing="4">
+                                            <!-- Title (or the inline rename box) -->
+                                            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding !IsRenaming}">
+                                                <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="1" Text="current" FontSize="10" Opacity="0.6" Margin="6,0,0,0"
+                                                           IsVisible="{Binding IsCurrent}"/>
+                                            </Grid>
+                                            <TextBox Text="{Binding RenameText}" IsVisible="{Binding IsRenaming}" FontSize="12">
+                                                <TextBox.KeyBindings>
+                                                    <KeyBinding Gesture="Enter"
+                                                                Command="{Binding $parent[Window].DataContext.SessionManager.CommitRenameCommand}"
+                                                                CommandParameter="{Binding}"/>
+                                                    <KeyBinding Gesture="Escape"
+                                                                Command="{Binding $parent[Window].DataContext.SessionManager.CancelRenameCommand}"
+                                                                CommandParameter="{Binding}"/>
+                                                </TextBox.KeyBindings>
+                                            </TextBox>
+                                            <TextBlock Text="{Binding Details}" FontSize="10" Opacity="0.6"/>
+
+                                            <!-- Actions -->
+                                            <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsBrowsing}">
+                                                <Button Content="Open" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.OpenSessionCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Rename" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.BeginRenameCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="⬇ Export" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.ExportSessionCommand}"
+                                                        CommandParameter="{Binding SessionId}"/>
+                                                <Button Content="Delete" FontSize="10" Padding="8,3"
+                                                        IsVisible="{Binding CanDelete}"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.BeginDeleteCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding IsRenaming}">
+                                                <Button Content="Save" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.CommitRenameCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Cancel" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.CancelRenameCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsConfirmingDelete}">
+                                                <TextBlock Text="Delete this session for good?" FontSize="10" VerticalAlignment="Center"/>
+                                                <Button Content="Delete" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.ConfirmDeleteCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="Keep" FontSize="10" Padding="8,3"
+                                                        Command="{Binding $parent[Window].DataContext.SessionManager.CancelDeleteCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <TextBlock Text="No stored sessions for this project yet." FontSize="11" Opacity="0.6" Margin="2,4,0,0"
+                                   IsVisible="{Binding SessionManager.HasNoSessions}"/>
 
                         <TextBlock Text="Recently Exported"
                                    FontSize="11"
@@ -659,6 +703,21 @@
                         <Grid Name="ChatHost" Grid.Column="2" MinWidth="360" IsVisible="{Binding ShowChatPanel}" RowDefinitions="*,Auto,Auto,Auto,Auto">
                             <!-- Chat: one chronological timeline with smart auto-scroll -->
                             <views:ChatTimelineView Grid.Row="0" DataContext="{Binding ChatViewModel.Timeline}"/>
+
+                            <!-- Start-up offer: continue the last session of this project -->
+                            <Border Grid.Row="0" ZIndex="20"
+                                    IsVisible="{Binding ChatViewModel.HasResumeOffer}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Top"
+                                    Margin="16,12,16,0" Padding="12,8" CornerRadius="8"
+                                    Background="{DynamicResource AppHeaderBrush}"
+                                    BorderBrush="#664A9EFF" BorderThickness="1"
+                                    BoxShadow="0 4 12 0 #44000000">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{Binding ChatViewModel.ResumeOfferText}" FontSize="12" VerticalAlignment="Center"/>
+                                    <Button Content="Resume" Command="{Binding ChatViewModel.AcceptResumeOfferCommand}" Padding="10,3"/>
+                                    <Button Content="New" Command="{Binding ChatViewModel.DismissResumeOfferCommand}" Padding="10,3"/>
+                                </StackPanel>
+                            </Border>
 
                             <!-- Terminal Pane -->
                             <Border Grid.Row="1" 

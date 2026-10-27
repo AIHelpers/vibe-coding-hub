@@ -136,6 +136,16 @@
                                Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
+                <!-- Start-up: continue the last session -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="On start" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding ResumeLastSessionOptions}"
+                              SelectedItem="{Binding SelectedResumeLastSession}"
+                              Width="300"/>
+                    <TextBlock Text="Ask: offer to resume the last session of this project · Always: resume it right away · Never: start with an empty chat"
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Permission Mode -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>

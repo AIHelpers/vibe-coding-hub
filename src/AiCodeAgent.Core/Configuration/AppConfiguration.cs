@@ -84,4 +84,8 @@ public class UiConfiguration
     /// or a concrete provider model id).
     /// </summary>
     public string? SelectedModel { get; set; }
+
+    /// <summary>What to do on start when the last session of this working directory has messages: Ask, Always or Never resume.</summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    public ResumeLastSessionMode ResumeLastSession { get; set; } = ResumeLastSessionMode.Ask;
 }

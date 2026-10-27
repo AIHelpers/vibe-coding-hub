@@ -4,6 +4,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Sessions;
 using Avalonia.Controls;
@@ -32,14 +33,102 @@ public partial class SessionManagerViewModel : ObservableObject
     public ObservableCollection<string> ExportedSessions { get; } = new();
     public ObservableCollection<string> SessionHistory { get; } = new();
 
+    /// <summary>The stored chat sessions of the current project, newest first (title, date, messages, cost).</summary>
+    public ObservableCollection<SessionListItemViewModel> Sessions { get; } = new();
+
+    private readonly ISessionCatalog? _catalog;
+
+    /// <summary>The session the chat is in right now; it is marked in the list and cannot be deleted.</summary>
+    [ObservableProperty]
+    private string _currentSessionId = string.Empty;
+
+    /// <summary>Raised by "Open": the host switches the chat to that session.</summary>
+    public event Action<string>? OpenSessionRequested;
+
     public SessionManagerViewModel(
         SessionExportService exportService,
         SessionImporter importer,
-        IContextManager contextManager)
+        IContextManager contextManager,
+        ISessionCatalog? catalog = null)
     {
         _exportService = exportService;
         _importer = importer;
         _contextManager = contextManager;
+        _catalog = catalog;
+        Sessions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasNoSessions));
+    }
+
+    /// <summary>True when the list is empty (shows the "no stored sessions" hint).</summary>
+    public bool HasNoSessions => Sessions.Count == 0;
+
+    [RelayCommand]
+    private void OpenSession(SessionListItemViewModel? item)
+    {
+        if (item != null) OpenSessionRequested?.Invoke(item.SessionId);
+    }
+
+    [RelayCommand]
+    private void BeginRename(SessionListItemViewModel? item)
+    {
+        if (item == null) return;
+        item.RenameText = item.Title;
+        item.IsRenaming = true;
+        item.IsConfirmingDelete = false;
+    }
+
+    [RelayCommand]
+    private void CancelRename(SessionListItemViewModel? item)
+    {
+        if (item != null) item.IsRenaming = false;
+    }
+
+    [RelayCommand]
+    private async Task CommitRenameAsync(SessionListItemViewModel? item)
+    {
+        if (item == null || _catalog == null) return;
+        var title = item.RenameText.Trim();
+        item.IsRenaming = false;
+        if (title.Length == 0 || title == item.Title) return;
+
+        try
+        {
+            await _catalog.RenameAsync(item.SessionId, title);
+            item.Title = title;
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Rename failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void BeginDelete(SessionListItemViewModel? item)
+    {
+        if (item == null || item.SessionId == CurrentSessionId) return;
+        item.IsRenaming = false;
+        item.IsConfirmingDelete = true;
+    }
+
+    [RelayCommand]
+    private void CancelDelete(SessionListItemViewModel? item)
+    {
+        if (item != null) item.IsConfirmingDelete = false;
+    }
+
+    [RelayCommand]
+    private async Task ConfirmDeleteAsync(SessionListItemViewModel? item)
+    {
+        if (item == null || _catalog == null || item.SessionId == CurrentSessionId) return;
+        try
+        {
+            await _catalog.DeleteAsync(item.SessionId);
+            Sessions.Remove(item);
+            StatusText = $"Deleted \"{item.Title}\"";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Delete failed: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -142,6 +231,13 @@ public partial class SessionManagerViewModel : ObservableObject
             {
                 SessionHistory.Add(sessionId);
             }
+
+            Sessions.Clear();
+            if (_catalog != null)
+            {
+                foreach (var info in await _catalog.ListAsync())
+                    Sessions.Add(new SessionListItemViewModel(info) { IsCurrent = info.SessionId == CurrentSessionId });
+            }
         }
         catch (Exception ex)
         {
@@ -191,4 +287,58 @@ public partial class SessionManagerViewModel : ObservableObject
 
         return result.FirstOrDefault()?.TryGetLocalPath();
     }
+}
+
+/// <summary>One row of the session list: title, date, message count and cost, plus its inline rename / delete state.</summary>
+public partial class SessionListItemViewModel : ObservableObject
+{
+    public SessionListItemViewModel(ChatSessionInfo info)
+    {
+        SessionId = info.SessionId;
+        Title = info.Title;
+        UpdatedAt = info.UpdatedAt;
+        MessageCount = info.MessageCount;
+        CostUsd = info.CostUsd;
+    }
+
+    public string SessionId { get; }
+    public DateTime UpdatedAt { get; }
+    public int MessageCount { get; }
+    public decimal CostUsd { get; }
+
+    [ObservableProperty]
+    private string _title;
+
+    [ObservableProperty]
+    private bool _isCurrent;
+
+    [ObservableProperty]
+    private bool _isRenaming;
+
+    [ObservableProperty]
+    private string _renameText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isConfirmingDelete;
+
+    /// <summary>"Oct 27, 14:32 · 12 messages · $0.42" (the cost is left out when nothing was priced).</summary>
+    public string Details
+    {
+        get
+        {
+            var local = LocalTime.ToLocal(UpdatedAt);
+            var text = $"{local:d} {LocalTime.FormatShortTime(UpdatedAt)} · {MessageCount} message{(MessageCount == 1 ? string.Empty : "s")}";
+            return CostUsd > 0 ? $"{text} · ${CostUsd:0.00##}" : text;
+        }
+    }
+
+    /// <summary>The current session cannot be deleted from under the chat.</summary>
+    public bool CanDelete => !IsCurrent;
+
+    /// <summary>True while neither the rename box nor the delete confirmation is showing.</summary>
+    public bool IsBrowsing => !IsRenaming && !IsConfirmingDelete;
+
+    partial void OnIsCurrentChanged(bool value) => OnPropertyChanged(nameof(CanDelete));
+    partial void OnIsRenamingChanged(bool value) => OnPropertyChanged(nameof(IsBrowsing));
+    partial void OnIsConfirmingDeleteChanged(bool value) => OnPropertyChanged(nameof(IsBrowsing));
 }
