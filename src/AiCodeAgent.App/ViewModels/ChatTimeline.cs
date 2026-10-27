@@ -1,4 +1,5 @@
 using System;
+using AiCodeAgent.App.Services;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -81,7 +82,7 @@ public sealed partial class ToolCallItem : ChatItem
     public ToolCallItem(ToolCallCardViewModel card)
     {
         Card = card;
-        Timestamp = card.Timestamp.ToLocalTime();
+        Timestamp = LocalTime.ToLocal(card.Timestamp);
     }
 
     public ToolCallCardViewModel Card { get; }
@@ -182,7 +183,7 @@ public sealed class ChatTimeline
             _ => new AssistantTextItem()
         };
         item.Content = message.Content;
-        item.Timestamp = message.Timestamp;
+        item.Timestamp = LocalTime.ToLocal(message.Timestamp);
         Append(item);
         return item;
     }
@@ -315,12 +316,12 @@ public sealed class ChatTimeline
                 case MessageRole.User:
                     userNumber++; // counted even when blank, exactly like the rewinder
                     if (!string.IsNullOrWhiteSpace(m.Content))
-                        Append(new UserMessageItem { Content = m.Content, Timestamp = m.Timestamp.ToLocalTime(), RewindNumber = userNumber });
+                        Append(new UserMessageItem { Content = m.Content, Timestamp = LocalTime.ToLocal(m.Timestamp), RewindNumber = userNumber });
                     break;
 
                 case MessageRole.Assistant:
                     if (!string.IsNullOrWhiteSpace(m.Content))
-                        Append(new AssistantTextItem { Content = m.Content, Timestamp = m.Timestamp.ToLocalTime() });
+                        Append(new AssistantTextItem { Content = m.Content, Timestamp = LocalTime.ToLocal(m.Timestamp) });
                     foreach (var call in m.ToolCalls ?? Enumerable.Empty<ToolCall>())
                     {
                         if (!string.IsNullOrEmpty(call.Id)) calls[call.Id] = call;

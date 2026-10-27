@@ -37,7 +37,7 @@
                                         <TextBlock Text="{Binding TurnId, StringFormat='Turn: {}{0}'}"
                                                    FontSize="12" FontWeight="SemiBold"/>
                                         <TextBlock Grid.Column="1"
-                                                   Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}"
+                                                   Text="{Binding Timestamp, StringFormat='{}{0:t}'}"
                                                    FontSize="10" Opacity="0.5"/>
                                     </Grid>
                                     <TextBlock Text="{Binding FileCount, StringFormat='{}{0} file(s) touched'}"

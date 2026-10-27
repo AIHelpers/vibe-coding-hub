@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using AiCodeAgent.App.Services;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -626,7 +627,7 @@ public partial class MainViewModel : ObservableObject
         DiffViewer.Load(
             item.FilePath,
             item.OriginalContent,
-            $"Checkpoint @ {item.Timestamp:t}",
+            $"Checkpoint @ {LocalTime.FormatShortTime(item.Timestamp)}",
             item.CheckpointId);
     }
 
@@ -670,7 +671,7 @@ public partial class MainViewModel : ObservableObject
 
         CloseOverlays();
         IsSettingsMode = false;
-        DiffViewer.Load(latest.FilePath, latest.OriginalContent, $"Checkpoint @ {latest.Timestamp:t}", latest.CheckpointId);
+        DiffViewer.Load(latest.FilePath, latest.OriginalContent, $"Checkpoint @ {LocalTime.FormatShortTime(latest.Timestamp)}", latest.CheckpointId);
     }
 
     [RelayCommand]
