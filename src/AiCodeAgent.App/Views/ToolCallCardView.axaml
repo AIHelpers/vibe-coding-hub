@@ -23,7 +23,7 @@
                            IsVisible="{Binding HasSubtitle}"
                            ToolTip.Tip="{Binding Arguments}"
                            FontSize="12"
-                           Opacity="0.75"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                            Margin="6,0,0,0"
                            MaxWidth="460"
                            TextTrimming="CharacterEllipsis"
@@ -33,7 +33,7 @@
                            Text="{Binding DurationText, StringFormat='· {0}'}"
                            IsVisible="{Binding HasDuration}"
                            FontSize="11"
-                           Opacity="0.6"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                            Margin="6,0,0,0"
                            VerticalAlignment="Center"/>
 
@@ -55,7 +55,7 @@
                         Name="ErrorBadge"
                         IsVisible="{Binding IsError}"
                         CornerRadius="3" Padding="4,1" Margin="8,0,0,0"
-                        Background="#C62828"
+                        Background="{DynamicResource ThemeDangerSolidBrush}"
                         VerticalAlignment="Center">
                     <TextBlock Text="error" FontSize="10" Foreground="White"/>
                 </Border>
@@ -72,7 +72,7 @@
             <TextBlock Name="ErrorText"
                        Text="{Binding Output}"
                        IsVisible="{Binding IsError}"
-                       Foreground="#E53935"
+                       Foreground="{DynamicResource ThemeDangerBrush}"
                        FontSize="11"
                        TextWrapping="Wrap"
                        MaxLines="4"
@@ -81,7 +81,7 @@
             <StackPanel Spacing="4" IsVisible="{Binding IsExpanded}">
                 <TextBlock Text="{Binding Arguments}"
                            FontSize="11"
-                           Opacity="0.5"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                            TextWrapping="Wrap"/>
                 <Border Background="{DynamicResource AppDeepBrush}"
                         CornerRadius="4"

@@ -17,7 +17,7 @@
                         Background="Transparent" BorderThickness="0" Padding="2,3">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="{Binding FileName}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding Directory}" FontSize="11" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Directory}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
                 </Button>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
@@ -30,10 +30,10 @@
                             Command="{Binding $parent[UserControl].DataContext.DiscardCommand}" CommandParameter="{Binding}"
                             Width="22" Height="22" Padding="0" FontSize="12" Background="Transparent" BorderThickness="0"/>
                     <StackPanel Orientation="Horizontal" Spacing="2" IsVisible="{Binding ShowDiscardConfirm}">
-                        <TextBlock Text="Discard?" FontSize="10" Foreground="#E05555" VerticalAlignment="Center"/>
+                        <TextBlock Text="Discard?" FontSize="10" Foreground="{DynamicResource ThemeDangerBrush}" VerticalAlignment="Center"/>
                         <Button Content="✓" ToolTip.Tip="Yes, discard — this cannot be undone"
                                 Command="{Binding $parent[UserControl].DataContext.ConfirmDiscardCommand}" CommandParameter="{Binding}"
-                                Width="22" Height="22" Padding="0" FontSize="11" Foreground="#E05555"
+                                Width="22" Height="22" Padding="0" FontSize="11" Foreground="{DynamicResource ThemeDangerBrush}"
                                 Background="Transparent" BorderThickness="0"/>
                         <Button Content="✕" ToolTip.Tip="Keep my changes"
                                 Command="{Binding $parent[UserControl].DataContext.CancelDiscardCommand}" CommandParameter="{Binding}"
@@ -59,7 +59,7 @@
                 <Grid ColumnDefinitions="*,Auto,Auto">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="Source Control" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding Branch, StringFormat='⎇ {0}'}" FontSize="11" Opacity="0.7"
+                        <TextBlock Text="{Binding Branch, StringFormat='⎇ {0}'}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                    VerticalAlignment="Center" IsVisible="{Binding IsGitRepository}"/>
                     </StackPanel>
                     <Button Grid.Column="1" Content="⟳" ToolTip.Tip="Refresh"
@@ -96,9 +96,9 @@
                         ToolTip.Tip="{Binding CommitButtonTip}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         FontSize="12" Padding="10,6"/>
-                <TextBlock Text="{Binding ErrorMessage}" Foreground="#E05555" FontSize="11"
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource ThemeDangerBrush}" FontSize="11"
                            TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
-                <TextBlock Text="{Binding StatusMessage}" Foreground="#4CAF50" FontSize="11"
+                <TextBlock Text="{Binding StatusMessage}" Foreground="{DynamicResource ThemeSuccessBrush}" FontSize="11"
                            TextWrapping="Wrap" IsVisible="{Binding HasStatus}"/>
             </StackPanel>
         </Border>
@@ -107,8 +107,8 @@
         <ScrollViewer Grid.Row="2">
             <StackPanel Margin="8" Spacing="10">
                 <TextBlock Text="No git repository in the open folders. Open a folder that is a git repository (or run git init in it) to use source control."
-                           FontSize="12" Opacity="0.6" TextWrapping="Wrap" IsVisible="{Binding NoRepository}"/>
-                <TextBlock Text="✓ No changes — the working tree is clean." FontSize="12" Opacity="0.6"
+                           FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap" IsVisible="{Binding NoRepository}"/>
+                <TextBlock Text="✓ No changes — the working tree is clean." FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}"
                            IsVisible="{Binding IsClean}"/>
 
                 <!-- Staged -->

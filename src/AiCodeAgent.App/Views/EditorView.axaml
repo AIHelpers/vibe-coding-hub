@@ -35,7 +35,7 @@
                                                        VerticalAlignment="Center"/>
                                             <TextBlock Text="●"
                                                        FontSize="8"
-                                                       Foreground="#FFB900"
+                                                       Foreground="{DynamicResource ThemeWarningBrush}"
                                                        IsVisible="{Binding IsDirty}"
                                                        VerticalAlignment="Center"/>
                                             <Button Content="✕"
@@ -90,7 +90,7 @@
                         VerticalAlignment="Center"
                         Spacing="8">
                 <TextBlock Text="📄" FontSize="48" HorizontalAlignment="Center"/>
-                <TextBlock Text="No file open" FontSize="16" Opacity="0.6" HorizontalAlignment="Center"/>
+                <TextBlock Text="No file open" FontSize="16" Foreground="{DynamicResource ThemeTextMutedBrush}" HorizontalAlignment="Center"/>
             </StackPanel>
         </Grid>
     </Grid>

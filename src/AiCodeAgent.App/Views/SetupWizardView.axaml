@@ -12,7 +12,7 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
             <StackPanel Spacing="2">
                 <TextBlock Text="Welcome — let's get you set up" FontSize="20" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding StepTitle}" Opacity="0.7" FontSize="13"/>
+                <TextBlock Text="{Binding StepTitle}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="13"/>
             </StackPanel>
             <Button Grid.Column="1" Content="Skip" Command="{Binding SkipCommand}" VerticalAlignment="Top"
                     ToolTip.Tip="Set up later: Command Palette → Setup wizard"/>
@@ -25,7 +25,7 @@
                 <StackPanel Spacing="8" IsVisible="{Binding IsSourceStep}">
                     <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsDetecting}">
                         <ProgressBar IsIndeterminate="True" Width="60"/>
-                        <TextBlock Text="Looking for Ollama and LM Studio on this computer…" Opacity="0.7" FontSize="12"/>
+                        <TextBlock Text="Looking for Ollama and LM Studio on this computer…" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12"/>
                     </StackPanel>
                     <ListBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" Background="Transparent">
                         <ListBox.ItemTemplate>
@@ -33,9 +33,9 @@
                                 <StackPanel Spacing="2" Margin="4,6">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"/>
-                                        <TextBlock Text="{Binding Badge}" IsVisible="{Binding HasBadge}" Foreground="#4CAF50" FontSize="12" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Badge}" IsVisible="{Binding HasBadge}" Foreground="{DynamicResource ThemeSuccessBrush}" FontSize="12" VerticalAlignment="Center"/>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Description}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Description}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -54,11 +54,11 @@
                     <StackPanel Spacing="4" IsVisible="{Binding NeedsApiKey}">
                         <TextBlock Text="API key" FontWeight="SemiBold" FontSize="13"/>
                         <TextBox Text="{Binding ApiKey}" PasswordChar="●"/>
-                        <TextBlock Opacity="0.6" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"
                                    Text="Saved encrypted in config.json in your .aiagent folder (Windows: protected by your user account). It is sent only to the provider you chose."/>
                     </StackPanel>
 
-                    <TextBlock IsVisible="{Binding IsLocalSource}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"
+                    <TextBlock IsVisible="{Binding IsLocalSource}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"
                                Text="No key needed: this server runs on your computer, so your code stays here."/>
 
                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -71,7 +71,7 @@
                         <TextBlock Text="Model" FontWeight="SemiBold" FontSize="13"/>
                         <ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" MinWidth="320">
                             <ComboBox.Styles>
-                                <Style Selector="TextBlock.retired"><Setter Property="Opacity" Value="0.45"/></Style>
+                                <Style Selector="TextBlock.retired"><Setter Property="Foreground" Value="{DynamicResource ThemeTextMutedBrush}"/></Style>
                             </ComboBox.Styles>
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="cfg:ModelOption">
@@ -101,8 +101,8 @@
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <TextBlock Text="{Binding SelectedPermission.Description}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap" Foreground="#E0A030" FontSize="12"/>
+                    <TextBlock Text="{Binding SelectedPermission.Description}" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap" Foreground="{DynamicResource ThemeWarningBrush}" FontSize="12"/>
                 </StackPanel>
             </Panel>
         </ScrollViewer>

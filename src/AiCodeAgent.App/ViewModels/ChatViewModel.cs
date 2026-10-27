@@ -492,20 +492,21 @@ public partial class ChatViewModel : ObservableObject
         Timeline.Add(new ChatMessage
         {
             Role = "Assistant",
-            Content = "Hello! I'm your AI Code Assistant. I can help you read, write, and edit files, " +
-                      "search code, run commands, work with git, and more.\n\n" +
-                      "**Features:**\n" +
-                      "- 🎯 Streaming responses in real-time\n" +
-                      "- 🔒 Permission modes (Ask / AutoEdit / FullAuto / Plan)\n" +
-                      "- 📝 Diff-based editing with checkpoints\n" +
-                      "- ⚡ Cancel anytime with Esc or the Cancel button\n" +
-                      "- 📁 File Explorer sidebar (click folder icon to toggle)\n" +
-                      "- 💻 Integrated Terminal (bottom pane)\n" +
-                      "- @-mention files to add context\n" +
-                      "- /slash commands for quick actions",
+            Content = WelcomeText,
             Timestamp = DateTime.Now
         });
     }
+    /// <summary>The first message of every new chat. Plain Markdown with a clean list: no emoji, so it looks the same on every OS.</summary>
+    internal const string WelcomeText =
+        "Hello! I'm your AI code assistant. I can read, write and edit files, search code, run commands and work with git.\n\n" +
+        "**What you can do here**\n\n" +
+        "- Watch answers stream in as they are written\n" +
+        "- Choose how much I may do on my own: Ask, AutoEdit, FullAuto or Plan\n" +
+        "- Review every change as a diff, with checkpoints to roll back\n" +
+        "- Stop at any time with Esc or the Stop button\n" +
+        "- Open the Explorer (Ctrl+B) and the terminal (Ctrl+`)\n" +
+        "- Type @ to add a file as context, or / for commands";
+
     /// <summary>
     /// Accepts a freehand visual annotation (Feature 9) and forwards it to the
     /// agent as a chat instruction. The annotation's vector strokes are

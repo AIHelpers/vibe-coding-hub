@@ -1,16 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using AiCodeAgent.Core.Theming;
+using Avalonia;
 using Avalonia.Media;
+using Avalonia.Styling;
 using AvaloniaEdit.Highlighting;
 
 namespace AiCodeAgent.App.Services;
 
 /// <summary>
-/// Maps file extensions to AvaloniaEdit highlighting definitions.
-/// Falls back to plain text for unknown extensions.
-/// Applies a light theme to the built-in highlighting colors so the
-/// editor text is readable on a white background.
+/// Maps file extensions to AvaloniaEdit highlighting definitions (falls back to plain text for unknown extensions) and
+/// colours them from the theme tokens in <c>App.axaml</c> (<c>ThemeSyntax*</c>), one set per light/dark variant (E4-S2).
+/// The built-in definitions are authored for white backgrounds (Navy, DarkBlue, ...), so each named colour is classified
+/// with <see cref="SyntaxTokens"/>; a name the table does not know keeps its own hue but is made readable
+/// (<see cref="Contrast.EnsureContrast"/>) on the editor background.
 /// </summary>
 public class SyntaxHighlightingResolver
 {
@@ -26,10 +32,10 @@ public class SyntaxHighlightingResolver
         [".cjs"] = "JavaScript",
         [".py"] = "Python",
         [".pyw"] = "Python",
-        [".json"] = "JSON",
-        [".jsonc"] = "JSON",
-        [".md"] = "Markdown",
-        [".markdown"] = "Markdown",
+        [".json"] = "Json",
+        [".jsonc"] = "Json",
+        [".md"] = "MarkDown",
+        [".markdown"] = "MarkDown",
         [".xml"] = "XML",
         [".xaml"] = "XML",
         [".axaml"] = "XML",
@@ -38,7 +44,7 @@ public class SyntaxHighlightingResolver
         [".css"] = "CSS",
         [".scss"] = "CSS",
         [".less"] = "CSS",
-        [".sql"] = "SQL",
+        [".sql"] = "TSQL",
         [".java"] = "Java",
         [".kt"] = "Kotlin",
         [".kts"] = "Kotlin",
@@ -69,7 +75,9 @@ public class SyntaxHighlightingResolver
         [".props"] = "XML",
         [".targets"] = "XML",
         [".resx"] = "XML",
-        [".vb"] = "VB.NET",
+        [".vb"] = "VB",
+        [".diff"] = "Patch",
+        [".patch"] = "Patch",
         [".fs"] = "F#",
         [".fsx"] = "F#",
         [".lua"] = "Lua",
@@ -86,119 +94,11 @@ public class SyntaxHighlightingResolver
 
     private static readonly Dictionary<string, IHighlightingDefinition> Cache = new(StringComparer.OrdinalIgnoreCase);
 
-    // Dark-theme palette (VS Code "Dark+"-like), used when the app theme is dark.
-    // Built lazily: it derives from LightThemeColors, which is declared further down.
-    private static Dictionary<string, string>? _darkThemeColors;
-    private static Dictionary<string, string> DarkThemeColors => _darkThemeColors ??= BuildDarkColors();
+    // The theme variant the shared definitions currently carry colours for.
+    private static ThemeVariant? _appliedVariant;
 
-    private static Dictionary<string, string> BuildDarkColors()
-    {
-        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, hex) in LightThemeColors)
-        {
-            d[name] = hex switch
-            {
-                "#1E1E2E" => "#E8E8F0",   // base text / punctuation
-                "#A31515" => "#CE9178",   // strings, links
-                "#0000FF" => "#569CD6",   // keywords, tags, headers
-                "#FF0000" => "#9CDCFE",   // attributes, CSS properties
-                "#098658" => "#B5CEA8",   // numbers
-                "#267F99" => "#4EC9B0",   // types
-                "#795E26" => "#DCDCAA",   // methods
-                "#0451A5" => "#9CDCFE",   // JSON keys
-                "#800000" => "#D7BA7D",   // CSS selectors
-                "#808080" => "#9B9B9B",   // preprocessor / rules
-                "#AF00DB" => "#C586C0",   // directives
-                _ => hex
-            };
-        }
-        return d;
-    }
-
-    // The theme the shared highlighting definitions currently carry colours for.
-    private static bool? _appliedDark;
-
-    // Light-theme color overrides for the built-in (dark) highlighting definitions.
-    // Keyed by the named color as used inside AvaloniaEdit's .xshd definitions.
-    private static readonly Dictionary<string, string> LightThemeColors = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Base text colors
-        ["Text"] = "#1E1E2E",
-        ["Default"] = "#1E1E2E",
-
-        // Comments - muted gray-green
-        ["Comment"] = "#6A9955",
-        ["CommentLine"] = "#6A9955",
-        ["CommentBlock"] = "#6A9955",
-        ["XmlComment"] = "#6A9955",
-        ["DocComment"] = "#6A9955",
-
-        // Strings - rust orange
-        ["String"] = "#A31515",
-        ["VerbatimString"] = "#A31515",
-        ["Char"] = "#A31515",
-        ["XmlString"] = "#A31515",
-        ["InterpolatedString"] = "#A31515",
-
-        // Keywords - blue
-        ["Keyword"] = "#0000FF",
-        ["XmlTag"] = "#0000FF",
-        ["XmlName"] = "#0000FF",
-        ["XmlAttribute"] = "#FF0000",
-
-        // Numbers - teal
-        ["Number"] = "#098658",
-        ["Digits"] = "#098658",
-        ["Float"] = "#098658",
-        ["Hex"] = "#098658",
-
-        // Preprocessor / directives - gray
-        ["Preprocessor"] = "#808080",
-        ["PreprocessorWord"] = "#AF00DB",
-        ["PreprocessorText"] = "#1E1E2E",
-
-        // Identifiers / types - dark blue
-        ["Type"] = "#267F99",
-        ["ClassName"] = "#267F99",
-        ["InterfaceName"] = "#267F99",
-        ["StructName"] = "#267F99",
-        ["EnumName"] = "#267F99",
-        ["DelegateName"] = "#267F99",
-        ["TypeParameter"] = "#267F99",
-
-        // Method names - dark blue
-        ["MethodName"] = "#795E26",
-        ["FunctionName"] = "#795E26",
-
-        // Punctuation - dark
-        ["Punctuation"] = "#1E1E2E",
-        ["Operator"] = "#1E1E2E",
-        ["Delimiter"] = "#1E1E2E",
-        ["Brace"] = "#1E1E2E",
-
-        // Markdown-specific
-        ["Header"] = "#0000FF",
-        ["Bold"] = "#1E1E2E",
-        ["Italic"] = "#1E1E2E",
-        ["Strikethrough"] = "#1E1E2E",
-        ["Link"] = "#A31515",
-        ["HorizontalRule"] = "#808080",
-
-        // CSS/HTML specific
-        ["PropertyName"] = "#FF0000",
-        ["PropertyValue"] = "#0000FF",
-        ["Selector"] = "#800000",
-        ["AtRule"] = "#AF00DB",
-
-        // JSON specific
-        ["PropertyKey"] = "#0451A5",
-        ["PropertyValue"] = "#A31515",
-
-        // YAML specific
-        ["Tag"] = "#0000FF",
-        ["Anchor"] = "#A31515",
-        ["Alias"] = "#A31515",
-    };
+    // The foreground each named colour had in the library, remembered before the first override.
+    private static readonly ConditionalWeakTable<HighlightingColor, StrongBox<Color?>> Originals = new();
 
     /// <summary>
     /// Resolve a highlighting definition for a file path.
@@ -228,12 +128,12 @@ public class SyntaxHighlightingResolver
         var definition = GetOrLoad(languageName);
 
         // The definitions are shared, so when the app theme flips, recolour the cached ones.
-        var dark = AiCodeAgent.App.Services.ThemeService.IsDark;
-        if (_appliedDark != dark)
+        var variant = Application.Current?.ActualThemeVariant ?? ThemeVariant.Dark;
+        if (!Equals(_appliedVariant, variant))
         {
             foreach (var cached in Cache.Values)
-                ApplyTheme(cached, dark);
-            _appliedDark = dark;
+                ApplyTheme(cached);
+            _appliedVariant = variant;
         }
 
         return definition;
@@ -246,10 +146,13 @@ public class SyntaxHighlightingResolver
 
         try
         {
-            var definition = HighlightingManager.Instance.GetDefinition(languageName);
+            var manager = HighlightingManager.Instance;
+            // Definition names are case-sensitive ("Json", "MarkDown"); fall back to a case-insensitive search.
+            var definition = manager.GetDefinition(languageName)
+                ?? manager.HighlightingDefinitions.FirstOrDefault(d => d.Name.Equals(languageName, StringComparison.OrdinalIgnoreCase));
             if (definition != null)
             {
-                ApplyTheme(definition, AiCodeAgent.App.Services.ThemeService.IsDark);
+                ApplyTheme(definition);
                 Cache[languageName] = definition;
             }
             return definition;
@@ -260,28 +163,45 @@ public class SyntaxHighlightingResolver
         }
     }
 
-    /// <summary>
-    /// Overrides the named highlighting colors with the light or dark palette.
-    /// This ensures the editor text is readable on a white background even
-    /// though the built-in definitions target dark themes.
-    /// </summary>
-    private static void ApplyTheme(IHighlightingDefinition definition, bool dark)
+    /// <summary>The colour of a theme token for the variant in effect, or null if the resource is missing (tests without App.axaml).</summary>
+    private static Color? ThemeColor(string key)
     {
-        var palette = dark ? DarkThemeColors : LightThemeColors;
+        var app = Application.Current;
+        if (app != null && app.TryGetResource(key, app.ActualThemeVariant, out var value) && value is Color color)
+            return color;
+        return null;
+    }
+
+    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    /// <summary>Recolours every named colour of a definition for the theme variant in effect.</summary>
+    private static void ApplyTheme(IHighlightingDefinition definition)
+    {
         if (definition.NamedHighlightingColors == null)
             return;
 
+        var codeBg = ThemeColor("ThemeCodeBg");
+
         foreach (var color in definition.NamedHighlightingColors)
         {
-            if (color == null || string.IsNullOrEmpty(color.Name))
+            if (color == null)
                 continue;
 
-            if (palette.TryGetValue(color.Name, out var hex))
-            {
-                color.Foreground = new SimpleHighlightingBrush(Color.Parse(hex));
-                // Clear any background so we don't get colored blocks on white
-                color.Background = null;
-            }
+            var original = Originals.GetValue(color, c => new StrongBox<Color?>(
+                (c.Foreground?.GetBrush(null) as ISolidColorBrush)?.Color));
+
+            Color? foreground = null;
+            var category = SyntaxTokens.Classify(color.Name);
+            var key = SyntaxTokens.ResourceKey(category);
+            if (key != null)
+                foreground = ThemeColor(key);
+
+            if (foreground == null && category != SyntaxCategory.Default && original.Value is { } orig && codeBg is { } bg)
+                foreground = Color.Parse(Contrast.EnsureContrast(Hex(orig), Hex(bg)));
+
+            color.Foreground = foreground is { } fg ? new SimpleHighlightingBrush(fg) : null;
+            // No coloured blocks behind text (the library has e.g. yellow section markers meant for white pages).
+            color.Background = null;
         }
     }
 }

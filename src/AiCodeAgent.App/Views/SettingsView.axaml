@@ -17,7 +17,7 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="24,24,24,8">
             <StackPanel Grid.Column="0" Spacing="4">
                 <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
-                <TextBlock Text="Configure your AI agent settings" Opacity="0.6" FontSize="13"/>
+                <TextBlock Text="Configure your AI agent settings" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="13"/>
             </StackPanel>
             <Button Grid.Column="1"
                     Content="✕ Close"
@@ -50,7 +50,7 @@
                              Width="400"
                              Watermark="e.g. http://localhost:1234"/>
                     <TextBlock Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"
-                               Opacity="0.6" FontSize="12"/>
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12"/>
                 </StackPanel>
 
                 <!-- Model -->
@@ -69,7 +69,7 @@
                             <ComboBox.Styles>
                                 <!-- Retired models stay listed (an old setting must stay readable) but greyed out. -->
                                 <Style Selector="TextBlock.retired">
-                                    <Setter Property="Opacity" Value="0.45"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource ThemeTextMutedBrush}"/>
                                 </Style>
                             </ComboBox.Styles>
                             <ComboBox.ItemTemplate>
@@ -93,10 +93,10 @@
                                      VerticalAlignment="Center"/>
                     </Grid>
                     <TextBlock Text="{Binding ModelsStatus}"
-                                Opacity="0.6" FontSize="12" TextWrapping="Wrap" Width="400"/>
+                                Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap" Width="400"/>
                     <TextBlock Text="{Binding RetiredModelWarning}"
                                IsVisible="{Binding HasRetiredModelWarning}"
-                               Foreground="#E0A030" FontSize="12" TextWrapping="Wrap" Width="400"/>
+                               Foreground="{DynamicResource ThemeWarningBrush}" FontSize="12" TextWrapping="Wrap" Width="400"/>
                 </StackPanel>
 
                 <!-- API Key -->
@@ -106,7 +106,7 @@
                              PasswordChar="●"
                              Width="400"/>
                     <TextBlock Text="Optional for local providers, required for cloud providers"
-                               Opacity="0.6" FontSize="12"/>
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12"/>
                 </StackPanel>
 
                 <!-- SSL Verification -->
@@ -123,8 +123,8 @@
                     <ComboBox ItemsSource="{Binding ThemeOptions}"
                               SelectedItem="{Binding SelectedTheme}"
                               MinWidth="160"/>
-                    <TextBlock Text="System follows your Windows light/dark setting. Press Save to keep the choice."
-                               FontSize="11" Opacity="0.6"/>
+                    <TextBlock Text="System follows your OS light/dark setting. Press Save to keep the choice."
+                               FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                 </StackPanel>
 
                 <!-- Working Directory -->
@@ -149,7 +149,7 @@
                               SelectedItem="{Binding SelectedRequirementsClarifier}"
                               Width="300"/>
                     <TextBlock Text="Off: never ask · Auto: ask before a new app or feature · Always: ask before every build task"
-                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <!-- Start-up: continue the last session -->
@@ -159,7 +159,7 @@
                               SelectedItem="{Binding SelectedResumeLastSession}"
                               Width="300"/>
                     <TextBlock Text="Ask: offer to resume the last session of this project · Always: resume it right away · Never: start with an empty chat"
-                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <!-- Updates -->
@@ -169,7 +169,7 @@
                               Content="Check for updates automatically"
                               FontSize="13"/>
                     <TextBlock Text="When the app starts (at most once a day) it asks GitHub for the latest release and shows a banner if it is newer. Nothing else is sent. Command Palette → &quot;Check for updates&quot; looks right now."
-                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <!-- Permission Mode -->
@@ -210,7 +210,7 @@
                 <TextBlock Grid.Column="0"
                            Text="Changes are written to the configuration file when you save."
                            FontSize="12"
-                           Opacity="0.6"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"
                            VerticalAlignment="Center"/>
                 <Button Grid.Column="1"
                         Content="💾 Save Settings"

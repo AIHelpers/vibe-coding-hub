@@ -15,7 +15,7 @@
         <!-- Header -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="{DynamicResource AppHeaderBrush}" Margin="8,4">
             <TextBlock Grid.Column="0" Text="{Binding Summary}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
-            <TextBlock Grid.Column="1" Text="🛰️ Plan" FontSize="10" Opacity="0.6" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="🛰️ Plan" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
         </Grid>
 
         <!-- Steps list -->
@@ -31,8 +31,8 @@
                                 <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="14" FontWeight="Bold" VerticalAlignment="Top" Margin="0,0,8,0"/>
                                 <StackPanel Grid.Column="1" Spacing="2">
                                     <TextBlock Text="{Binding Description}" FontSize="12" TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding Files}" FontSize="9" Opacity="0.45" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding FailureReason}" FontSize="9" Foreground="#FF6B6B" TextWrapping="Wrap"
+                                    <TextBlock Text="{Binding Files}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding FailureReason}" FontSize="9" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap"
                                                IsVisible="{Binding FailureReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                 </StackPanel>
                             </Grid>
