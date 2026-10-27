@@ -27,6 +27,8 @@ public static class AppPaths
     public static string Sessions => Path.Combine(UserRoot, "sessions");
     public static string Index => Path.Combine(UserRoot, "index");
     public static string Pricing => Path.Combine(UserRoot, "pricing.json");
+    /// <summary>Optional overrides for the built-in model list (<c>models.json</c>).</summary>
+    public static string Models => Path.Combine(UserRoot, "models.json");
 
     /// <summary>
     /// The resolution rule behind <see cref="UserRoot"/>: a non-blank override wins; otherwise

@@ -37,7 +37,19 @@ public static class ModelPricing
     {
         if (string.IsNullOrWhiteSpace(model)) return null;
         var overrides = LoadOverrides();
-        return Best(overrides, model) ?? Best(Defaults, model);
+        return Best(overrides, model) ?? CatalogPrice(model) ?? Best(Defaults, model);
+    }
+
+    /// <summary>The price <c>models.json</c> gives for exactly this model (or its dated snapshot), when it lists one.</summary>
+    private static ModelPrice? CatalogPrice(string model)
+    {
+        // Exact id first, then the longest catalog id the model is a dated snapshot of ("gpt-4o-mini-2024-07-18"
+        // must find gpt-4o-mini, not the shorter gpt-4o).
+        var models = ModelCatalogLoader.Default.Models;
+        var entry = models.FirstOrDefault(m => string.Equals(m.Id, model, StringComparison.OrdinalIgnoreCase))
+                    ?? models.Where(m => model.StartsWith(m.Id + "-", StringComparison.OrdinalIgnoreCase))
+                             .OrderByDescending(m => m.Id.Length).FirstOrDefault();
+        return entry is { InputPerMillion: { } input, OutputPerMillion: { } output } ? new ModelPrice(input, output) : null;
     }
 
     private static ModelPrice? Best(IReadOnlyDictionary<string, ModelPrice> table, string model) =>

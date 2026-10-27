@@ -424,8 +424,9 @@ modelsCommand.SetHandler(async (provider) =>
         }
         else
         {
-            foreach (var m in models)
-                Console.WriteLine($"  - {m}");
+            // Merged with models.json: known models first, retired ones last and marked.
+            foreach (var m in AiCodeAgent.Core.Configuration.ModelCatalogLoader.Default.Merge(provider, models))
+                Console.WriteLine($"  - {m.Label}");
         }
     }
     catch (Exception ex)

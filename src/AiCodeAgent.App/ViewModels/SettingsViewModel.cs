@@ -83,6 +83,64 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> AvailableModels { get; } = new();
 
+    /// <summary>The models the picker shows: the account's list merged with <c>models.json</c>, retired ones greyed out.</summary>
+    public ObservableCollection<ModelOption> ModelOptions { get; } = new();
+
+    [ObservableProperty]
+    private ModelOption? _selectedModelOption;
+
+    /// <summary>Shown under the picker when the chosen model is retired (it would fail with API errors).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRetiredModelWarning))]
+    private string _retiredModelWarning = string.Empty;
+
+    public bool HasRetiredModelWarning => RetiredModelWarning.Length > 0;
+
+    private bool _syncingModelSelection;
+
+    private static ModelCatalog Catalog => ModelCatalogLoader.Default;
+
+    /// <summary>Keeps <see cref="Model"/> and the picker's selected item in step and updates the retired warning.</summary>
+    partial void OnModelChanged(string value)
+    {
+        UpdateRetiredWarning();
+        if (_syncingModelSelection) return;
+        _syncingModelSelection = true;
+        try
+        {
+            SelectedModelOption = ModelOptions.FirstOrDefault(o => string.Equals(o.Id, value, StringComparison.OrdinalIgnoreCase));
+        }
+        finally { _syncingModelSelection = false; }
+    }
+
+    partial void OnSelectedModelOptionChanged(ModelOption? value)
+    {
+        if (_syncingModelSelection || value == null) return;
+        _syncingModelSelection = true;
+        try { Model = value.Id; }
+        finally { _syncingModelSelection = false; }
+        UpdateRetiredWarning();
+    }
+
+    private void UpdateRetiredWarning() =>
+        RetiredModelWarning = !string.IsNullOrEmpty(Model) && Catalog.IsRetired(SelectedProvider, Model)
+            ? $"⚠ {Model} is retired and will fail with API errors. Pick another model."
+            : string.Empty;
+
+    /// <summary>Shows just the configured model until the real list is loaded.</summary>
+    private void SeedModelOptions()
+    {
+        ModelOptions.Clear();
+        if (!string.IsNullOrEmpty(Model))
+        {
+            var meta = Catalog.Lookup(SelectedProvider, Model);
+            ModelOptions.Add(new ModelOption(Model, meta?.Tier, meta?.Retired ?? false, meta?.ContextWindow));
+        }
+        _syncingModelSelection = true;
+        try { SelectedModelOption = ModelOptions.FirstOrDefault(); }
+        finally { _syncingModelSelection = false; }
+    }
+
     public SettingsViewModel(
         ConfigurationService configurationService,
         IStorageProvider? storageProvider = null,
@@ -169,7 +227,7 @@ public partial class SettingsViewModel : ObservableObject
         if (_configurationService.Config.Providers.TryGetValue(
                 providerName.ToLowerInvariant(), out var provider))
         {
-            Model = provider.DefaultModel ?? "gpt-4o";
+            Model = provider.DefaultModel ?? Catalog.DefaultModel(providerName) ?? string.Empty;
             BaseUrl = provider.BaseUrl ?? string.Empty;
             VerifySsl = provider.VerifySsl;
 
@@ -180,6 +238,7 @@ public partial class SettingsViewModel : ObservableObject
             AvailableModels.Clear();
             if (!string.IsNullOrEmpty(Model))
                 AvailableModels.Add(Model);
+            SeedModelOptions();
             _modelsLoadedForCurrentProvider = false;
 
             // Try to get API key from environment or config
@@ -191,7 +250,7 @@ public partial class SettingsViewModel : ObservableObject
         }
         else
         {
-            Model = "gpt-4o";
+            Model = Catalog.DefaultModel(providerName) ?? string.Empty;
             BaseUrl = string.Empty;
             ApiKey = string.Empty;
             VerifySsl = true;
@@ -230,41 +289,25 @@ public partial class SettingsViewModel : ObservableObject
                 return;
             }
 
-            // Build a temporary provider instance to query models. We use
-            // CreateOrFallback so a misconfigured provider doesn't throw.
-            IAiProvider provider;
-            ILoggerFactory lf;
-            if (_loggerFactory != null)
+            // Build a temporary provider from what is typed in the form (the key may not be saved yet).
+            // CreateOrFallback means a misconfigured provider doesn't throw.
+            var formConfig = new ProviderConfiguration
             {
-                lf = _loggerFactory;
-                provider = ProviderFactory.CreateOrFallback(
-                    providerName, providerConfig, _loggerFactory);
-            }
-            else
-            {
-                // Without a logger factory, create a minimal one on the fly.
-                lf = LoggerFactory.Create(b => { });
-                provider = ProviderFactory.CreateOrFallback(providerName, providerConfig, lf);
-            }
+                Name = providerConfig.Name,
+                BaseUrl = string.IsNullOrWhiteSpace(BaseUrl) ? providerConfig.BaseUrl : BaseUrl,
+                DefaultModel = providerConfig.DefaultModel,
+                ApiKey = !string.IsNullOrEmpty(ApiKey) ? ApiKey : providerConfig.ApiKey,
+                TimeoutSeconds = providerConfig.TimeoutSeconds,
+                VerifySsl = VerifySsl,
+                Headers = providerConfig.Headers
+            };
+            var lf = _loggerFactory ?? LoggerFactory.Create(b => { });
+            var provider = ProviderFactory.CreateOrFallback(providerName, formConfig, lf);
 
-            // Apply a 15-second timeout so unreachable local providers don't
-            // leave the spinner running for minutes (default HttpClient timeout
-            // can be 300s).
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
-
-            string[] models;
-            try
-            {
-                models = await provider.GetAvailableModelsAsync(timeoutCts.Token);
-            }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                // Timeout, not cancellation from a newer request — fall back.
-                models = provider.SupportedModels;
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                    ModelsStatus = "Timed out — showing fallback models");
-            }
+            // Ask the provider (10 s: a dead local server must not leave the spinner running) and merge the answer
+            // with models.json; on failure the result is the built-in list plus a notice.
+            var discovery = new ModelDiscovery(Catalog);
+            var result = await discovery.DiscoverAsync(providerName.ToLowerInvariant(), provider, TimeSpan.FromSeconds(10), token);
 
             if (token.IsCancellationRequested)
                 return;
@@ -273,18 +316,43 @@ public partial class SettingsViewModel : ObservableObject
             // ObservableCollection changes to happen on the dispatcher thread.
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                var options = result.Options.ToList();
+
+                // Never silently keep a retired default: a retired or empty current model is replaced by the
+                // provider's balanced default among the models the account lists.
+                var switchedFrom = (string?)null;
+                if (result.DefaultModel != null && (string.IsNullOrEmpty(Model) || Catalog.IsRetired(providerName, Model)))
+                {
+                    switchedFrom = Model;
+                    Model = result.DefaultModel;
+                }
+
+                // Keep a configured model that is not in the list (a custom or brand-new id) visible.
+                if (!string.IsNullOrEmpty(Model) && !options.Any(o => string.Equals(o.Id, Model, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var meta = Catalog.Lookup(providerName, Model);
+                    options.Insert(0, new ModelOption(Model, meta?.Tier, meta?.Retired ?? false, meta?.ContextWindow));
+                }
+
+                ModelOptions.Clear();
                 AvailableModels.Clear();
-                foreach (var m in models)
-                    AvailableModels.Add(m);
+                foreach (var o in options)
+                {
+                    ModelOptions.Add(o);
+                    AvailableModels.Add(o.Id);
+                }
+                _syncingModelSelection = true;
+                try { SelectedModelOption = ModelOptions.FirstOrDefault(o => string.Equals(o.Id, Model, StringComparison.OrdinalIgnoreCase)); }
+                finally { _syncingModelSelection = false; }
+                UpdateRetiredWarning();
 
-                // Ensure the current Model is in the list; if not, prepend it so
-                // the user can still see/keep their configured value.
-                if (!string.IsNullOrEmpty(Model) && !AvailableModels.Contains(Model))
-                    AvailableModels.Insert(0, Model);
-
-                ModelsStatus = AvailableModels.Count > 0
-                    ? $"{AvailableModels.Count} models available"
-                    : "No models found";
+                var count = options.Count(o => !o.Retired);
+                ModelsStatus = result.Notice
+                    ?? (count > 0 ? $"{count} models available" : "No models found");
+                if (switchedFrom != null)
+                    ModelsStatus += string.IsNullOrEmpty(switchedFrom)
+                        ? $" Selected {Model}."
+                        : $" {switchedFrom} is retired, so {Model} was selected.";
                 _modelsLoadedForCurrentProvider = true;
             });
         }
@@ -322,6 +390,7 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private Task RefreshModels()
     {
+        ModelCatalogLoader.Reload(); // picks up an edited ~/.aiagent/models.json too
         return LoadModelsAsync(SelectedProvider);
     }
 

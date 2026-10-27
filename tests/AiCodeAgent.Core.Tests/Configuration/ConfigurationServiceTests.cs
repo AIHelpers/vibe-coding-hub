@@ -143,7 +143,7 @@ public class ConfigurationServiceTests : IDisposable
 
         Assert.NotNull(provider);
         Assert.Equal("https://api.openai.com", provider!.BaseUrl);
-        Assert.Equal("gpt-4o", provider.DefaultModel);
+        Assert.Equal(ModelCatalogLoader.Default.DefaultModel("openai"), provider.DefaultModel);
     }
 
     [Fact]

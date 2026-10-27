@@ -623,6 +623,18 @@ public partial class ChatViewModel : ObservableObject
     /// restored on the next application launch. Fire-and-forget: failures are
     /// logged to the debug output and never crash the UI.
     /// </summary>
+    /// <summary>
+    /// The model id this run sends. The picker's Fast and Smart map to the fast and frontier tier of the default
+    /// provider (see models.json); Auto sends nothing, so the provider's configured default model is used; a
+    /// concrete id is used as it is.
+    /// </summary>
+    internal string? ModelForRun()
+    {
+        var provider = _configurationService?.Config.DefaultProvider;
+        if (string.IsNullOrWhiteSpace(provider)) return null;
+        return AiCodeAgent.Core.Configuration.ModelCatalogLoader.Default.ModelForRun(SelectedModel, provider);
+    }
+
     partial void OnSelectedModelChanged(string value)
     {
         if (_configurationService == null || string.IsNullOrEmpty(value))
@@ -729,6 +741,7 @@ public partial class ChatViewModel : ObservableObject
                 SessionId,
                 ApplyActiveCharacter(new AgentOptions
                 {
+                    Model = ModelForRun(),
                     PermissionMode = ParsePermissionMode(PermissionMode),
                     Reasoning = ReasoningEffortValue,
                     AllowedPaths = AdditionalFolders,

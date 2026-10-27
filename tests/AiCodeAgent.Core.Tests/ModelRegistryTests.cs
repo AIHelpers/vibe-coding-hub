@@ -30,10 +30,11 @@ public class ModelRegistryTests
     {
         var registry = new ModelRegistry();
 
-        var model = registry.Resolve("claude-3-5-sonnet-20241022");
+        var model = registry.Resolve("claude-3-5-sonnet-20241022"); // retired, but still resolvable by id
 
         Assert.NotNull(model);
         Assert.Equal("anthropic", model.Provider);
+        Assert.Null(model.Alias); // retired models are never picked by an alias
     }
 
     [Fact]
@@ -45,7 +46,7 @@ public class ModelRegistryTests
 
         Assert.NotNull(model);
         Assert.Equal("anthropic", model.Provider);
-        Assert.Equal("claude-3-5-sonnet-20241022", model.Id);
+        Assert.Equal(ModelCatalogLoader.Default.ModelForTier("anthropic", ModelTier.Frontier), model.Id);
     }
 
     [Fact]
@@ -146,7 +147,7 @@ public class ModelRegistryTests
 
         var openaiModels = registry.ListForProvider("openai");
 
-        Assert.Equal(2, openaiModels.Count);
+        Assert.NotEmpty(openaiModels);
         Assert.All(openaiModels, m => Assert.Equal("openai", m.Provider));
     }
 

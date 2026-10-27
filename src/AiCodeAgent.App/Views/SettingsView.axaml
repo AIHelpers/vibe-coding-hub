@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                 xmlns:vm="using:AiCodeAgent.App.ViewModels"
+                xmlns:cfg="using:AiCodeAgent.Core.Configuration"
                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                 mc:Ignorable="d"
@@ -58,13 +59,25 @@
                     <Grid ColumnDefinitions="*,Auto,Auto" Width="400">
                         <ComboBox Grid.Column="0"
                                   x:Name="ModelComboBox"
-                                  ItemsSource="{Binding AvailableModels}"
-                                  SelectedItem="{Binding Model}"
+                                  ItemsSource="{Binding ModelOptions}"
+                                  SelectedItem="{Binding SelectedModelOption}"
                                   PlaceholderText="Select a model"
                                   ToolTip.Tip="Select a model from the list"
                                   MinWidth="300"
                                   VerticalAlignment="Center"
-                                  PointerPressed="ModelComboBox_OnPointerPressed"/>
+                                  PointerPressed="ModelComboBox_OnPointerPressed">
+                            <ComboBox.Styles>
+                                <!-- Retired models stay listed (an old setting must stay readable) but greyed out. -->
+                                <Style Selector="TextBlock.retired">
+                                    <Setter Property="Opacity" Value="0.45"/>
+                                </Style>
+                            </ComboBox.Styles>
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="cfg:ModelOption">
+                                    <TextBlock Text="{Binding Label}" Classes.retired="{Binding Retired}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                         <Button Grid.Column="1"
                                 Content="🔄"
                                 Command="{Binding RefreshModelsCommand}"
@@ -80,7 +93,10 @@
                                      VerticalAlignment="Center"/>
                     </Grid>
                     <TextBlock Text="{Binding ModelsStatus}"
-                                Opacity="0.6" FontSize="12"/>
+                                Opacity="0.6" FontSize="12" TextWrapping="Wrap" Width="400"/>
+                    <TextBlock Text="{Binding RetiredModelWarning}"
+                               IsVisible="{Binding HasRetiredModelWarning}"
+                               Foreground="#E0A030" FontSize="12" TextWrapping="Wrap" Width="400"/>
                 </StackPanel>
 
                 <!-- API Key -->

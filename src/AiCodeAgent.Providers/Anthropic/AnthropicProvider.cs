@@ -10,16 +10,9 @@ using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Providers.Anthropic;
 
-public class AnthropicProvider : BaseHttpProvider
+public class AnthropicProvider : BaseHttpProvider, IModelLister
 {
     private const string ApiVersion = "2023-06-01";
-    private static readonly string[] Models =
-    [
-        "claude-opus-4-5", "claude-sonnet-4-5",
-        "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
-        "claude-3-opus-20240229"
-    ];
-
     public AnthropicProvider(ProviderConfiguration config, ILogger<AnthropicProvider> logger)
         : base(config, logger)
     {
@@ -29,19 +22,28 @@ public class AnthropicProvider : BaseHttpProvider
     }
 
     public override string Name => "Anthropic";
-    public override string[] SupportedModels => Models;
+    /// <summary>The offline list: the non-retired Anthropic models of <c>models.json</c>.</summary>
+    public override string[] SupportedModels =>
+        ModelCatalogLoader.Default.ForProvider("anthropic").Select(m => m.Id).ToArray();
+
+    /// <inheritdoc />
+    public async Task<string[]> ListModelIdsAsync(CancellationToken cancellationToken = default)
+    {
+        // The list is paged (20 per page by default); one page of up to 1000 holds every model.
+        var json = await HttpClient.GetStringAsync("/v1/models?limit=1000", cancellationToken);
+        return ModelListParser.ParseAnthropic(json);
+    }
 
     public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await HttpClient.GetFromJsonAsync<AnthropicModelsResponse>(
-                "/v1/models", cancellationToken);
-            return response?.Data.Select(m => m.Id).ToArray() ?? Models;
+            var ids = await ListModelIdsAsync(cancellationToken);
+            return ids.Length > 0 ? ids : SupportedModels;
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            return Models;
+            return SupportedModels;
         }
     }
 

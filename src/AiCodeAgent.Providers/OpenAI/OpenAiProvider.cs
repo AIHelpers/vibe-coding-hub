@@ -10,31 +10,33 @@ using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Providers.OpenAI;
 
-public class OpenAiProvider : BaseHttpProvider
+public class OpenAiProvider : BaseHttpProvider, IModelLister
 {
-    private static readonly string[] Models =
-    [
-        "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4",
-        "gpt-3.5-turbo", "o1-preview", "o1-mini"
-    ];
-
     public OpenAiProvider(ProviderConfiguration config, ILogger<OpenAiProvider> logger)
         : base(config, logger) { }
 
     public override string Name => "OpenAI";
-    public override string[] SupportedModels => Models;
+    /// <summary>The offline list: the non-retired OpenAI models of <c>models.json</c>.</summary>
+    public override string[] SupportedModels =>
+        ModelCatalogLoader.Default.ForProvider("openai").Select(m => m.Id).ToArray();
+
+    /// <inheritdoc />
+    public virtual async Task<string[]> ListModelIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var json = await HttpClient.GetStringAsync("/v1/models", cancellationToken);
+        return ModelListParser.ParseOpenAi(json);
+    }
 
     public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await HttpClient.GetFromJsonAsync<OpenAiModelsResponse>(
-                "/v1/models", cancellationToken);
-            return response?.Data.Select(m => m.Id).ToArray() ?? Models;
+            var ids = await ListModelIdsAsync(cancellationToken);
+            return ids.Length > 0 ? ids : SupportedModels;
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            return Models;
+            return SupportedModels;
         }
     }
 
