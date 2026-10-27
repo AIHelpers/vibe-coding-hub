@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:md="https://github.com/whistyun/Markdown.Avalonia"
+             xmlns:mdtight="https://github.com/whistyun/Markdown.Avalonia.Tight"
+             x:Class="AiCodeAgent.App.Views.MarkdownOutputView">
+    <!-- Same renderer and styles as the chat (ChatTimelineView). -->
+    <md:MarkdownScrollViewer Name="Viewer">
+        <md:MarkdownScrollViewer.Plugins>
+            <md:MdAvPlugins>
+                <mdtight:ChatAISetup/>
+            </md:MdAvPlugins>
+        </md:MarkdownScrollViewer.Plugins>
+    </md:MarkdownScrollViewer>
+</UserControl>

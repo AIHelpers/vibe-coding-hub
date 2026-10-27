@@ -101,6 +101,16 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>The selected node's live output, or the last finished run's summary.</summary>
     public string SelectedOutput => SelectedNode?.OutputText ?? string.Empty;
 
+    /// <summary>Raised by "Open in chat": (title, Markdown). The host shows it in the chat.</summary>
+    public event Action<string, string>? OpenInChatRequested;
+
+    [RelayCommand]
+    private void OpenSelectedOutputInChat()
+    {
+        if (SelectedNode is { } node && !string.IsNullOrWhiteSpace(node.OutputText))
+            OpenInChatRequested?.Invoke($"Flow step: {node.Name}", node.OutputText.Trim());
+    }
+
     partial void OnSelectedNodeChanged(FlowNodeViewModel? oldValue, FlowNodeViewModel? newValue)
     {
         if (oldValue != null) oldValue.IsSelected = false;
@@ -939,12 +949,12 @@ public partial class FlowEditorViewModel : ObservableObject
                 node.RunDetail = status.Detail;
                 if (status.State == FlowNodeState.Running && status.Iteration > 0)
                 {
-                    node.SetOutput(status.Iteration > 1 ? $"— round {status.Iteration} —\n" : string.Empty);
+                    node.SetOutput(status.Iteration > 1 ? AgentOutputText.RoundHeader(status.Iteration) : string.Empty);
                     // A node that runs again un-lights the arrows out of it until it finishes.
                     foreach (var e in Edges.Where(e => ReferenceEquals(e.From, node) && !e.IsLoop)) e.IsTaken = false;
                 }
                 if (status.State is FlowNodeState.Failed or FlowNodeState.Skipped && status.Detail != null)
-                    node.AppendOutput($"\n[{status.State.ToString().ToLowerInvariant()}: {status.Detail}]");
+                    node.AppendOutput(AgentOutputText.FailureNote(status.State.ToString(), status.Detail));
                 if (ReferenceEquals(node, SelectedNode)) OnPropertyChanged(nameof(SelectedOutput));
                 break;
 
@@ -966,22 +976,22 @@ public partial class FlowEditorViewModel : ObservableObject
                 break;
 
             case AgentTaggedEvent { Inner: ToolCallStartEvent tool } tagged when FindNode(tagged.AgentId) is { } node:
-                node.AppendOutput($"\n[tool] {tool.Call.Name}\n");
+                node.AppendOutput(AgentOutputText.ToolNote(tool.Call.Name));
                 break;
 
             case AgentTaggedEvent { Inner: AgentFinishedEvent finished } tagged when FindNode(tagged.AgentId) is { } node:
                 // The final answer replaces the streamed text (it is the clean version).
                 if (!string.IsNullOrWhiteSpace(finished.Response.Content))
-                    node.SetOutput((node.RunCount > 1 ? $"— round {node.RunCount} —\n" : string.Empty) + finished.Response.Content);
+                    node.SetOutput((node.RunCount > 1 ? AgentOutputText.RoundHeader(node.RunCount) : string.Empty) + finished.Response.Content);
                 if (ReferenceEquals(node, SelectedNode)) OnPropertyChanged(nameof(SelectedOutput));
                 break;
 
             case AgentTaggedEvent { Inner: StatusUpdateEvent st } tagged when FindNode(tagged.AgentId) is { } node:
-                node.AppendOutput($"\n[{st.Status}] {st.Detail}\n");
+                if (AgentOutputText.StatusNote(st) is { } statusNote) node.AppendOutput(statusNote);
                 break;
 
             case AgentTaggedEvent { Inner: AgentErrorEvent err } tagged when FindNode(tagged.AgentId) is { } node:
-                node.AppendOutput($"\n[error] {err.Error.Message}\n");
+                node.AppendOutput(AgentOutputText.ErrorNote(err.Error.Message));
                 break;
 
             case AgentTaggedEvent { Inner: ApprovalRequestEvent approval } tagged when FindNode(tagged.AgentId) is { } node:
@@ -998,7 +1008,7 @@ public partial class FlowEditorViewModel : ObservableObject
                     // Tool approvals inside a step use the same buttons.
                     _approvals[node.Id] = approval.Approval;
                     node.IsAwaitingApproval = true;
-                    node.AppendOutput($"\n[approval needed] {approval.Call.Name}\n");
+                    node.AppendOutput(AgentOutputText.ApprovalNote(approval.Call.Name));
                     StatusText = $"'{node.Name}' asks to run {approval.Call.Name}.";
                 }
                 break;

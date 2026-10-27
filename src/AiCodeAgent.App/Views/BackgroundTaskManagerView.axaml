@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:views="using:AiCodeAgent.App.Views"
              x:Class="AiCodeAgent.App.Views.BackgroundTaskManagerView"
              x:DataType="vm:BackgroundTaskManagerViewModel">
 
@@ -86,13 +87,18 @@
                                     <TextBlock Text="{Binding StartedAt, StringFormat='started {0:t}'}" FontSize="10" Opacity="0.5"/>
                                     <TextBlock Text="{Binding ToolCallCount, StringFormat='{}{0} tool call(s)'}" FontSize="10" Opacity="0.5"/>
                                 </StackPanel>
-                                <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" MaxHeight="140"
+                                <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" MaxHeight="240"
                                         IsVisible="{Binding HasOutput}">
-                                    <ScrollViewer>
-                                        <TextBlock Text="{Binding Output}" FontSize="11" FontFamily="Consolas,Menlo,monospace"
-                                                   TextWrapping="Wrap" Opacity="0.8"/>
-                                    </ScrollViewer>
+                                    <views:MarkdownOutputView Markdown="{Binding OutputMarkdown}"/>
                                 </Border>
+                                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasOutput}">
+                                    <Button Content="Copy" Click="OnCopyOutputClick" FontSize="10" Padding="8,2"
+                                            ToolTip.Tip="Copy the result as Markdown"/>
+                                    <Button Content="Open in chat"
+                                            Command="{Binding DataContext.OpenTaskInChatCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            FontSize="10" Padding="8,2"/>
+                                </StackPanel>
                                 <TextBlock Text="{Binding ErrorMessage}" FontSize="11" Foreground="#E05555"
                                            TextWrapping="Wrap" IsVisible="{Binding HasError}"/>
                             </StackPanel>
