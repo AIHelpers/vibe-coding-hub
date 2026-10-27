@@ -22,73 +22,31 @@ public class ModelRegistry
     private readonly Dictionary<string, ModelConfig> _byId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<ModelConfig>> _byAlias = new(StringComparer.OrdinalIgnoreCase);
 
-    public ModelRegistry()
+    /// <param name="catalog">The model list to seed from; defaults to <see cref="ModelCatalogLoader.Default"/>.</param>
+    public ModelRegistry(ModelCatalog? catalog = null)
     {
-        // Seed the registry with a small, opinionated default catalogue.
-        Register(new ModelConfig
+        // Seed from the catalog: Auto = balanced tier, Fast = fast tier, Smart = frontier tier (best model first).
+        // Retired models stay resolvable by id (so an old setting shows what it is) but never get an alias.
+        foreach (var m in (catalog ?? ModelCatalogLoader.Default).Models)
         {
-            Id = "gpt-4o",
-            Provider = "openai",
-            Alias = SmartAlias,
-            ContextWindow = 128_000,
-            MaxOutputTokens = 16_384,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "gpt-4o-mini",
-            Provider = "openai",
-            Alias = FastAlias,
-            ContextWindow = 128_000,
-            MaxOutputTokens = 16_384,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "claude-3-5-sonnet-20241022",
-            Provider = "anthropic",
-            Alias = SmartAlias,
-            ContextWindow = 200_000,
-            MaxOutputTokens = 8_192,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "claude-3-5-haiku-20241022",
-            Provider = "anthropic",
-            Alias = FastAlias,
-            ContextWindow = 200_000,
-            MaxOutputTokens = 8_192,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "llama-3.1-8b-instruct",
-            Provider = "ollama",
-            Alias = FastAlias,
-            ContextWindow = 32_768,
-            MaxOutputTokens = 4_096,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "llama-3.1-70b-instruct",
-            Provider = "ollama",
-            Alias = SmartAlias,
-            ContextWindow = 32_768,
-            MaxOutputTokens = 4_096,
-            SupportsStreaming = true
-        });
-        Register(new ModelConfig
-        {
-            Id = "local-model",
-            Provider = "lmstudio",
-            Alias = AutoAlias,
-            ContextWindow = 8_192,
-            MaxOutputTokens = 2_048,
-            SupportsStreaming = true
-        });
+            Register(new ModelConfig
+            {
+                Id = m.Id,
+                Provider = m.Provider,
+                Alias = m.Retired ? null : AliasOf(m.Tier),
+                ContextWindow = m.ContextWindow,
+                MaxOutputTokens = 8_192,
+                SupportsStreaming = true
+            });
+        }
     }
+
+    private static string AliasOf(ModelTier tier) => tier switch
+    {
+        ModelTier.Fast => FastAlias,
+        ModelTier.Frontier => SmartAlias,
+        _ => AutoAlias
+    };
 
     /// <summary>Registers (or replaces) a model configuration.</summary>
     public void Register(ModelConfig config)

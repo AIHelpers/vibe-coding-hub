@@ -31,7 +31,7 @@ public class AppConfigurationTests
         var openai = config.Providers["openai"];
 
         Assert.Equal("https://api.openai.com", openai.BaseUrl);
-        Assert.Equal("gpt-4o", openai.DefaultModel);
+        Assert.Equal(ModelCatalogLoader.Default.DefaultModel("openai"), openai.DefaultModel);
         Assert.Equal(120, openai.TimeoutSeconds);
     }
 

@@ -1406,7 +1406,7 @@ public class TerminalUI
     {
         if (string.IsNullOrWhiteSpace(model))
         {
-            WriteColored("Usage: /model <name|alias>  (e.g. /model Auto, /model gpt-4o)\n", Colors.Error);
+            WriteColored("Usage: /model <name|alias>  (e.g. /model Auto, /model Fast, /model Smart, or a model id)\n", Colors.Error);
             return;
         }
 

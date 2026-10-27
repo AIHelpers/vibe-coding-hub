@@ -11,6 +11,10 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The model list lives with the providers; Core embeds it so defaults and the registry can read it. -->
+    <EmbeddedResource Include="..\AiCodeAgent.Providers\models.json" LogicalName="AiCodeAgent.Providers.models.json" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="AiCodeAgent.Core.Tests" />
   </ItemGroup>
 </Project>

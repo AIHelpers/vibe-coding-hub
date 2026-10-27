@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Providers.Ollama;
 
-public class OllamaProvider : BaseHttpProvider
+public class OllamaProvider : BaseHttpProvider, IModelLister
 {
     public OllamaProvider(ProviderConfiguration config, ILogger<OllamaProvider> logger)
         : base(config, logger)
@@ -21,23 +21,32 @@ public class OllamaProvider : BaseHttpProvider
     }
 
     public override string Name => "Ollama";
-    public override string[] SupportedModels => _cachedModels;
+    /// <summary>The models last read from the server, or the Ollama entries of <c>models.json</c> before that.</summary>
+    public override string[] SupportedModels =>
+        _cachedModels ?? ModelCatalogLoader.Default.ForProvider("ollama").Select(m => m.Id).ToArray();
 
-    private string[] _cachedModels = ["llama3.1", "codellama", "mistral", "deepseek-coder"];
+    /// <inheritdoc />
+    public async Task<string[]> ListModelIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var json = await HttpClient.GetStringAsync("/api/tags", cancellationToken);
+        var ids = ModelListParser.ParseOllama(json);
+        if (ids.Length > 0) _cachedModels = ids;
+        return ids;
+    }
+
+    private string[]? _cachedModels;
 
     public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await HttpClient.GetFromJsonAsync<OllamaModelsResponse>(
-                "/api/tags", cancellationToken);
-            _cachedModels = response?.Models.Select(m => m.Name).ToArray() ?? _cachedModels;
-            return _cachedModels;
+            var ids = await ListModelIdsAsync(cancellationToken);
+            return ids.Length > 0 ? ids : SupportedModels;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             Logger.LogDebug(ex, "Failed to fetch available models from Ollama");
-            return _cachedModels;
+            return SupportedModels;
         }
     }
 

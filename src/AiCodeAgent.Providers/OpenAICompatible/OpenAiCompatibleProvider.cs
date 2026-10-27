@@ -28,15 +28,21 @@ public class OpenAiCompatibleProvider : OpenAiProvider
     public override string Name => _name;
     public override string[] SupportedModels => _models;
 
+    /// <inheritdoc />
+    public override async Task<string[]> ListModelIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var json = await HttpClient.GetStringAsync("/v1/models", cancellationToken);
+        return ModelListParser.ParseOpenAiCompatible(json); // unfiltered: a local server's ids are not OpenAI's
+    }
+
     public override async Task<string[]> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = await HttpClient.GetFromJsonAsync<OpenAiModelsResponse>(
-                "/v1/models", cancellationToken);
-            return response?.Data.Select(m => m.Id).ToArray() ?? _models;
+            var ids = await ListModelIdsAsync(cancellationToken);
+            return ids.Length > 0 ? ids : _models;
         }
-        catch
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             return _models;
         }

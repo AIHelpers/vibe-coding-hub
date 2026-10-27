@@ -15,21 +15,21 @@ public class AppConfiguration
             {
                 Name = "openai",
                 BaseUrl = "https://api.openai.com",
-                DefaultModel = "gpt-4o",
+                DefaultModel = ModelCatalogLoader.Default.DefaultModel("openai") ?? "gpt-5.6-terra",
                 TimeoutSeconds = 120
             },
             ["anthropic"] = new()
             {
                 Name = "anthropic",
                 BaseUrl = "https://api.anthropic.com",
-                DefaultModel = "claude-3-5-sonnet-20241022",
+                DefaultModel = ModelCatalogLoader.Default.DefaultModel("anthropic") ?? "claude-sonnet-5-5",
                 TimeoutSeconds = 120
             },
             ["ollama"] = new()
             {
                 Name = "ollama",
                 BaseUrl = "http://localhost:11434",
-                DefaultModel = "llama3.1",
+                DefaultModel = ModelCatalogLoader.Default.DefaultModel("ollama") ?? "llama3.1",
                 TimeoutSeconds = 300
             },
             ["lmstudio"] = new()
