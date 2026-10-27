@@ -226,7 +226,7 @@ public partial class FlowEditorViewModel : ObservableObject
             Palette.Add(new FlowPaletteItem
             {
                 CharacterId = c.Id,
-                Label = c.Label,
+                Label = c.DisplayName, // the avatar is its own column in the row: Label would repeat it
                 Description = c.Description,
                 BaseRole = c.BaseRole,
                 Avatar = string.IsNullOrEmpty(c.Avatar) ? "🤖" : c.Avatar
@@ -388,7 +388,7 @@ public partial class FlowEditorViewModel : ObservableObject
     {
         if (vm.CharacterId != null && _characterById.TryGetValue(vm.CharacterId, out var c))
         {
-            vm.CharacterLabel = c.Label;
+            vm.CharacterLabel = c.DisplayName; // the node shows the avatar next to it
             vm.Avatar = string.IsNullOrEmpty(c.Avatar) ? "🤖" : c.Avatar;
         }
         else

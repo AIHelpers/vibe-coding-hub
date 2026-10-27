@@ -755,45 +755,19 @@
                                                Margin="0,2,4,0"/>
                                 </Grid>
 
-                                <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,8,0,0">
-                                    <ComboBox ItemsSource="{Binding ChatViewModel.AvailablePipelines}"
-                                              SelectedItem="{Binding ChatViewModel.SelectedPipeline}"
-                                              ToolTip.Tip="SDLC pipeline to run (analyze / implement / review / test / deploy)"
-                                              MinHeight="36" MinWidth="110"/>
-                                    <Button Content="🚀 Pipeline"
-                                            Command="{Binding ChatViewModel.RunPipelineCommand}"
-                                            ToolTip.Tip="Run the selected SDLC pipeline against this task"
-                                            Padding="12,8"
-                                            MinHeight="36"/>
-                                    <ComboBox ItemsSource="{Binding ChatViewModel.CharacterOptions}"
-                                              SelectedItem="{Binding ChatViewModel.SelectedCharacterName}"
-                                              ToolTip.Tip="Character that answers in this chat: its persona, tools and skills (/character)"
-                                              MinHeight="36" MinWidth="130"
-                                              Margin="12,0,0,0"/>
-                                    <TextBlock Text="{Binding ChatViewModel.PendingSkillsText}"
-                                               IsVisible="{Binding ChatViewModel.PendingSkillsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                               FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                                    <ComboBox ItemsSource="{Binding ChatViewModel.EffortOptions}"
-                                              SelectedItem="{Binding ChatViewModel.ReasoningEffortName}"
-                                              ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"
-                                              MinHeight="36" MinWidth="100"
-                                              Margin="12,0,0,0"/>
-                                    <Button Content="⏪ Rewind"
-                                            Command="{Binding ChatViewModel.OpenRewindCommand}"
-                                            IsEnabled="{Binding !ChatViewModel.IsProcessing}"
-                                            ToolTip.Tip="Rewind or fork the conversation (/rewind)"
-                                            Padding="12,8"
-                                            MinHeight="36"/>
-                                </StackPanel>
+                                <!-- E4-S3: wraps onto a second line in a narrow chat column (see ChatActionBarView). -->
+                                <views:ChatActionBarView x:Name="ChatActionBarHost" Grid.Row="1" Grid.Column="0"
+                                                         DataContext="{Binding ChatViewModel}"
+                                                         VerticalAlignment="Center" Margin="0,8,0,0"/>
 
-                                <Button Grid.Row="1" Grid.Column="2" 
+                                <Button x:Name="SendButton" Grid.Row="1" Grid.Column="2" 
                                         Content="➤ Send" 
                                         Command="{Binding ChatViewModel.SendCommand}" 
                                         ToolTip.Tip="Send (Enter or Ctrl+Enter) · Shift+Enter for a new line"
                                         Margin="8,8,0,0" 
                                         Padding="16,8"
                                         MinHeight="36"/>
-                                <Button Grid.Row="1" Grid.Column="3" 
+                                <Button x:Name="ClearChatButton" Grid.Row="1" Grid.Column="3" 
                                         Content="🗑️" 
                                         Command="{Binding ChatViewModel.ClearChatCommand}"
                                         ToolTip.Tip="Clear Chat (Ctrl+L)"

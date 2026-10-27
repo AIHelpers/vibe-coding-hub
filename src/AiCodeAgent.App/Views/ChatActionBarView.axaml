@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.ChatActionBarView"
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True">
+    <!-- E4-S3: the row under the chat input. A WrapPanel, so with the editor open (a narrow chat column) the pickers
+         move to a second line instead of drawing over the Send / Rewind buttons. -->
+    <WrapPanel x:Name="ChatActionBar">
+        <WrapPanel.Styles>
+            <Style Selector="WrapPanel#ChatActionBar > Control"><Setter Property="Margin" Value="0,0,8,4"/></Style>
+        </WrapPanel.Styles>
+        <ComboBox x:Name="PipelineCombo" ItemsSource="{Binding AvailablePipelines}"
+                  SelectedItem="{Binding SelectedPipeline}"
+                  ToolTip.Tip="SDLC pipeline to run (analyze / implement / review / test / deploy)"
+                  MinHeight="36" MinWidth="110"/>
+        <Button x:Name="RunPipelineButton" Content="🚀 Pipeline"
+                Command="{Binding RunPipelineCommand}"
+                ToolTip.Tip="Run the selected SDLC pipeline against this task"
+                Padding="12,8"
+                MinHeight="36"/>
+        <ComboBox x:Name="CharacterCombo" ItemsSource="{Binding CharacterOptions}"
+                  SelectedItem="{Binding SelectedCharacterName}"
+                  ToolTip.Tip="Character that answers in this chat: its persona, tools and skills (/character)"
+                  MinHeight="36" MinWidth="130"/>
+        <TextBlock Text="{Binding PendingSkillsText}"
+                   IsVisible="{Binding PendingSkillsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        <ComboBox x:Name="EffortCombo" ItemsSource="{Binding EffortOptions}"
+                  SelectedItem="{Binding ReasoningEffortName}"
+                  ToolTip.Tip="Reasoning effort (Default = provider default; Off/Low/Medium/High)"
+                  MinHeight="36" MinWidth="100"/>
+        <Button x:Name="RewindButton" Content="⏪ Rewind"
+                Command="{Binding OpenRewindCommand}"
+                IsEnabled="{Binding !IsProcessing}"
+                ToolTip.Tip="Rewind or fork the conversation (/rewind)"
+                Padding="12,8"
+                MinHeight="36"/>
+    </WrapPanel>
+</UserControl>

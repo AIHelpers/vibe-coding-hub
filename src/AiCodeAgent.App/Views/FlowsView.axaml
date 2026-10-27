@@ -56,38 +56,43 @@
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <!-- Header -->
         <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10,6" CornerRadius="4,4,0,0">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <!-- E4-S3: a WrapPanel, so a narrow window wraps the tools instead of running them under the close button. -->
+                <WrapPanel x:Name="HeaderTools" Grid.Column="0">
+                    <WrapPanel.Styles>
+                        <Style Selector="WrapPanel#HeaderTools > Control"><Setter Property="Margin" Value="0,0,6,3"/></Style>
+                    </WrapPanel.Styles>
                     <TextBlock Text="Flows" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox ItemsSource="{Binding Pipelines}" SelectedItem="{Binding SelectedPipeline}" MinWidth="170" FontSize="11"
                               PlaceholderText="Open a pipeline…" ToolTip.Tip="Open a saved flow or pipeline"/>
                     <Button Content="＋ New" Command="{Binding NewFlowCommand}" FontSize="11" Padding="8,3"/>
                     <Button Content="💾 Save" Command="{Binding SaveCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Save to ~/.aiagent/pipelines"/>
                     <Button Content="🗑" Command="{Binding RequestDeleteCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Delete this flow"/>
-                    <Border Width="1" Background="#40888888" Margin="4,2"/>
+                    <Border Width="1" Background="#40888888" Margin="0,2,10,5"/>
                     <Button Content="↶" Command="{Binding UndoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Undo (Ctrl+Z)"/>
                     <Button Content="↷" Command="{Binding RedoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Redo (Ctrl+Y)"/>
                     <Button Content="⇶ Auto-layout" Command="{Binding AutoLayoutCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Arrange left to right by execution order"/>
                     <Button Content="✔ Validate" Command="{Binding ValidateCommand}" FontSize="11" Padding="8,3"/>
                     <Button Content="⌖" Click="OnResetView" FontSize="11" Padding="8,3" ToolTip.Tip="Reset zoom and position"/>
-                </StackPanel>
-                <TextBlock Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"
-                           Margin="12,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="Execution waves: steps joined by ∥ run in parallel"/>
-                <Button Grid.Column="2" Content="✕" Width="24" Height="24" Padding="0" FontSize="11" Command="{Binding CloseCommand}"/>
+                </WrapPanel>
+                <TextBlock x:Name="WavesLabel" Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"
+                           Margin="12,0" MaxWidth="240" TextTrimming="CharacterEllipsis" ToolTip.Tip="Execution waves: steps joined by ∥ run in parallel"/>
+                <Button x:Name="CloseButton" Grid.Column="2" Content="✕" Width="24" Height="24" Padding="0" FontSize="11" Command="{Binding CloseCommand}"/>
             </Grid>
         </Border>
 
         <!-- Flow name + run bar -->
         <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8,4">
             <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto">
-                <TextBox Grid.Column="0" Text="{Binding FlowName}" Width="170" FontSize="11" Watermark="flow-name" ToolTip.Tip="File name (kebab-case)"/>
-                <TextBox Grid.Column="1" Text="{Binding Description}" Width="260" FontSize="11" Margin="6,0" Watermark="What this flow does"/>
+                <TextBox x:Name="FlowNameBox" Grid.Column="0" Text="{Binding FlowName}" Width="170" FontSize="11" Watermark="flow-name" ToolTip.Tip="File name (kebab-case)"/>
+                <TextBox x:Name="FlowDescriptionBox" Grid.Column="1" Text="{Binding Description}" Width="260" FontSize="11" Margin="6,0" Watermark="What this flow does"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTip.Tip="Most characters working at the same time">
-                    <TextBlock Text="parallel" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
-                    <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" FormatString="0" Width="90" FontSize="11"/>
+                    <TextBlock x:Name="ParallelLabel" Text="parallel" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
+                    <NumericUpDown x:Name="MaxParallelBox" Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" FormatString="0" MinWidth="110" FontSize="11"
+                                   ToolTip.Tip="Most characters working at the same time"/>
                 </StackPanel>
-                <TextBox Grid.Column="3" Text="{Binding RunTask}" FontSize="11" Margin="8,0" Watermark="Task for the flow, e.g. Add churn prediction to the customer API"/>
-                <Button Grid.Column="4" Content="▶ Run" Command="{Binding RunCommand}" IsEnabled="{Binding CanRun}" FontSize="11" Padding="12,3"/>
+                <TextBox x:Name="RunTaskBox" Grid.Column="3" Text="{Binding RunTask}" FontSize="11" Margin="8,0" Watermark="Task for the flow, e.g. Add churn prediction to the customer API"/>
+                <Button x:Name="RunButton" Grid.Column="4" Content="▶ Run" Command="{Binding RunCommand}" IsEnabled="{Binding CanRun}" FontSize="11" Padding="12,3"/>
                 <Button Grid.Column="5" Content="■ Stop" Command="{Binding StopCommand}" IsVisible="{Binding IsRunning}" FontSize="11" Padding="12,3" Margin="4,0,0,0"/>
             </Grid>
         </Border>
