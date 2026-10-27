@@ -18,7 +18,7 @@ public partial class MainViewModel
     private SampleInstallResult? _wizardSample;
 
     // Progress is saved after every tick; two saves must not write config.json at the same time.
-    private readonly SemaphoreSlim _sampleSaveLock = new(1, 1);
+    private readonly SemaphoreSlim _configSaveLock = new(1, 1);
 
     /// <summary>The checklist overlay, or null when there is no tour (not started, finished or hidden).</summary>
     [ObservableProperty]
@@ -120,7 +120,7 @@ public partial class MainViewModel
                     Finished = guide.IsComplete
                 };
             if (state == null) return;
-            await _sampleSaveLock.WaitAsync();
+            await _configSaveLock.WaitAsync();
             try
             {
                 _configurationService.Config.Ui.SampleGuide = state;
@@ -128,7 +128,7 @@ public partial class MainViewModel
             }
             finally
             {
-                _sampleSaveLock.Release();
+                _configSaveLock.Release();
             }
         }
         catch (Exception ex)

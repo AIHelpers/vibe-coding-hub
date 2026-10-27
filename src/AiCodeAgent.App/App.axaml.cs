@@ -331,6 +331,10 @@ public partial class App : Application
         // the setup wizard or in Settings is used right away (no restart).
         services.AddSingleton<ILocalProviderProbe, LocalProviderProbe>();
         services.AddSingleton<IConnectionTester>(sp => new ConnectionTester());
+        // Update check (E3-S5): looks at GitHub's latest release once a day unless it is switched off in Settings.
+        services.AddSingleton<AiCodeAgent.Core.Updates.IUpdateChecker>(sp => new AiCodeAgent.Core.Updates.UpdateChecker(
+            userAgentVersion: AiCodeAgent.App.Services.AppInfo.CurrentVersion.ToString()));
+        services.AddSingleton<AiCodeAgent.App.Services.IUrlLauncher, AiCodeAgent.App.Services.SystemUrlLauncher>();
         services.AddSingleton<IAiProvider>(sp =>
         {
             var configSvc = sp.GetRequiredService<ConfigurationService>();

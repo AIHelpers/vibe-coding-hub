@@ -67,6 +67,14 @@ Command Palette) copies `samples/TodoApp` to `Documents/VibeCodingHub/samples/To
 starts a guided first task: *send the task, approve the edit, see the tests pass, commit in Source Control*.
 See [`samples/README.md`](samples/README.md).
 
+## Updates
+
+At most once a day the app asks GitHub for the latest release (`releases/latest`) and shows a banner when it is newer than
+the running build, with the release notes and a **Download** button; **Dismiss** hides that version for good. It uses your
+system proxy and stays silent when you are offline. Turn it off in Settings → *Check for updates automatically* (then no
+request is made at all), or check right now with Command Palette → **Check for updates**. To try the banner without publishing
+a release, set `AIAGENT_UPDATE_URL` to an address that returns the same JSON as GitHub's "latest release" call.
+
 ## Usage
 
 ```bash

@@ -162,6 +162,16 @@
                                Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
+                <!-- Updates -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Updates" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox IsChecked="{Binding CheckForUpdates}"
+                              Content="Check for updates automatically"
+                              FontSize="13"/>
+                    <TextBlock Text="When the app starts (at most once a day) it asks GitHub for the latest release and shows a banner if it is newer. Nothing else is sent. Command Palette → &quot;Check for updates&quot; looks right now."
+                               Opacity="0.6" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Permission Mode -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>

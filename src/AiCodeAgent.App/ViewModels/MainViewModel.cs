@@ -993,6 +993,15 @@ public partial class MainViewModel : ObservableObject
             },
             new CommandPaletteEntry
             {
+                Id = "app.checkForUpdates",
+                Title = "Check for updates",
+                Category = "Navigation",
+                Keywords = new[] { "update", "upgrade", "new version", "release", "download", "latest" },
+                KeybindingHint = "",
+                Action = () => _ = CheckForUpdatesAsync()
+            },
+            new CommandPaletteEntry
+            {
                 Id = "app.sampleProject",
                 Title = "Try the sample project",
                 Category = "Navigation",

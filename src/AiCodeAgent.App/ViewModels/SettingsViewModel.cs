@@ -67,6 +67,10 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedResumeLastSession = "Ask";
 
+    /// <summary>Look for a newer release when the app starts (at most once a day).</summary>
+    [ObservableProperty]
+    private bool _checkForUpdates = true;
+
     // Preview the theme immediately; it is persisted by Save.
     partial void OnSelectedThemeChanged(string value) => AiCodeAgent.App.Services.ThemeService.Apply(value);
 
@@ -177,6 +181,7 @@ public partial class SettingsViewModel : ObservableObject
         AutoApprove = config.Agent?.AutoApprove ?? false;
         SelectedRequirementsClarifier = (config.Agent?.RequirementsClarifier ?? RequirementsClarifierMode.Auto).ToString();
         SelectedResumeLastSession = (config.Ui?.ResumeLastSession ?? ResumeLastSessionMode.Ask).ToString();
+        CheckForUpdates = config.Ui?.CheckForUpdates ?? true;
         // Intentional: set the backing field directly so the loaded value is not previewed/applied
         // via OnSelectedThemeChanged; the change notification is raised manually below.
 #pragma warning disable MVVMTK0034
@@ -424,6 +429,7 @@ public partial class SettingsViewModel : ObservableObject
         config.Agent.WorkingDirectory = WorkingDirectory;
         config.Ui ??= new UiConfiguration();
         config.Ui.ResumeLastSession = System.Enum.Parse<ResumeLastSessionMode>(SelectedResumeLastSession);
+        config.Ui.CheckForUpdates = CheckForUpdates;
         config.Ui.Theme = AiCodeAgent.App.Services.ThemeService.Normalize(SelectedTheme);
 
         // Update provider config with model, URL, and API key

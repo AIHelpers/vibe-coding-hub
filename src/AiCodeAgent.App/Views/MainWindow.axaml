@@ -280,6 +280,37 @@
             </Grid>
         </Border>
 
+        <!-- Update banner: floats over the top of the content, never blocks it -->
+        <Border Grid.Row="1" ZIndex="40"
+                IsVisible="{Binding IsUpdateBannerOpen}"
+                HorizontalAlignment="Center" VerticalAlignment="Top"
+                MaxWidth="620" Margin="16,12,16,0" Padding="14,10" CornerRadius="8"
+                Background="{DynamicResource AppHeaderBrush}"
+                BorderBrush="{DynamicResource AppInfoBorderBrush}" BorderThickness="1"
+                BoxShadow="0 4 12 0 #44000000">
+            <StackPanel Spacing="8" DataContext="{Binding UpdateBanner}">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                    <TextBlock Grid.Column="0" Text="⬆" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBlock Text="{Binding Subtitle}" FontSize="12" Opacity="0.7"/>
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="{Binding NotesButtonText}" Command="{Binding ToggleNotesCommand}"
+                            IsVisible="{Binding HasNotes}" Padding="10,3" Margin="8,0,0,0" Background="Transparent"/>
+                    <Button Grid.Column="3" Content="{Binding DownloadText}" Command="{Binding DownloadCommand}"
+                            Padding="12,3" Margin="8,0,0,0"/>
+                    <Button Grid.Column="4" Content="Dismiss" Command="{Binding DismissCommand}"
+                            Padding="10,3" Margin="8,0,0,0" Background="Transparent"
+                            ToolTip.Tip="Don't tell me about this version again"/>
+                </Grid>
+                <ScrollViewer MaxHeight="180" IsVisible="{Binding IsNotesOpen}">
+                    <TextBlock Text="{Binding Notes}" FontSize="12" TextWrapping="Wrap"/>
+                </ScrollViewer>
+                <TextBlock Text="{Binding Message}" FontSize="12" Foreground="#E05555" TextWrapping="Wrap"
+                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+            </StackPanel>
+        </Border>
+
         <!-- Main Content Area -->
         <Grid Grid.Row="1" Name="ContentArea" RowDefinitions="*" ClipToBounds="True">
             <!-- Settings Content - shown when IsSettingsMode is true.
