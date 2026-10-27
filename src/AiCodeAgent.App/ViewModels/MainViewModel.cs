@@ -115,6 +115,7 @@ public partial class MainViewModel : ObservableObject
         BackgroundTasks.AddProjectRequested += OnBackgroundTaskAddProjectRequested;
         BackgroundTasks.OpenInChatRequested += OnOpenOutputInChatRequested;
         Flows.OpenInChatRequested += OnOpenOutputInChatRequested;
+        SessionManager.OpenSessionRequested += OnOpenSessionRequested;
         SourceControl = sourceControl;
         SourceControl.DiffRequested += OnSourceControlDiffRequested;
         SourceControl.OpenFileRequested += OnSourceControlOpenFileRequested;
@@ -206,6 +207,7 @@ public partial class MainViewModel : ObservableObject
         BackgroundTasks.AddProjectRequested -= OnBackgroundTaskAddProjectRequested;
         BackgroundTasks.OpenInChatRequested -= OnOpenOutputInChatRequested;
         Flows.OpenInChatRequested -= OnOpenOutputInChatRequested;
+        SessionManager.OpenSessionRequested -= OnOpenSessionRequested;
         SourceControl.DiffRequested -= OnSourceControlDiffRequested;
         SourceControl.OpenFileRequested -= OnSourceControlOpenFileRequested;
         SourceControl.PropertyChanged -= OnSourceControlPropertyChanged;
@@ -700,7 +702,25 @@ public partial class MainViewModel : ObservableObject
         CloseOverlays();
         IsSettingsMode = false;
         IsSessionHistoryOpen = true;
+        SessionManager.CurrentSessionId = GetOrCreateChatViewModel().SessionId;
         SessionManager.RefreshSessionHistoryCommand.Execute(null);
+    }
+
+    /// <summary>"Open" in the session list: closes the list and continues that session in the chat.</summary>
+    private async void OnOpenSessionRequested(string sessionId)
+    {
+        try
+        {
+            var chat = GetOrCreateChatViewModel();
+            CloseOverlays();
+            IsSettingsMode = false;
+            GoToScreen(AppScreen.Chat);
+            await chat.ResumeSessionAsync(sessionId);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not open the session: {ex.Message}";
+        }
     }
 
     [RelayCommand]

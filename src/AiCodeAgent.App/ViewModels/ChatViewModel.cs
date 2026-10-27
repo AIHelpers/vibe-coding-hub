@@ -429,9 +429,11 @@ public partial class ChatViewModel : ObservableObject
         IRewindPrompt? rewindPrompt = null,
         AiCodeAgent.Core.Characters.ICharacterRegistry? characterRegistry = null,
         RolePresetLoader? presetLoader = null,
-        ISkillRegistry? skillRegistry = null)
+        ISkillRegistry? skillRegistry = null,
+        SessionResumeService? sessionResume = null)
     {
         InitializeRewind(rewinder, rewindPrompt);
+        InitializeResume(sessionResume);
         InitializeCharacters(characterRegistry, presetLoader, skillRegistry);
         _agentService = agentService;
         _eventBus = agentService.EventBus;
@@ -1016,6 +1018,7 @@ public partial class ChatViewModel : ObservableObject
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
+                        RecordSessionCost(usage.SessionCostUsd);
                         break;
                     case PlanGeneratedEvent plan:
                         await Task.Factory.StartNew(

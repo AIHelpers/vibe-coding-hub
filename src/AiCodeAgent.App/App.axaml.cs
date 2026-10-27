@@ -228,7 +228,26 @@ public partial class App : Application
         });
         
         // Context Manager
-        services.AddSingleton<IContextManager, InMemoryContextManager>();
+        // Chat history survives restarts: every message is written through to ~/.aiagent/sessions/chats/<project>/.
+        services.AddSingleton<AiCodeAgent.Context.Persistence.ChatSessionStore>(sp =>
+            new AiCodeAgent.Context.Persistence.ChatSessionStore(logger: sp.GetService<ILogger<AiCodeAgent.Context.Persistence.ChatSessionStore>>()));
+        services.AddSingleton<PersistentContextManager>(sp =>
+        {
+            var config = sp.GetRequiredService<ConfigurationService>();
+            return new PersistentContextManager(
+                new InMemoryContextManager(sp.GetRequiredService<ILogger<InMemoryContextManager>>()),
+                sp.GetRequiredService<AiCodeAgent.Context.Persistence.ChatSessionStore>(),
+                () =>
+                {
+                    // Same rule as MainViewModel: the configured project folder, else the app folder.
+                    var dir = config.Config.Agent?.WorkingDirectory;
+                    return !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir) ? dir : AppDomain.CurrentDomain.BaseDirectory;
+                },
+                sp.GetService<ILogger<PersistentContextManager>>());
+        });
+        services.AddSingleton<IContextManager>(sp => sp.GetRequiredService<PersistentContextManager>());
+        services.AddSingleton<ISessionCatalog>(sp => sp.GetRequiredService<PersistentContextManager>());
+        services.AddSingleton<SessionResumeService>();
         
         // Tool Registry
         services.AddSingleton<IToolRegistry, ToolRegistry>();
