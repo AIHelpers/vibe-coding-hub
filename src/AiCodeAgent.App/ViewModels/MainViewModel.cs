@@ -853,6 +853,7 @@ public partial class MainViewModel : ObservableObject
         if (_configurationService?.Config.Agent != null)
         {
             _configurationService.Config.Agent.WorkingDirectory = newPath;
+            AiCodeAgent.Core.Configuration.RecentFolderList.Push(_configurationService.Config.Ui.RecentFolders, newPath);
             await _configurationService.SaveAsync();
         }
 
@@ -979,6 +980,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "chat", "conversation", "messages" },
                 KeybindingHint = "",
                 Action = NavigateToChat
+            },
+            new CommandPaletteEntry
+            {
+                Id = "app.setupWizard",
+                Title = "Setup wizard",
+                Category = "Navigation",
+                Keywords = new[] { "setup", "wizard", "first run", "onboarding", "provider", "connect", "ollama", "api key", "welcome" },
+                KeybindingHint = "",
+                Action = () => _ = OpenSetupWizardAsync()
             },
             new CommandPaletteEntry
             {

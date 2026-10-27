@@ -1,0 +1,117 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:cfg="using:AiCodeAgent.Core.Configuration"
+             x:Class="AiCodeAgent.App.Views.SetupWizardView"
+             x:DataType="vm:SetupWizardViewModel"
+             x:CompileBindings="True">
+    <!-- Step 1: where the AI runs. Step 2: connect (key, test, model). Step 3: project + permission mode. -->
+    <Grid RowDefinitions="Auto,*,Auto" MaxWidth="640" Margin="24,20" HorizontalAlignment="Center">
+
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+            <StackPanel Spacing="2">
+                <TextBlock Text="Welcome — let's get you set up" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding StepTitle}" Opacity="0.7" FontSize="13"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="Skip" Command="{Binding SkipCommand}" VerticalAlignment="Top"
+                    ToolTip.Tip="Set up later: Command Palette → Setup wizard"/>
+        </Grid>
+
+        <!-- Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Panel>
+                <!-- Step 1 -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsSourceStep}">
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsDetecting}">
+                        <ProgressBar IsIndeterminate="True" Width="60"/>
+                        <TextBlock Text="Looking for Ollama and LM Studio on this computer…" Opacity="0.7" FontSize="12"/>
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:WizardSource">
+                                <StackPanel Spacing="2" Margin="4,6">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="14"/>
+                                        <TextBlock Text="{Binding Badge}" IsVisible="{Binding HasBadge}" Foreground="#4CAF50" FontSize="12" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding Description}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+
+                <!-- Step 2 -->
+                <StackPanel Spacing="10" IsVisible="{Binding IsConnectStep}">
+                    <TextBlock Text="{Binding SourceTitle}" FontSize="16" FontWeight="SemiBold"/>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding NeedsUrl}">
+                        <TextBlock Text="Server address" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox Text="{Binding CustomUrl}" Watermark="http://localhost:8000"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding NeedsApiKey}">
+                        <TextBlock Text="API key" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox Text="{Binding ApiKey}" PasswordChar="●"/>
+                        <TextBlock Opacity="0.6" FontSize="12" TextWrapping="Wrap"
+                                   Text="Saved encrypted in config.json in your .aiagent folder (Windows: protected by your user account). It is sent only to the provider you chose."/>
+                    </StackPanel>
+
+                    <TextBlock IsVisible="{Binding IsLocalSource}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"
+                               Text="No key needed: this server runs on your computer, so your code stays here."/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button Content="Test connection" Command="{Binding TestConnectionCommand}"/>
+                        <ProgressBar IsIndeterminate="True" Width="60" IsVisible="{Binding IsTesting}"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap" FontSize="13"/>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding HasModels}">
+                        <TextBlock Text="Model" FontWeight="SemiBold" FontSize="13"/>
+                        <ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" MinWidth="320">
+                            <ComboBox.Styles>
+                                <Style Selector="TextBlock.retired"><Setter Property="Opacity" Value="0.45"/></Style>
+                            </ComboBox.Styles>
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="cfg:ModelOption">
+                                    <TextBlock Text="{Binding Label}" Classes.retired="{Binding Retired}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Step 3 -->
+                <StackPanel Spacing="10" IsVisible="{Binding IsProjectStep}">
+                    <TextBlock Text="Project folder" FontWeight="SemiBold" FontSize="13"/>
+                    <ListBox ItemsSource="{Binding RecentFolders}" SelectedItem="{Binding ProjectPath}"
+                             IsVisible="{Binding HasRecentFolders}" MaxHeight="150" Background="Transparent"/>
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBox Grid.Column="0" Text="{Binding ProjectPath}" Watermark="Choose a folder with your code"/>
+                        <Button Grid.Column="1" Margin="8,0,0,0" Content="Browse…" Command="{Binding BrowseCommand}"/>
+                        <Button Grid.Column="2" Margin="8,0,0,0" Content="Try the sample project" Command="{Binding TrySampleCommand}" IsVisible="{Binding CanTrySample}"/>
+                    </Grid>
+
+                    <TextBlock Text="What may the agent do on its own?" FontWeight="SemiBold" FontSize="13" Margin="0,8,0,0"/>
+                    <ComboBox ItemsSource="{Binding PermissionChoices}" SelectedItem="{Binding SelectedPermission}" MinWidth="240">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PermissionChoice">
+                                <TextBlock Text="{Binding Title}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Text="{Binding SelectedPermission.Description}" Opacity="0.7" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap" Foreground="#E0A030" FontSize="12"/>
+                </StackPanel>
+            </Panel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <Button Content="Back" Command="{Binding BackCommand}" IsVisible="{Binding CanGoBack}"/>
+            <Button Content="Next" Command="{Binding NextCommand}" IsVisible="{Binding !IsLastStep}" Classes="accent"/>
+            <Button Content="Finish" Command="{Binding NextCommand}" IsVisible="{Binding IsLastStep}" Classes="accent"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

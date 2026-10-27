@@ -469,6 +469,9 @@ public partial class ChatViewModel : ObservableObject
         // Restore the last selected model from persisted UI settings so the
         // user's choice survives application restarts. Fall back to "Auto"
         // when unset or no longer in the available list.
+        // The permission mode chosen in the setup wizard is where a new chat starts.
+        if (_configurationService?.Config.Agent?.DefaultPermissionMode is ("Ask" or "AutoEdit" or "FullAuto" or "Plan") and var startMode)
+            PermissionMode = startMode;
         var savedModel = _configurationService?.Config.Ui?.SelectedModel;
         if (!string.IsNullOrWhiteSpace(savedModel))
         {

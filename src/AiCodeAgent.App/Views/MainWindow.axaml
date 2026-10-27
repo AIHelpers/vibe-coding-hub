@@ -704,6 +704,13 @@
                             <!-- Chat: one chronological timeline with smart auto-scroll -->
                             <views:ChatTimelineView Grid.Row="0" DataContext="{Binding ChatViewModel.Timeline}"/>
 
+                            <!-- First-run setup wizard: covers the (empty) chat until finished or skipped -->
+                            <Border Grid.Row="0" Grid.RowSpan="5" ZIndex="30"
+                                    IsVisible="{Binding IsSetupWizardOpen}"
+                                    Background="{DynamicResource AppHeaderBrush}">
+                                <views:SetupWizardView DataContext="{Binding SetupWizard}"/>
+                            </Border>
+
                             <!-- Start-up offer: continue the last session of this project -->
                             <Border Grid.Row="0" ZIndex="20"
                                     IsVisible="{Binding ChatViewModel.HasResumeOffer}"
