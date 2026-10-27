@@ -124,6 +124,9 @@ public partial class SourceControlViewModel : ObservableObject, IDisposable
     /// <summary>Open a file in the editor.</summary>
     public event Action<string>? OpenFileRequested;
 
+    /// <summary>Raised after a commit succeeded (used by the sample project's checklist).</summary>
+    public event EventHandler? Committed;
+
     [ObservableProperty]
     private bool _isVisible;
 
@@ -441,6 +444,7 @@ public partial class SourceControlViewModel : ObservableObject, IDisposable
             CommitMessage = string.Empty;
             var subject = message.Split('\n')[0].Trim();
             StatusMessage = string.IsNullOrEmpty(hash) ? $"Committed: {subject}" : $"Committed {hash}: {subject}";
+            Committed?.Invoke(this, EventArgs.Empty);
         }
     }
 

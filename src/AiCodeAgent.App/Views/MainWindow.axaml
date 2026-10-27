@@ -711,6 +711,41 @@
                                 <views:SetupWizardView DataContext="{Binding SetupWizard}"/>
                             </Border>
 
+                            <!-- Sample project: checklist of the guided first task, ticks off as the user does each step -->
+                            <Border Grid.Row="0" ZIndex="25"
+                                    IsVisible="{Binding IsSampleGuideOpen}"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Width="280" Margin="16,12,16,0" Padding="12,10" CornerRadius="8"
+                                    Background="{DynamicResource AppHeaderBrush}"
+                                    BorderBrush="{DynamicResource AppInfoBorderBrush}" BorderThickness="1"
+                                    BoxShadow="0 4 12 0 #44000000">
+                                <Border.Styles>
+                                    <Style Selector="TextBlock.done"><Setter Property="Opacity" Value="0.55"/></Style>
+                                    <Style Selector="TextBlock.current"><Setter Property="FontWeight" Value="SemiBold"/></Style>
+                                    <Style Selector="TextBlock.mark.done"><Setter Property="Foreground" Value="#4CAF50"/><Setter Property="Opacity" Value="1"/></Style>
+                                </Border.Styles>
+                                <StackPanel Spacing="8" DataContext="{Binding SampleGuide}">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <TextBlock Grid.Column="0" Text="Your first task" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Progress}" FontSize="12" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <Button Grid.Column="2" Content="✕" Padding="6,2" Background="Transparent"
+                                                Command="{Binding HideCommand}"
+                                                ToolTip.Tip="Hide this checklist for good"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Items}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnDefinitions="22,*" Margin="0,2">
+                                                    <TextBlock Grid.Column="0" Classes="mark" Classes.done="{Binding IsDone}" Classes.current="{Binding IsCurrent}" Text="{Binding Mark}" FontSize="13"/>
+                                                    <TextBlock Grid.Column="1" Classes.done="{Binding IsDone}" Classes.current="{Binding IsCurrent}" Text="{Binding Label}" FontSize="13" TextWrapping="Wrap"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="{Binding Hint}" FontSize="12" Opacity="0.8" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
                             <!-- Start-up offer: continue the last session of this project -->
                             <Border Grid.Row="0" ZIndex="20"
                                     IsVisible="{Binding ChatViewModel.HasResumeOffer}"

@@ -120,6 +120,7 @@ public partial class MainViewModel : ObservableObject
         SourceControl.DiffRequested += OnSourceControlDiffRequested;
         SourceControl.OpenFileRequested += OnSourceControlOpenFileRequested;
         SourceControl.PropertyChanged += OnSourceControlPropertyChanged;
+        SourceControl.Committed += (_, _) => ReportToSampleGuide(c => c.Committed());
         _indexQueryService = indexQueryService;
         _configurationService = serviceProvider.GetService<ConfigurationService>();
 
@@ -992,6 +993,15 @@ public partial class MainViewModel : ObservableObject
             },
             new CommandPaletteEntry
             {
+                Id = "app.sampleProject",
+                Title = "Try the sample project",
+                Category = "Navigation",
+                Keywords = new[] { "sample", "example", "tutorial", "practice", "todo", "fix this test", "onboarding", "guide" },
+                KeybindingHint = "",
+                Action = () => _ = TrySampleProjectAsync()
+            },
+            new CommandPaletteEntry
+            {
                 Id = "nav.settings",
                 Title = "Open Settings",
                 Category = "Navigation",
@@ -1315,6 +1325,11 @@ public partial class MainViewModel : ObservableObject
         if (_chatViewModel == null)
         {
             _chatViewModel = _serviceProvider.GetRequiredService<ChatViewModel>();
+
+            // The sample project's checklist ticks off as the user sends the task and the agent edits and tests.
+            _chatViewModel.TaskSubmitted += (_, _) => ReportToSampleGuide(c => c.TaskSent());
+            _chatViewModel.ToolFinished += (_, e) => ReportToSampleGuide(
+                c => c.ToolFinished(ApprovalPolicy.IsEditTool(e.ToolName), e.ToolName, e.Command, e.IsError));
 
             // Point the checkpoint browser (a singleton that otherwise
             // defaults to the literal session id "default") at this chat's

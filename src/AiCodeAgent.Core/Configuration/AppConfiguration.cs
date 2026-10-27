@@ -99,4 +99,7 @@ public class UiConfiguration
 
     /// <summary>Project folders opened lately, newest first (see <see cref="RecentFolderList"/>).</summary>
     public List<string> RecentFolders { get; set; } = new();
+
+    /// <summary>Progress of the sample project's "Fix this test" tour (null until the sample was tried).</summary>
+    public AiCodeAgent.Core.Samples.SampleGuideState? SampleGuide { get; set; }
 }

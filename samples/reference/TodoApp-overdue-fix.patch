@@ -1,0 +1,10 @@
+diff --git a/src/TodoApp/TodoService.cs b/src/TodoApp/TodoService.cs
+--- a/src/TodoApp/TodoService.cs
++++ b/src/TodoApp/TodoService.cs
+@@ -32,5 +32,5 @@ public sealed class TodoService
+ 
+     /// <summary>The items that are late as of <paramref name="today"/>, oldest first.</summary>
+     public IReadOnlyList<TodoItem> Overdue(DateOnly today) =>
+-        _items.Where(x => x.Due <= today).OrderBy(x => x.Due).ToList();
++        _items.Where(x => !x.Done && x.Due < today).OrderBy(x => x.Due).ToList();
+ }

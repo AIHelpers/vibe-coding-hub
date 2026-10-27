@@ -33,6 +33,13 @@
     <InternalsVisibleTo Include="AiCodeAgent.App.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The sample project of "Try the sample project" (samples/TodoApp), copied out of the app at runtime.
+         Resource names are sample/TodoApp/<path>; see EmbeddedSampleFileSource. -->
+    <EmbeddedResource Include="..\..\samples\TodoApp\**\*"
+                      Exclude="..\..\samples\TodoApp\**\bin\**;..\..\samples\TodoApp\**\obj\**;..\..\samples\TodoApp\**\logs\**"
+                      LogicalName="sample/TodoApp/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Providers\AiCodeAgent.Providers.csproj" />
     <ProjectReference Include="..\AiCodeAgent.Tools\AiCodeAgent.Tools.csproj" />

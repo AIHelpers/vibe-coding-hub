@@ -722,6 +722,7 @@ public partial class ChatViewModel : ObservableObject
             Content = userMessage,
             Timestamp = DateTime.Now
         });
+        TaskSubmitted?.Invoke(this, EventArgs.Empty);
         IsProcessing = true;
         IsCancellable = true;
         StatusText = "Processing...";
@@ -982,6 +983,7 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 Activity.ToolFinished(end.Call.Id, end.Call.Name, end.Result.IsError);
                                 Timeline.ToolEnded(end.Call, end.Result, end.Duration);
+                                RaiseToolFinished(end.Call, end.Result);
                             },
                             token,
                             TaskCreationOptions.None,
@@ -1321,6 +1323,7 @@ public partial class ChatViewModel : ObservableObject
                 break;
             case ToolCallEndEvent end:
                 Timeline.ToolEnded(end.Call, end.Result, end.Duration, tagged.AgentId, tagged.Role);
+                RaiseToolFinished(end.Call, end.Result);
                 break;
             case ApprovalRequestEvent approval:
                 // The approval entry sits in the timeline where the agent asked, for multi-agent sessions too.
