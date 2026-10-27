@@ -72,10 +72,8 @@ public partial class MainViewModel : ObservableObject
     public BackgroundTaskManagerViewModel BackgroundTasks { get; }
     public SourceControlViewModel SourceControl { get; }
 
-    /// <summary>The diff overlay leaves room on the right while the Source Control panel is docked there.</summary>
-    public Avalonia.Thickness DiffOverlayMargin => SourceControl.IsVisible
-        ? new Avalonia.Thickness(40, 40, 404, 40)
-        : new Avalonia.Thickness(40);
+    /// <summary>The diff overlay fills the editor/chat area; the Source Control panel docks beside that area, so it needs no gap.</summary>
+    public Avalonia.Thickness DiffOverlayMargin => new Avalonia.Thickness(40);
 
     [ObservableProperty]
     private bool _isPreviewPaneOpen;
@@ -172,6 +170,9 @@ public partial class MainViewModel : ObservableObject
         {
             _configurationService.Saved += OnConfigurationSaved;
         }
+
+        // Activity bar + side-panel host; brings back the panel this workspace had open last time.
+        InitializeActivityBar();
     }
 
     /// <summary>
@@ -192,6 +193,7 @@ public partial class MainViewModel : ObservableObject
             WorkingDirectory = newDir;
             FileExplorer.SetRootPathCommand.Execute(newDir);
             UpdateFileExplorerStatus();
+            RestoreSidePanelForWorkspace();
         }
     }
 
@@ -419,8 +421,11 @@ public partial class MainViewModel : ObservableObject
     /// Closes every toolbar-driven panel so opening one never stacks on top of another.
     /// Each toolbar button is a toggle: click once to open its panel, click again to close it.
     /// </summary>
-    private void CloseOverlays(bool keepSourceControl = false)
+    private void CloseOverlays(bool keepSourceControl = false, bool keepPlan = false)
     {
+        // Side panels share one host, so the plan panel steps aside too (Palette: "Show autonomous plan" brings it back).
+        if (!keepPlan && _chatViewModel != null)
+            _chatViewModel.PlanVM.IsVisible = false;
         IsCheckpointBrowserOpen = false;
         IsSessionHistoryOpen = false;
         SessionManager.CloseSessionHistory();
@@ -564,10 +569,14 @@ public partial class MainViewModel : ObservableObject
             await ProjectKnowledge.ShowCharactersTabCommand.ExecuteAsync(null);
             if (startNew) ProjectKnowledge.Characters.BeginCreate();
         }
-        else
+        else if (tab == 1)
         {
             ProjectKnowledge.ShowSkillsTabCommand.Execute(null);
             if (startNew) ProjectKnowledge.BeginCreateSkill();
+        }
+        else
+        {
+            ProjectKnowledge.ShowMemoryTabCommand.Execute(null);
         }
     }
 
@@ -849,6 +858,7 @@ public partial class MainViewModel : ObservableObject
         FileExplorer.RootPath = newPath;
         FileExplorer.SetRootPathCommand.Execute(newPath);
         UpdateFileExplorerStatus();
+        RestoreSidePanelForWorkspace();
 
         // Persist to configuration
         if (_configurationService?.Config.Agent != null)
@@ -1053,6 +1063,69 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "character", "characters", "persona", "agent", "role", "skills", "assign" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(2, startNew: false), "OpenCharacters")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.agentsMd",
+                Title = "AGENTS.md (project memory and checks)",
+                Category = "Navigation",
+                Keywords = new[] { "agents.md", "agent.md", "memory", "instructions", "doctor", "project knowledge" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(0, startNew: false), "OpenAgentsMd")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.skills",
+                Title = "Skills (reusable know-how)",
+                Category = "Navigation",
+                Keywords = new[] { "skill", "skills", "know-how", "SKILL.md", "project knowledge" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(OpenProjectKnowledgeTabAsync(1, startNew: false), "OpenSkills")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.plan",
+                Title = "Show autonomous plan",
+                Category = "Navigation",
+                Keywords = new[] { "plan", "autonomous", "steps", "progress" },
+                KeybindingHint = "",
+                Action = ShowPlanPanel
+            },
+            new CommandPaletteEntry
+            {
+                Id = "view.togglePreview",
+                Title = "Toggle Preview Pane (click-to-edit)",
+                Category = "View",
+                Keywords = new[] { "preview", "pane", "browser", "click to edit", "annotate" },
+                KeybindingHint = "",
+                Action = TogglePreviewPane
+            },
+            new CommandPaletteEntry
+            {
+                Id = "view.refreshExplorer",
+                Title = "Refresh File Explorer",
+                Category = "View",
+                Keywords = new[] { "refresh", "reload", "explorer", "files", "tree" },
+                KeybindingHint = "",
+                Action = RefreshFileExplorer
+            },
+            new CommandPaletteEntry
+            {
+                Id = "view.toggleTheme",
+                Title = "Switch light / dark theme",
+                Category = "View",
+                Keywords = new[] { "theme", "dark", "light", "appearance", "colors" },
+                KeybindingHint = "",
+                Action = () => SafeFireAndForget(ToggleTheme(), "ToggleTheme")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "view.activityBarLabels",
+                Title = "Show or hide the activity bar labels",
+                Category = "View",
+                Keywords = new[] { "activity bar", "labels", "sidebar", "collapse", "expand" },
+                KeybindingHint = "",
+                Action = ToggleActivityBarLabels
             },
             new CommandPaletteEntry
             {

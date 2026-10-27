@@ -33,6 +33,11 @@ public partial class MainWindow : Window
         DataContextChanged += OnDataContextChanged;
         KeyDown += OnWindowKeyDown;
         PropertyChanged += OnWindowPropertyChanged;
+        // The Explorer screen fills the editor/chat area (not the whole window), so follow that area's size.
+        ContentArea.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == BoundsProperty) UpdateExplorerPaneLength();
+        };
         Opened += (_, _) => FitToScreen();
         // Offer to continue the last session once the window is up (the setting decides: ask / always / never).
         Opened += (_, _) => Dispatcher.UIThread.Post(
@@ -164,6 +169,7 @@ public partial class MainWindow : Window
         _lastScreen = vm.ActiveScreen;
         vm.PropertyChanged += OnScreensPropertyChanged;
         UpdateExplorerPaneLength();
+        if (Bounds.Width > 0) vm.UpdateWindowWidth(Bounds.Width);
     }
 
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -172,8 +178,18 @@ public partial class MainWindow : Window
         if (e.Property == BoundsProperty)
         {
             UpdateExplorerPaneLength();
+            // The docked side panel may never take more than the window can spare.
+            if (Bounds.Width > 0) _screensVm?.UpdateWindowWidth(Bounds.Width);
         }
     }
+
+    /// <summary>Splitter at the left edge of the side panel: dragging to the left widens it.</summary>
+    private void OnSidePanelDragDelta(object? sender, VectorEventArgs e)
+        => (DataContext as MainViewModel)?.ResizeSidePanel(e.Vector.X);
+
+    /// <summary>The drag ended: the new width is saved for this workspace.</summary>
+    private void OnSidePanelDragCompleted(object? sender, VectorEventArgs e)
+        => (DataContext as MainViewModel)?.CommitSidePanelWidth();
 
     /// <summary>The Explorer is a SplitView pane; on its own screen it must fill the window.</summary>
     private void UpdateExplorerPaneLength()
@@ -181,8 +197,9 @@ public partial class MainWindow : Window
         if (MainSplitView == null || _screensVm == null)
             return;
 
-        var fill = _screensVm.IsSlideMode && Bounds.Width > 0;
-        MainSplitView.OpenPaneLength = fill ? Bounds.Width : 280;
+        var available = ContentArea.Bounds.Width > 0 ? ContentArea.Bounds.Width : Bounds.Width;
+        var fill = _screensVm.IsSlideMode && available > 0;
+        MainSplitView.OpenPaneLength = fill ? available : 280;
     }
 
     private void OnScreensPropertyChanged(object? sender, PropertyChangedEventArgs e)

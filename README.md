@@ -75,6 +75,19 @@ system proxy and stays silent when you are offline. Turn it off in Settings → 
 request is made at all), or check right now with Command Palette → **Check for updates**. To try the banner without publishing
 a release, set `AIAGENT_UPDATE_URL` to an address that returns the same JSON as GitHub's "latest release" call.
 
+## Navigation: the activity bar
+
+The bar on the left edge replaces the old row of emoji buttons. Press the menu icon at its top to show the labels.
+
+| Group | Entries |
+|-------|---------|
+| **Work** | Chat · Explorer (`Ctrl+B`) · Changes (`Ctrl+Shift+G`, badge = changed files) · Flows · Tasks (badge = running tasks) |
+| **Team** | Characters · Skills · AGENTS.md |
+| **History** | Checkpoints · Sessions · Dashboard |
+| bottom | Settings (`Ctrl+,`) · Theme |
+
+Changes, Tasks, Checkpoints, Sessions and Dashboard (and the agent's plan) open in **one side panel** docked on the right, so they never cover the chat or each other. Drag its left edge to resize it. The open panel and its width are remembered per project folder. The top bar keeps the working folder, model, permission mode and Read/Edit/Exec; everything that no longer has a button (terminal, preview pane, diff of the active file, refresh, open file, Screens mode, quick open) is in the command palette (`Ctrl+Shift+P`).
+
 ## Usage
 
 ```bash

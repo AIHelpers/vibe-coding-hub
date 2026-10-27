@@ -111,4 +111,10 @@ public class UiConfiguration
 
     /// <summary>The release version whose banner the user dismissed; that version is not announced again.</summary>
     public string? DismissedUpdateVersion { get; set; }
+
+    /// <summary>Show the labels next to the activity bar icons (the bar is icon-only otherwise).</summary>
+    public bool ActivityBarExpanded { get; set; }
+
+    /// <summary>Which side panel was open and how wide it was, per workspace folder (see <see cref="AiCodeAgent.Core.Layout.SidePanelMemory"/>).</summary>
+    public Dictionary<string, AiCodeAgent.Core.Layout.WorkspacePanelState> WorkspacePanels { get; set; } = new();
 }

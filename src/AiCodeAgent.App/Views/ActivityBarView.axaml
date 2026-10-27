@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.ActivityBarView"
+             x:DataType="vm:ActivityBarViewModel"
+             x:CompileBindings="True">
+    <!-- VS Code-style activity bar: Work · Team · History groups, Settings and Theme at the bottom.
+         Icons are vector paths (no emoji), so the bar looks the same on every OS. -->
+    <UserControl.Styles>
+        <Style Selector="Button.activity">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.activity:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.activity.active /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AppHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.activity PathIcon">
+            <Setter Property="Opacity" Value="0.7"/>
+        </Style>
+        <Style Selector="Button.activity.active PathIcon">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="Button.activity:pointerover PathIcon">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="ActivityItemTemplate" x:DataType="vm:ActivityBarItem">
+            <Button Classes="activity" Classes.active="{Binding IsActive}"
+                    Command="{Binding Command}"
+                    ToolTip.Tip="{Binding ToolTip}"
+                    AutomationProperties.Name="{Binding Label}">
+                <Grid ColumnDefinitions="48,*">
+                    <Border Grid.Column="0" Width="3" HorizontalAlignment="Left"
+                            IsVisible="{Binding IsActive}"
+                            Background="{DynamicResource SystemControlHighlightAccentBrush}"/>
+                    <PathIcon Grid.Column="0" Data="{Binding Icon}" Width="20" Height="20"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Border Grid.Column="0" IsVisible="{Binding HasBadge}"
+                            Background="{Binding BadgeBrush}" CornerRadius="8" MinWidth="16" Height="16" Padding="3,0"
+                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,4,0">
+                        <TextBlock Text="{Binding BadgeText}" FontSize="9" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Grid.Column="1" Text="{Binding Label}" IsVisible="{Binding ShowLabel}"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ActivityGroupTemplate" x:DataType="vm:ActivityBarGroup">
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" IsVisible="{Binding ShowTitle}"
+                           FontSize="10" FontWeight="SemiBold" Opacity="0.55" Margin="14,10,0,2"/>
+                <Border IsVisible="{Binding ShowSeparator}" Height="1" Margin="10,6" Background="#33808080"/>
+                <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource ActivityItemTemplate}"/>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Border Name="ActivityBarRoot"
+            Width="{Binding BarWidth}"
+            Background="{DynamicResource AppSubBrush}"
+            BorderBrush="#33808080" BorderThickness="0,0,1,0">
+        <Grid RowDefinitions="Auto,*,Auto">
+            <!-- Collapse / expand: icons only, or icons with labels -->
+            <Button Grid.Row="0" Classes="activity" Command="{Binding ToggleExpandedCommand}"
+                    ToolTip.Tip="Show or hide the labels" AutomationProperties.Name="Show or hide the labels">
+                <Grid ColumnDefinitions="48,*">
+                    <PathIcon Grid.Column="0" Data="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" Width="20" Height="20"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Button>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource ActivityGroupTemplate}"/>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="2">
+                <Border Height="1" Margin="10,2" Background="#33808080"/>
+                <ItemsControl ItemsSource="{Binding BottomItems}" ItemTemplate="{StaticResource ActivityItemTemplate}"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>
