@@ -59,6 +59,14 @@ export AIAGENT_OPENAI_API_KEY=sk-...
 export AIAGENT_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## First run and the sample project
+
+On the first start (or from Command Palette → **Setup wizard**) a three-step wizard detects a local Ollama or LM Studio,
+connects a cloud provider with an API key if you prefer one, and opens a project. **Try the sample project** (also in the
+Command Palette) copies `samples/TodoApp` to `Documents/VibeCodingHub/samples/TodoApp`, makes it a git repository and
+starts a guided first task: *send the task, approve the edit, see the tests pass, commit in Source Control*.
+See [`samples/README.md`](samples/README.md).
+
 ## Usage
 
 ```bash

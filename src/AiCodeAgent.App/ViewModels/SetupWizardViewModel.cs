@@ -390,12 +390,17 @@ public partial class SetupWizardViewModel : ObservableObject
         try
         {
             var path = await _createSample();
-            if (!string.IsNullOrWhiteSpace(path)) ProjectPath = path!;
+            if (string.IsNullOrWhiteSpace(path)) return;
+            ProjectPath = path!;
         }
         catch (Exception ex)
         {
             Message = $"Couldn't create the sample project: {ex.Message}";
+            return;
         }
+
+        // "Try the sample project" opens it right away: the model and permission chosen so far are saved with it.
+        await FinishAsync();
     }
 
     // ----- finish -----

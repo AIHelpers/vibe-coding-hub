@@ -19,7 +19,11 @@ public partial class MainViewModel
     public bool IsSetupWizardOpen => SetupWizard != null;
 
     /// <summary>On start: opens the wizard when nobody has set up a provider yet (see <see cref="FirstRunDetector"/>).</summary>
-    public void StartFirstRunCheck() => _ = CheckFirstRunAsync();
+    public void StartFirstRunCheck()
+    {
+        RestoreSampleGuide();
+        _ = CheckFirstRunAsync();
+    }
 
     private async Task CheckFirstRunAsync()
     {
@@ -48,7 +52,7 @@ public partial class MainViewModel
             _serviceProvider.GetService<ILocalProviderProbe>() ?? new LocalProviderProbe(),
             _serviceProvider.GetService<IConnectionTester>() ?? new ConnectionTester(),
             pickFolder: PickProjectFolderAsync,
-            createSampleProject: null); // "Try the sample project" appears once the sample exists (E3-S3)
+            createSampleProject: CreateSampleForWizardAsync);
         wizard.Completed += OnSetupWizardCompleted;
         wizard.Skipped += OnSetupWizardSkipped;
 
@@ -75,6 +79,12 @@ public partial class MainViewModel
         // The provider follows the saved settings by itself (ConfiguredAiProvider), so the first message already uses it.
         GetOrCreateChatViewModel().PermissionMode = result.PermissionMode;
         StatusText = $"Ready: {result.ProviderKey} · {result.Model}";
+
+        // "Try the sample project" in the wizard: the wizard opened the copy, now start the guided first task.
+        var sample = _wizardSample;
+        _wizardSample = null;
+        if (sample != null && result.ProjectPath != null && SamePath(result.ProjectPath, sample.Path))
+            BeginSampleGuide(sample);
     }
 
     private void OnSetupWizardSkipped(object? sender, EventArgs e) => CloseSetupWizard();

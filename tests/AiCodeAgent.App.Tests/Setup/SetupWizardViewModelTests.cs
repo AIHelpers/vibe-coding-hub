@@ -313,6 +313,39 @@ public sealed class SetupWizardViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task TrySample_OnTheLastStep_OpensTheSampleRightAway()
+    {
+        var (vm, _, _, config) = await StartAsync(sample: () => Task.FromResult<string?>(_project), detected: Ollama("llama3.1"));
+        await vm.NextCommand.ExecuteAsync(null); // Connect (a detected server is tested at once)
+        await vm.NextCommand.ExecuteAsync(null); // Project
+        SetupWizardResult? result = null;
+        vm.Completed += (_, r) => result = r;
+
+        await vm.TrySampleCommand.ExecuteAsync(null);
+
+        Assert.NotNull(result);
+        Assert.Equal(_project, result!.ProjectPath);
+        Assert.Equal(_project, config.Config.Agent.WorkingDirectory);
+        Assert.True(config.Config.Ui.SetupWizardDone);
+    }
+
+    [Fact]
+    public async Task TrySample_WhenTheCopyFails_ShowsWhy_AndDoesNotFinish()
+    {
+        var (vm, _, _, _) = await StartAsync(
+            sample: () => Task.FromException<string?>(new IOException("disk full")), detected: Ollama("llama3.1"));
+        await vm.NextCommand.ExecuteAsync(null);
+        await vm.NextCommand.ExecuteAsync(null);
+        var completed = false;
+        vm.Completed += (_, _) => completed = true;
+
+        await vm.TrySampleCommand.ExecuteAsync(null);
+
+        Assert.False(completed);
+        Assert.Contains("disk full", vm.Message);
+    }
+
+    [Fact]
     public async Task AFolderThatDoesNotExist_BlocksFinish()
     {
         var (vm, _, _, _) = await StartAsync(detected: Ollama("llama3.1"));
