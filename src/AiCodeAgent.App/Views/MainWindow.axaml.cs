@@ -264,6 +264,7 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel mainVm)
         {
             AttachScreens(mainVm);
+            AttachPalette(mainVm.CommandPalette);
             var editor = mainVm.EditorPane;
 
             // Save As: open a file picker seeded with the tab's current path.
@@ -578,6 +579,37 @@ public partial class MainWindow : Window
             current = current.Parent as StyledElement;
         }
         return null;
+    }
+
+    private CommandPaletteViewModel? _paletteVm;
+
+    private void AttachPalette(CommandPaletteViewModel palette)
+    {
+        if (_paletteVm != null)
+            _paletteVm.PropertyChanged -= OnPalettePropertyChanged;
+        _paletteVm = palette;
+        palette.PropertyChanged += OnPalettePropertyChanged;
+    }
+
+    private void OnPalettePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(CommandPaletteViewModel.IsOpen))
+            return;
+
+        // Focus after the overlay became visible and laid out, however it was opened (shortcut, button).
+        var open = _paletteVm?.IsOpen == true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (open)
+            {
+                PaletteSearchBox?.Focus();
+                PaletteSearchBox?.SelectAll();
+            }
+            else
+            {
+                InputBox?.Focus();
+            }
+        }, DispatcherPriority.Background);
     }
 
     private void OnPaletteKeyDown(object? sender, KeyEventArgs e)

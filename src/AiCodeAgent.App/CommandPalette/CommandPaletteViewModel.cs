@@ -13,7 +13,12 @@ namespace AiCodeAgent.App.CommandPalette;
 /// </summary>
 public partial class CommandPaletteViewModel : ObservableObject
 {
+    private const int MaxRecent = 20;
+
     private readonly CommandPaletteRegistry _registry;
+
+    // Most recently executed entry ids, newest first. Session-local.
+    private readonly List<string> _recentIds = new();
 
     [ObservableProperty]
     private bool _isOpen;
@@ -78,8 +83,27 @@ public partial class CommandPaletteViewModel : ObservableObject
             return;
 
         var entry = FilteredEntries[SelectedIndex];
+        MarkUsed(entry.Id);
         Close();
         entry.Action?.Invoke();
+    }
+
+    /// <summary>Remembers an entry as recently used so it ranks higher next time.</summary>
+    internal void MarkUsed(string id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return;
+        _recentIds.Remove(id);
+        _recentIds.Insert(0, id);
+        if (_recentIds.Count > MaxRecent)
+            _recentIds.RemoveAt(_recentIds.Count - 1);
+    }
+
+    /// <summary>Up to +300 for the newest entry. Smaller than the gap between ranking tiers.</summary>
+    private int RecencyBonus(string id)
+    {
+        var index = _recentIds.IndexOf(id);
+        return index < 0 ? 0 : Math.Max(0, 300 - index * 15);
     }
 
     /// <summary>
@@ -91,9 +115,17 @@ public partial class CommandPaletteViewModel : ObservableObject
     {
         var query = SearchText.Trim();
 
-        var results = _registry.GetAllEntries()
-            .Select(e => new { Entry = e, Score = FuzzyMatcher.Score(e.SearchText, query) })
+        var scored = _registry.GetAllEntries()
+            .Select(e => new { Entry = e, Score = FuzzyMatcher.ScoreEntry(e, query) })
             .Where(x => x.Score > 0)
+            .ToList();
+
+        // Scattered letter matches only appear when nothing matches better.
+        if (query.Length > 0 && scored.Any(x => x.Score >= FuzzyMatcher.StrongMatchThreshold))
+            scored.RemoveAll(x => x.Score < FuzzyMatcher.StrongMatchThreshold);
+
+        var results = scored
+            .Select(x => new { x.Entry, Score = x.Score + RecencyBonus(x.Entry.Id) })
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Entry.Title, StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Entry)
