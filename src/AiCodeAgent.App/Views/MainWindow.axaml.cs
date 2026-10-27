@@ -24,6 +24,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Escape / popup keys run in the tunnel phase: the chat box is multi-line now, and a multi-line TextBox
+        // handles keys such as Down itself. Enter / Ctrl+Enter / Shift+Enter are handled by ChatInput (see XAML).
+        InputBox.AddHandler(KeyDownEvent, OnInputKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
         KeyDown += OnWindowKeyDown;
         PropertyChanged += OnWindowPropertyChanged;
@@ -442,16 +445,8 @@ public partial class MainWindow : Window
 
     private void OnInputKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && sender is TextBox)
-        {
-            var chatVm = GetChatViewModel();
-            if (chatVm != null && chatVm.SendCommand.CanExecute(null))
-            {
-                chatVm.SendCommand.Execute(null);
-                e.Handled = true;
-            }
-        }
-        else if (e.Key == Key.Escape)
+        // Enter sends and Shift+Enter inserts a new line: see Controls/ChatInput (bound in MainWindow.axaml).
+        if (e.Key == Key.Escape)
         {
             var chatVm = GetChatViewModel();
             if (chatVm != null && chatVm.IsCancellable)
