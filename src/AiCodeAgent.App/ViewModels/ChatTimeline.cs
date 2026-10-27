@@ -123,17 +123,23 @@ public sealed partial class ApprovalItem : ChatItem
     public bool IsApproved => Status == ApprovalStatus.Approved;
     public bool IsDeclined => Status == ApprovalStatus.Declined;
 
-    public string StatusText => Status switch
+    /// <summary>Why it was resolved this way, e.g. "edits allowed for this task" or "feedback: use the helper".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    private string? _resolutionNote;
+
+    public string StatusText => (Status switch
     {
         ApprovalStatus.Approved => "✓ Approved",
         ApprovalStatus.Declined => "✕ Declined",
         _ => "Waiting for you: approve or decline in the dialog below."
-    };
+    }) + (string.IsNullOrEmpty(ResolutionNote) || Status == ApprovalStatus.Pending ? string.Empty : $" · {ResolutionNote}");
 
     /// <summary>Records the answer; only the first answer counts.</summary>
-    public void Resolve(bool approved)
+    public void Resolve(bool approved, string? note = null)
     {
         if (Status != ApprovalStatus.Pending) return;
+        ResolutionNote = note;
         Status = approved ? ApprovalStatus.Approved : ApprovalStatus.Declined;
     }
 }

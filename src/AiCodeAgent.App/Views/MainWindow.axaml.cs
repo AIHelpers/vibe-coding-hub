@@ -6,6 +6,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Avalonia.ReactiveUI;
 using AiCodeAgent.App.CommandPalette;
 using AiCodeAgent.App.Services;
@@ -27,6 +28,8 @@ public partial class MainWindow : Window
         // Escape / popup keys run in the tunnel phase: the chat box is multi-line now, and a multi-line TextBox
         // handles keys such as Down itself. Enter / Ctrl+Enter / Shift+Enter are handled by ChatInput (see XAML).
         InputBox.AddHandler(KeyDownEvent, OnInputKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        // Approval dialog keys run first (tunnel at the window): Enter = Approve, Esc = Deny.
+        AddHandler(KeyDownEvent, OnApprovalDialogKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
         KeyDown += OnWindowKeyDown;
         PropertyChanged += OnWindowPropertyChanged;
@@ -441,6 +444,31 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel mainVm)
             return mainVm.QuickOpen;
         return null;
+    }
+
+    private void OnApprovalDialogKeyDown(object? sender, KeyEventArgs e)
+    {
+        var chatVm = GetChatViewModel();
+        if (chatVm is not { ShowApprovalDialog: true })
+            return;
+
+        var action = ApprovalKeys.Resolve(e.Key, e.KeyModifiers, chatVm.IsEnteringApprovalFeedback,
+            focusIsOnButton: e.Source is Button || (e.Source as Visual)?.FindAncestorOfType<Button>() != null);
+        switch (action)
+        {
+            case ApprovalKeyAction.Approve:
+                chatVm.ApproveToolCommand.Execute(null);
+                break;
+            case ApprovalKeyAction.Deny:
+                chatVm.DenyToolCommand.Execute(null);
+                break;
+            case ApprovalKeyAction.CloseFeedback:
+                chatVm.CancelDenyWithFeedbackCommand.Execute(null);
+                break;
+            default:
+                return;
+        }
+        e.Handled = true;
     }
 
     private void OnInputKeyDown(object? sender, KeyEventArgs e)

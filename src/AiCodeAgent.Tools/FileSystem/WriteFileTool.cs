@@ -1,4 +1,5 @@
 using System.Text;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using AiCodeAgent.Tools.Code;
@@ -6,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Tools.FileSystem;
 
-public class WriteFileTool : BaseTool
+public class WriteFileTool : BaseTool, IPreviewableTool
 {
     private const int MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB max file size
     private const int MaxContentLength = 1_000_000; // 1M characters max content
@@ -111,6 +112,38 @@ public class WriteFileTool : BaseTool
         {
             Logger.LogError(ex, "Error writing file {Path}", path);
             return Error($"Error writing file: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The file this call would create or overwrite (or what it would look like after an append), without writing.
+    /// Mirrors <see cref="ExecuteAsync"/>'s checks so a call that would fail shows why.
+    /// </summary>
+    public async Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var path = GetArg<string>(call, "path");
+            var content = GetArg<string>(call, "content") ?? string.Empty;
+            var append = GetArg<bool>(call, "append", false);
+
+            if (context.IsReadOnly)
+                return ToolPreview.Failed("Write operations are disabled in read-only mode.");
+            if (content.Length > MaxContentLength)
+                return ToolPreview.Failed($"Content too large ({content.Length:N0} characters). Maximum allowed is {MaxContentLength:N0} characters.");
+
+            var resolvedPath = ResolvePath(path, context);
+            ValidatePath(resolvedPath, context);
+
+            if (!File.Exists(resolvedPath))
+                return new ToolPreview { FileChange = new FileChangePreview(path, null, content) };
+
+            var existing = await File.ReadAllTextAsync(resolvedPath, Encoding.UTF8);
+            return new ToolPreview { FileChange = new FileChangePreview(path, existing, append ? existing + content : content) };
+        }
+        catch (Exception ex)
+        {
+            return ToolPreview.Failed(ex.Message);
         }
     }
 }

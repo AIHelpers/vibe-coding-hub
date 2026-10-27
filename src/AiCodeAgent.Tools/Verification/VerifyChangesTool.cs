@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
@@ -14,7 +15,7 @@ namespace AiCodeAgent.Tools.Verification;
 /// at the first failure and returns a condensed error report. The model is expected to fix and call it again; after
 /// <see cref="MaxConsecutiveFailures"/> failed attempts in a row the tool tells it to stop and report instead.
 /// </summary>
-public class VerifyChangesTool : BaseTool
+public class VerifyChangesTool : BaseTool, IPreviewableTool
 {
     public const int MaxConsecutiveFailures = 5;
     private const int StageTimeoutSeconds = 600;
@@ -164,6 +165,35 @@ public class VerifyChangesTool : BaseTool
         {
             Logger.LogWarning(ex, "verify stage failed to start: {Command}", command);
             return (-1, $"Could not run '{command}': {ex.Message}", false);
+        }
+    }
+
+    /// <summary>The build/test/lint commands this call would run (as detected for the project), where, and in which sandbox.</summary>
+    public Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var path = GetArg<string>(call, "path", ".");
+            var wanted = GetArg<string[]>(call, "stages", Array.Empty<string>()) ?? Array.Empty<string>();
+            var dir = ResolvePath(path, context);
+            if (!Directory.Exists(dir))
+                return Task.FromResult<ToolPreview?>(ToolPreview.Failed($"Directory not found: {path}"));
+
+            var stages = VerifyCommandDetector.Detect(dir);
+            if (wanted.Length > 0)
+                stages = stages.Where(s => wanted.Contains(s.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+
+            var preview = new ToolPreview
+            {
+                Command = new CommandPreview(stages.Select(s => $"{s.Name}: {s.Command}").ToList(), dir,
+                    _sandbox?.Enabled == true, _sandbox?.Description),
+                Error = stages.Count == 0 ? "No build/test/lint commands found for this project." : null
+            };
+            return Task.FromResult<ToolPreview?>(preview);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<ToolPreview?>(ToolPreview.Failed(ex.Message));
         }
     }
 }

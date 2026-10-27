@@ -1,0 +1,121 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:views="using:AiCodeAgent.App.Views"
+             xmlns:ctl="using:AiCodeAgent.App.Controls"
+             x:Class="AiCodeAgent.App.Views.ApprovalDialogView"
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True">
+    <!-- Diff-first approval: what will happen (diff / command), who asks, and the decision buttons.
+         Keys (handled by MainWindow): Enter = Approve, Esc = Deny (or close the feedback box). -->
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="0,4">
+        <!-- Header -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto">
+            <TextBlock Grid.Column="0" Text="🔐" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock Grid.Column="1" Text="Approval required" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Border Grid.Column="2" CornerRadius="3" Padding="6,2" Margin="8,0" VerticalAlignment="Center"
+                    Background="{DynamicResource AppBadgeBrush}">
+                <TextBlock Text="{Binding ApprovalRisk, StringFormat='risk: {0}'}" FontSize="11" Foreground="#FFAA22"/>
+            </Border>
+            <Button Grid.Column="3" Content="✕" Command="{Binding DenyToolCommand}" ToolTip.Tip="Deny (Esc)"
+                    Width="24" Height="24" Padding="0" FontSize="12" Background="Transparent" BorderThickness="0"/>
+        </Grid>
+
+        <!-- What and who -->
+        <StackPanel Grid.Row="1" Spacing="2" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Name="ApprovalTitle" Text="{Binding ApprovalPreview.Title, FallbackValue=''}" FontSize="14" FontWeight="Bold"/>
+                <TextBlock Text="{Binding ApprovalToolName}" FontSize="11" Opacity="0.5" FontFamily="Consolas,Menlo,monospace"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" IsVisible="{Binding HasApprovalAgent}" Margin="0,4,0,0">
+            <TextBlock Grid.Column="0" Text="Agent:" FontSize="11" Opacity="0.5" Margin="0,0,8,0"/>
+            <TextBlock Grid.Column="1" Name="ApprovalAgentText" Text="{Binding ApprovalAgent}" FontSize="11" Opacity="0.8" TextWrapping="Wrap"/>
+        </Grid>
+
+        <!-- What will happen -->
+        <ScrollViewer Grid.Row="3" Margin="0,10,0,0" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="8">
+                <Border IsVisible="{Binding ApprovalPreview.HasError, FallbackValue=False}"
+                        Background="#33E05555" CornerRadius="4" Padding="8,6">
+                    <TextBlock Text="{Binding ApprovalPreview.Error, StringFormat='⚠ As it stands this call would fail: {0}', FallbackValue=''}"
+                               TextWrapping="Wrap" FontSize="12"/>
+                </Border>
+
+                <!-- File edits: the diff -->
+                <views:DiffPreviewView DataContext="{Binding ApprovalPreview}"
+                                       IsVisible="{Binding IsFileDiff}"/>
+
+                <!-- Commands: what runs, where, and in which sandbox -->
+                <StackPanel Spacing="6" IsVisible="{Binding ApprovalPreview.IsCommand, FallbackValue=False}">
+                    <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="10">
+                        <SelectableTextBlock Text="{Binding ApprovalPreview.CommandText, FallbackValue=''}"
+                                             FontFamily="Consolas,Menlo,monospace" FontSize="12" TextWrapping="Wrap"/>
+                    </Border>
+                    <TextBlock Text="{Binding ApprovalPreview.WorkingDirectory, StringFormat='in {0}', FallbackValue=''}"
+                               FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ApprovalPreview.SandboxText, FallbackValue=''}" FontSize="11"
+                               Classes.sandboxed="{Binding ApprovalPreview.IsSandboxed, FallbackValue=False}"/>
+                </StackPanel>
+
+                <!-- Anything else: the arguments -->
+                <Border IsVisible="{Binding ApprovalPreview.IsArguments, FallbackValue=True}"
+                        Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="10">
+                    <SelectableTextBlock Text="{Binding ApprovalPreview.RawArguments, FallbackValue=''}"
+                                         FontFamily="Consolas,Menlo,monospace" FontSize="11" TextWrapping="Wrap"/>
+                </Border>
+
+                <Expander Header="Arguments" FontSize="11"
+                          IsVisible="{Binding !ApprovalPreview.IsArguments, FallbackValue=False}">
+                    <SelectableTextBlock Text="{Binding ApprovalPreview.RawArguments, FallbackValue=''}"
+                                         FontFamily="Consolas,Menlo,monospace" FontSize="11" TextWrapping="Wrap"/>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Deny with feedback -->
+        <StackPanel Grid.Row="4" Spacing="6" Margin="0,10,0,0" IsVisible="{Binding IsEnteringApprovalFeedback}">
+            <TextBlock Text="Tell the agent what to do instead. It gets this as the tool result and continues." FontSize="11" Opacity="0.7"/>
+            <TextBox Name="FeedbackBox"
+                     Text="{Binding ApprovalFeedbackText}"
+                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="56" MaxHeight="120"
+                     Watermark="e.g. Don't touch the public API; add an overload instead (Enter to send, Shift+Enter for a new line)"
+                     ctl:ChatInput.SubmitCommand="{Binding DenyWithFeedbackCommand}"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button Content="Cancel" Command="{Binding CancelDenyWithFeedbackCommand}" Padding="12,6" FontSize="12"/>
+                <Button Content="Deny and send feedback" Command="{Binding DenyWithFeedbackCommand}"
+                        Padding="12,6" FontSize="12" Background="#C62828" Foreground="White"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Decision -->
+        <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="0,12,0,0" IsVisible="{Binding !IsEnteringApprovalFeedback}">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <Button Content="✕ Deny (Esc)" Command="{Binding DenyToolCommand}"
+                        Padding="14,8" FontSize="12" Background="#C62828" Foreground="White"/>
+                <Button Content="Deny with feedback…" Command="{Binding StartDenyWithFeedbackCommand}"
+                        Padding="12,8" FontSize="12"/>
+            </StackPanel>
+            <WrapPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="{Binding AlwaysAllowLabel}" Command="{Binding AlwaysAllowToolThisSessionCommand}"
+                        IsVisible="{Binding CanSetApprovalRules}"
+                        ToolTip.Tip="Approve this and every later call of this tool until you clear the chat"
+                        Padding="12,8" FontSize="12" Margin="0,0,8,0"/>
+                <Button Content="Approve all edits this task" Command="{Binding ApproveAllEditsThisTaskCommand}"
+                        IsVisible="{Binding CanApproveAllEdits}"
+                        ToolTip.Tip="Approve this and every later file edit until the task ends. Commands still ask."
+                        Padding="12,8" FontSize="12" Margin="0,0,8,0"/>
+                <Button Name="ApproveButton" Content="✓ Approve (Enter)" Command="{Binding ApproveToolCommand}"
+                        Padding="18,8" FontSize="12" Background="#2E7D32" Foreground="White"/>
+            </WrapPanel>
+        </Grid>
+    </Grid>
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.sandboxed">
+            <Setter Property="Foreground" Value="#43A047"/>
+        </Style>
+    </UserControl.Styles>
+</UserControl>

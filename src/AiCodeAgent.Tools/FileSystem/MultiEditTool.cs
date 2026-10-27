@@ -1,5 +1,6 @@
 using System.Text;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,7 @@ public sealed class EditOperation
 /// Several exact-text replacements in ONE file, applied in order and all-or-nothing: if any edit fails to match,
 /// nothing is written. Cheaper and safer than a chain of edit_file calls.
 /// </summary>
-public class MultiEditTool : BaseTool
+public class MultiEditTool : BaseTool, IPreviewableTool
 {
     private static readonly UTF8Encoding NoBom = new(false);
 
@@ -74,25 +75,14 @@ public class MultiEditTool : BaseTool
 
         try
         {
-            if (context.IsReadOnly)
-                return Error("Write operations are disabled in read-only mode.");
+            var (plan, error) = await PlanAsync(path, edits, context);
+            if (plan == null)
+                return Error(error!);
 
-            var resolved = ResolvePath(path, context);
-            if (!File.Exists(resolved))
-                return Error($"File not found: {path}");
-
-            var bytes = await File.ReadAllBytesAsync(resolved);
-            var hadBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-            var original = NoBom.GetString(bytes, hadBom ? 3 : 0, bytes.Length - (hadBom ? 3 : 0));
-
-            var updated = ApplyEdits(original, edits, out var error);
-            if (updated == null)
-                return Error($"{error} No changes were written to {path}.");
-
-            await File.WriteAllTextAsync(resolved, updated, hadBom ? new UTF8Encoding(true) : NoBom);
-            var diff = UnifiedDiffBuilder.Build(original, updated, path);
+            await File.WriteAllTextAsync(plan.ResolvedPath, plan.Updated, plan.HadBom ? new UTF8Encoding(true) : NoBom);
+            var diff = UnifiedDiffBuilder.Build(plan.Original, plan.Updated, path);
             return Success($"Applied {edits.Count} edit(s) to {path}.\n{diff}",
-                new FileWriteResult(original, updated, FileExistedBefore: true));
+                new FileWriteResult(plan.Original, plan.Updated, FileExistedBefore: true));
         }
         catch (UnauthorizedAccessException ex) { return Error(ex.Message); }
         catch (Exception ex)
@@ -100,6 +90,48 @@ public class MultiEditTool : BaseTool
             Logger.LogError(ex, "multi_edit failed for {Path}", path);
             return Error($"Error editing file: {ex.Message}");
         }
+    }
+
+    /// <summary>The edits this call would make, computed exactly like <see cref="ExecuteAsync"/> but without writing.</summary>
+    public async Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var path = GetArg<string>(call, "path");
+            var edits = GetArg<List<EditOperation>>(call, "edits");
+            if (edits == null || edits.Count == 0)
+                return ToolPreview.Failed("'edits' must contain at least one {old_string, new_string}.");
+
+            var (plan, error) = await PlanAsync(path, edits, context);
+            return plan == null
+                ? ToolPreview.Failed(error!)
+                : new ToolPreview { FileChange = new FileChangePreview(path, plan.Original, plan.Updated) };
+        }
+        catch (Exception ex)
+        {
+            return ToolPreview.Failed(ex.Message);
+        }
+    }
+
+    private sealed record EditPlan(string ResolvedPath, string Original, string Updated, bool HadBom);
+
+    private async Task<(EditPlan? Plan, string? Error)> PlanAsync(string path, IReadOnlyList<EditOperation> edits, AgentExecutionContext context)
+    {
+        if (context.IsReadOnly)
+            return (null, "Write operations are disabled in read-only mode.");
+
+        var resolved = ResolvePath(path, context);
+        if (!File.Exists(resolved))
+            return (null, $"File not found: {path}");
+
+        var bytes = await File.ReadAllBytesAsync(resolved);
+        var hadBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        var original = NoBom.GetString(bytes, hadBom ? 3 : 0, bytes.Length - (hadBom ? 3 : 0));
+
+        var updated = ApplyEdits(original, edits, out var error);
+        return updated == null
+            ? (null, $"{error} No changes were written to {path}.")
+            : (new EditPlan(resolved, original, updated, hadBom), null);
     }
 
     /// <summary>Applies edits in order. Returns null (and an error message) if any edit is missing or ambiguous.</summary>

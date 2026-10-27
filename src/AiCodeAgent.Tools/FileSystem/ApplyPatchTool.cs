@@ -1,5 +1,6 @@
 using System.Text;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
@@ -7,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace AiCodeAgent.Tools.FileSystem;
 
 /// <summary>Apply unified-diff hunks to one existing file. Use one call per file.</summary>
-public class ApplyPatchTool : BaseTool
+public class ApplyPatchTool : BaseTool, IPreviewableTool
 {
     private static readonly UTF8Encoding NoBom = new(false);
 
@@ -43,24 +44,13 @@ public class ApplyPatchTool : BaseTool
 
         try
         {
-            if (context.IsReadOnly)
-                return Error("Write operations are disabled in read-only mode.");
+            var (plan, error) = await PlanAsync(path, patch, context);
+            if (plan == null)
+                return Error(error!);
 
-            var resolved = ResolvePath(path, context);
-            if (!File.Exists(resolved))
-                return Error($"File not found: {path}");
-
-            var bytes = await File.ReadAllBytesAsync(resolved);
-            var hadBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-            var original = NoBom.GetString(bytes, hadBom ? 3 : 0, bytes.Length - (hadBom ? 3 : 0));
-
-            var updated = UnifiedPatchApplier.Apply(original, patch, out var error);
-            if (updated == null)
-                return Error($"{error} No changes were written to {path}.");
-
-            await File.WriteAllTextAsync(resolved, updated, hadBom ? new UTF8Encoding(true) : NoBom);
-            var diff = UnifiedDiffBuilder.Build(original, updated, path);
-            return Success($"Patched {path}.\n{diff}", new FileWriteResult(original, updated, FileExistedBefore: true));
+            await File.WriteAllTextAsync(plan.ResolvedPath, plan.Updated, plan.HadBom ? new UTF8Encoding(true) : NoBom);
+            var diff = UnifiedDiffBuilder.Build(plan.Original, plan.Updated, path);
+            return Success($"Patched {path}.\n{diff}", new FileWriteResult(plan.Original, plan.Updated, FileExistedBefore: true));
         }
         catch (UnauthorizedAccessException ex) { return Error(ex.Message); }
         catch (Exception ex)
@@ -68,5 +58,46 @@ public class ApplyPatchTool : BaseTool
             Logger.LogError(ex, "apply_patch failed for {Path}", path);
             return Error($"Error patching file: {ex.Message}");
         }
+    }
+
+    /// <summary>The patched file this call would produce, computed exactly like <see cref="ExecuteAsync"/> but without writing.</summary>
+    public async Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var path = GetArg<string>(call, "path");
+            var patch = GetArg<string>(call, "patch");
+            if (string.IsNullOrWhiteSpace(patch)) return ToolPreview.Failed("'patch' is required.");
+
+            var (plan, error) = await PlanAsync(path, patch, context);
+            return plan == null
+                ? ToolPreview.Failed(error!)
+                : new ToolPreview { FileChange = new FileChangePreview(path, plan.Original, plan.Updated) };
+        }
+        catch (Exception ex)
+        {
+            return ToolPreview.Failed(ex.Message);
+        }
+    }
+
+    private sealed record PatchPlan(string ResolvedPath, string Original, string Updated, bool HadBom);
+
+    private async Task<(PatchPlan? Plan, string? Error)> PlanAsync(string path, string patch, AgentExecutionContext context)
+    {
+        if (context.IsReadOnly)
+            return (null, "Write operations are disabled in read-only mode.");
+
+        var resolved = ResolvePath(path, context);
+        if (!File.Exists(resolved))
+            return (null, $"File not found: {path}");
+
+        var bytes = await File.ReadAllBytesAsync(resolved);
+        var hadBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        var original = NoBom.GetString(bytes, hadBom ? 3 : 0, bytes.Length - (hadBom ? 3 : 0));
+
+        var updated = UnifiedPatchApplier.Apply(original, patch, out var error);
+        return updated == null
+            ? (null, $"{error} No changes were written to {path}.")
+            : (new PatchPlan(resolved, original, updated, hadBom), null);
     }
 }
