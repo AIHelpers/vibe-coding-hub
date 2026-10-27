@@ -3,13 +3,14 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Tools.Shell;
 
-public class ExecuteCommandTool : BaseTool
+public class ExecuteCommandTool : BaseTool, IPreviewableTool
 {
     /// <summary>Cap on captured stdout/stderr so a runaway or chatty command can't exhaust memory or blow the context window.</summary>
     private const int MaxOutputChars = 30_000; // ~30 KB
@@ -281,5 +282,26 @@ public class ExecuteCommandTool : BaseTool
                 return true;
         }
         return false;
+    }
+
+    /// <summary>The command, the directory it would run in, and whether the Docker sandbox isolates it. Runs nothing.</summary>
+    public Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var command = GetArg<string>(call, "command") ?? string.Empty;
+            var workingDir = GetArg<string>(call, "working_dir", context.WorkingDirectory);
+            var resolvedDir = ResolvePath(workingDir, context);
+            var preview = new ToolPreview
+            {
+                Command = new CommandPreview(new[] { command }, resolvedDir, _sandbox?.Enabled == true, _sandbox?.Description),
+                Error = Directory.Exists(resolvedDir) ? null : $"Working directory not found: {workingDir}"
+            };
+            return Task.FromResult<ToolPreview?>(preview);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<ToolPreview?>(ToolPreview.Failed(ex.Message));
+        }
     }
 }

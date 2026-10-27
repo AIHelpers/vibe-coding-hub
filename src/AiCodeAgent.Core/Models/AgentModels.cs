@@ -299,7 +299,14 @@ public record ToolCallStartEvent(ToolCall Call) : AgentEvent;
 public record ToolCallEndEvent(ToolCall Call, ToolResult Result, TimeSpan Duration) : AgentEvent;
 public record AgentFinishedEvent(AgentResponse Response) : AgentEvent;
 public record AgentErrorEvent(Exception Error) : AgentEvent;
-public record ApprovalRequestEvent(ToolCall Call, TaskCompletionSource<bool> Approval, RiskLevel Risk = RiskLevel.Write) : AgentEvent;
+public record ApprovalRequestEvent(ToolCall Call, TaskCompletionSource<bool> Approval, RiskLevel Risk = RiskLevel.Write) : AgentEvent
+{
+    /// <summary>What the call would do (a diff or the command), computed without side effects; null when unknown.</summary>
+    public ToolPreview? Preview { get; init; }
+
+    /// <summary>The user's note when denying. The orchestrator sends it back to the model as the tool result.</summary>
+    public ApprovalFeedback Feedback { get; init; } = new();
+}
 public record DiffProducedEvent(DiffEntry Diff) : AgentEvent;
 public record CheckpointCreatedEvent(CheckpointEntry Checkpoint) : AgentEvent;
 public record StatusUpdateEvent(string Status, string? Detail = null) : AgentEvent;

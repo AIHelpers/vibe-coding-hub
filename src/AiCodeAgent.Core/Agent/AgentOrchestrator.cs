@@ -547,7 +547,9 @@ public class AgentOrchestrator : IAgentOrchestrator
 
                         // Emit approval request event - UI will handle this
                         var approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                        var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs, tool.Risk);
+                        // Dry-run preview (diff / command) so the user reviews what will happen, not raw arguments.
+                        var preview = await TryPreviewAsync(tool, toolCall, execContext).ConfigureAwait(false);
+                        var approvalEvent = new ApprovalRequestEvent(toolCall, approvalTcs, tool.Risk) { Preview = preview };
                         yield return approvalEvent;
                         PublishScoped(sessionId, approvalEvent);
 
@@ -588,7 +590,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                             {
                                 ToolCallId = toolCall.Id,
                                 ToolName = toolCall.Name,
-                                Content = $"Tool execution denied by user: {toolCall.Name}",
+                                Content = DeniedContent(toolCall, approvalEvent.Feedback),
                                 IsError = true
                             };
                             var deniedDuration = TimeSpan.Zero;
@@ -1017,6 +1019,39 @@ public class AgentOrchestrator : IAgentOrchestrator
     /// surfaces (tool call cards, the event log, CLI output) keep showing
     /// clean, human-readable text rather than raw XML.
     /// </summary>
+    /// <summary>
+    /// The tool result for a call the user denied. With feedback, the note goes to the model so the agent can
+    /// continue in the direction the user asked for instead of stopping or retrying the same call.
+    /// </summary>
+    internal static string DeniedContent(ToolCall call, ApprovalFeedback? feedback)
+    {
+        if (feedback is not { HasText: true })
+            return $"Tool execution denied by user: {call.Name}";
+
+        return $"Tool execution denied by user: {call.Name}. The call was NOT executed.\n" +
+               $"User feedback: {feedback.Text!.Trim()}\n" +
+               "Do not repeat the same call. Follow the feedback and continue the task.";
+    }
+
+    /// <summary>Asks a previewable tool what the call would do. Never throws: a failed preview must not block approval.</summary>
+    private async Task<ToolPreview?> TryPreviewAsync(ITool tool, ToolCall call, AgentExecutionContext context)
+    {
+        if (tool is not IPreviewableTool previewable) return null;
+        try
+        {
+            var previewTask = previewable.PreviewAsync(call, context);
+            var finished = await Task.WhenAny(previewTask, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+            return finished == previewTask
+                ? await previewTask.ConfigureAwait(false)
+                : ToolPreview.Failed("Preview timed out.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Preview failed for {Tool}", call.Name);
+            return ToolPreview.Failed($"Preview unavailable: {ex.Message}");
+        }
+    }
+
     private static string FormatToolResultForModel(ToolCall call, ToolResult result)
     {
         var name = string.IsNullOrEmpty(result.ToolName) ? call.Name : result.ToolName;

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Tools.Base;
 using AiCodeAgent.Tools.Code;
@@ -13,7 +14,7 @@ namespace AiCodeAgent.Tools.FileSystem;
 /// After a successful edit, surfaces live LSP diagnostics (type errors,
 /// warnings) to the agent so it can react immediately.
 /// </summary>
-public class EditFileTool : BaseTool
+public class EditFileTool : BaseTool, IPreviewableTool
 {
     private static readonly UTF8Encoding NoBomUtf8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -53,51 +54,12 @@ public class EditFileTool : BaseTool
     public override async Task<ToolResult> ExecuteAsync(ToolCall call, AgentExecutionContext context)
     {
         var path = GetArg<string>(call, "path");
-        var oldString = GetArg<string>(call, "old_string");
-        var newString = GetArg<string>(call, "new_string");
-        var occurrence = GetArg<int>(call, "occurrence", 1);
 
         try
         {
-            if (context.IsReadOnly)
-                return Error("Write operations are disabled in read-only mode.");
-
-            var resolvedPath = ResolvePath(path, context);
-            ValidatePath(resolvedPath, context);
-
-            if (!File.Exists(resolvedPath))
-                return Error($"File not found: {path}");
-
-            // Read raw bytes so a UTF-8 BOM the file already had is preserved on write.
-            var originalBytes = await File.ReadAllBytesAsync(resolvedPath);
-            var hadBom = originalBytes.Length >= 3 && originalBytes[0] == 0xEF && originalBytes[1] == 0xBB && originalBytes[2] == 0xBF;
-            var content = new UTF8Encoding(false).GetString(originalBytes, hadBom ? 3 : 0, originalBytes.Length - (hadBom ? 3 : 0));
-
-            // Models almost always emit "\n"; match the file's own line-ending style
-            // so edits neither fail on CRLF files nor introduce mixed endings.
-            var fileUsesCrlf = content.Contains("\r\n", StringComparison.Ordinal);
-            oldString = MatchLineEndings(oldString, fileUsesCrlf);
-            newString = MatchLineEndings(newString, fileUsesCrlf);
-
-            // Validate content size to prevent resource exhaustion
-            if (content.Length > 1_000_000)
-                return Error($"File too large ({content.Length:N0} characters). Maximum supported is 1,000,000 characters.");
-
-            int count = CountOccurrences(content, oldString);
-            if (count == 0)
-                return Error($"Text not found in {path}. Make sure the text matches exactly (including whitespace).");
-            if (occurrence != 0 && occurrence > count)
-                return Error($"Requested occurrence {occurrence} but only {count} occurrence(s) of the text were found in {path}.");
-
-            string newContent;
-            if (occurrence == 0)
-            {
-                newContent = content.Replace(oldString, newString, StringComparison.Ordinal);
-            }
-            else
-            {
-                newContent = ReplaceNthOccurrence(content, oldString, newString, occurrence);
-            }
+            var (plan, error) = await PlanAsync(call, context);
+            if (plan == null)
+                return Error(error!);
 
             // Write without a BOM (a prior version always wrote UTF-8-with-BOM,
             // adding a BOM to files that had none, which produced noisy diffs
@@ -105,24 +67,87 @@ public class EditFileTool : BaseTool
             // CheckpointManager already captured the pre-edit content, so Undo
             // works without one, and a stray .bak next to the user's file was
             // triggering file watchers and getting left behind on crashes.
-            await File.WriteAllTextAsync(resolvedPath, newContent, hadBom ? new UTF8Encoding(true) : NoBomUtf8);
+            await File.WriteAllTextAsync(plan.ResolvedPath, plan.Updated, plan.HadBom ? new UTF8Encoding(true) : NoBomUtf8);
 
-            var diff = UnifiedDiffBuilder.Build(content, newContent, path);
+            var diff = UnifiedDiffBuilder.Build(plan.Original, plan.Updated, path);
 
             // Surface live LSP diagnostics (type errors/warnings) after the edit.
-            var diagnostics = await ReportDiagnosticsAsync(resolvedPath, newContent, context);
-            var ambiguityNote = occurrence == 1 && count > 1
-                ? $"\nNote: the text matched {count} places; only the first was changed. Pass 'occurrence' (or a longer old_string) to target another, or 0 for all.\n"
+            var diagnostics = await ReportDiagnosticsAsync(plan.ResolvedPath, plan.Updated, context);
+            var ambiguityNote = plan.Occurrence == 1 && plan.Count > 1
+                ? $"\nNote: the text matched {plan.Count} places; only the first was changed. Pass 'occurrence' (or a longer old_string) to target another, or 0 for all.\n"
                 : string.Empty;
             return Success(
                 $"Successfully edited {path}.{ambiguityNote}\n{diff}{diagnostics}",
-                new FileWriteResult(content, newContent, FileExistedBefore: true));
+                new FileWriteResult(plan.Original, plan.Updated, FileExistedBefore: true));
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error editing file {Path}", path);
             return Error($"Error editing file: {ex.Message}");
         }
+    }
+
+    /// <summary>The edit this call would make, computed exactly like <see cref="ExecuteAsync"/> but without writing.</summary>
+    public async Task<ToolPreview?> PreviewAsync(ToolCall call, AgentExecutionContext context)
+    {
+        try
+        {
+            var (plan, error) = await PlanAsync(call, context);
+            return plan == null
+                ? ToolPreview.Failed(error!)
+                : new ToolPreview { FileChange = new FileChangePreview(GetArg<string>(call, "path"), plan.Original, plan.Updated) };
+        }
+        catch (Exception ex)
+        {
+            return ToolPreview.Failed(ex.Message);
+        }
+    }
+
+    private sealed record EditPlan(string ResolvedPath, string Original, string Updated, bool HadBom, int Count, int Occurrence);
+
+    /// <summary>Reads the file and computes the edited content. Returns an error message instead when the edit cannot apply.</summary>
+    private async Task<(EditPlan? Plan, string? Error)> PlanAsync(ToolCall call, AgentExecutionContext context)
+    {
+        var path = GetArg<string>(call, "path");
+        var oldString = GetArg<string>(call, "old_string");
+        var newString = GetArg<string>(call, "new_string");
+        var occurrence = GetArg<int>(call, "occurrence", 1);
+
+        if (context.IsReadOnly)
+            return (null, "Write operations are disabled in read-only mode.");
+
+        var resolvedPath = ResolvePath(path, context);
+        ValidatePath(resolvedPath, context);
+
+        if (!File.Exists(resolvedPath))
+            return (null, $"File not found: {path}");
+
+        // Read raw bytes so a UTF-8 BOM the file already had is preserved on write.
+        var originalBytes = await File.ReadAllBytesAsync(resolvedPath);
+        var hadBom = originalBytes.Length >= 3 && originalBytes[0] == 0xEF && originalBytes[1] == 0xBB && originalBytes[2] == 0xBF;
+        var content = new UTF8Encoding(false).GetString(originalBytes, hadBom ? 3 : 0, originalBytes.Length - (hadBom ? 3 : 0));
+
+        // Models almost always emit "\n"; match the file's own line-ending style
+        // so edits neither fail on CRLF files nor introduce mixed endings.
+        var fileUsesCrlf = content.Contains("\r\n", StringComparison.Ordinal);
+        oldString = MatchLineEndings(oldString, fileUsesCrlf);
+        newString = MatchLineEndings(newString, fileUsesCrlf);
+
+        // Validate content size to prevent resource exhaustion
+        if (content.Length > 1_000_000)
+            return (null, $"File too large ({content.Length:N0} characters). Maximum supported is 1,000,000 characters.");
+
+        int count = CountOccurrences(content, oldString);
+        if (count == 0)
+            return (null, $"Text not found in {path}. Make sure the text matches exactly (including whitespace).");
+        if (occurrence != 0 && occurrence > count)
+            return (null, $"Requested occurrence {occurrence} but only {count} occurrence(s) of the text were found in {path}.");
+
+        var newContent = occurrence == 0
+            ? content.Replace(oldString, newString, StringComparison.Ordinal)
+            : ReplaceNthOccurrence(content, oldString, newString, occurrence);
+
+        return (new EditPlan(resolvedPath, content, newContent, hadBom, count, occurrence), null);
     }
 
     private static string MatchLineEndings(string text, bool crlf)

@@ -96,6 +96,44 @@ public partial class ChatViewModel : ObservableObject
     private string _approvalRole = "";
     [ObservableProperty]
     private string _approvalRisk = "Write";
+
+    /// <summary>What the approval in the dialog would do: a diff, the command, or the raw arguments.</summary>
+    [ObservableProperty]
+    private ApprovalPreviewViewModel? _approvalPreview;
+
+    /// <summary>True while the "Deny with feedback…" box is open.</summary>
+    [ObservableProperty]
+    private bool _isEnteringApprovalFeedback;
+
+    [ObservableProperty]
+    private string _approvalFeedbackText = string.Empty;
+
+    /// <summary>Standing decisions: "approve all edits this task", "always allow &lt;tool&gt; this session".</summary>
+    public ApprovalPolicy Approvals { get; } = new();
+
+    /// <summary>The "Agent:" row is hidden when nobody is named (plain agent, no character).</summary>
+    public bool HasApprovalAgent => !string.IsNullOrWhiteSpace(ApprovalAgent);
+
+    /// <summary>False for explicit confirmations (git push/PR): no standing rule can be set from them.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanApproveAllEdits))]
+    private bool _canSetApprovalRules = true;
+
+    /// <summary>"Approve all edits this task" only makes sense for an edit tool.</summary>
+    public bool IsEditApproval => ApprovalPolicy.IsEditTool(ApprovalToolName);
+
+    public bool CanApproveAllEdits => IsEditApproval && CanSetApprovalRules;
+
+    public string AlwaysAllowLabel => $"Always allow {ApprovalToolName} this session";
+
+    partial void OnApprovalAgentChanged(string value) => OnPropertyChanged(nameof(HasApprovalAgent));
+
+    partial void OnApprovalToolNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsEditApproval));
+        OnPropertyChanged(nameof(CanApproveAllEdits));
+        OnPropertyChanged(nameof(AlwaysAllowLabel));
+    }
     // Agent session sidebar
     [ObservableProperty]
     private bool _isAgentSidebarOpen;
@@ -133,15 +171,19 @@ public partial class ChatViewModel : ObservableObject
     private readonly Queue<PendingApprovalRequest> _approvalQueue = new();
     private sealed record PendingApprovalRequest(
         TaskCompletionSource<bool> Completion, string Risk, string ToolName, string Args, string Agent, string Role,
-        ApprovalItem? Item);
+        ApprovalItem? Item, ApprovalPreviewViewModel? Preview, ApprovalFeedback? Feedback, bool RulesApply = true);
+
+    /// <summary>Where "Deny with feedback" writes the user's note for the approval shown right now.</summary>
+    private ApprovalFeedback? _currentApprovalFeedback;
 
     /// <summary>The timeline entry of the approval shown in the dialog right now.</summary>
     private ApprovalItem? _currentApprovalItem;
 
     private void EnqueueApproval(TaskCompletionSource<bool> completion, string risk, string toolName, string args,
-        string agent = "", string role = "", ApprovalItem? item = null)
+        string agent = "", string role = "", ApprovalItem? item = null,
+        ApprovalPreviewViewModel? preview = null, ApprovalFeedback? feedback = null, bool rulesApply = true)
     {
-        _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role, item));
+        _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role, item, preview, feedback, rulesApply));
         if (_pendingApproval is null)
             ShowNextApproval();
     }
@@ -158,6 +200,14 @@ public partial class ChatViewModel : ObservableObject
                 continue;
             }
 
+            // A rule chosen on an earlier approval ("approve all edits", "always allow") covers queued ones too.
+            if (next.RulesApply && Approvals.TryAutoApprove(next.ToolName, out var reason))
+            {
+                next.Completion.TrySetResult(true);
+                next.Item?.Resolve(true, reason);
+                continue;
+            }
+
             ApprovalRisk = next.Risk;
             ApprovalToolName = next.ToolName;
             ApprovalArgs = next.Args;
@@ -165,13 +215,75 @@ public partial class ChatViewModel : ObservableObject
             ApprovalRole = next.Role;
             _pendingApproval = next.Completion;
             _currentApprovalItem = next.Item;
+            _currentApprovalFeedback = next.Feedback;
+            CanSetApprovalRules = next.RulesApply;
+            ApprovalPreview = next.Preview;
+            IsEnteringApprovalFeedback = false;
+            ApprovalFeedbackText = string.Empty;
             ShowApprovalDialog = true;
             return;
         }
 
         _pendingApproval = null;
         _currentApprovalItem = null;
+        _currentApprovalFeedback = null;
+        ApprovalPreview = null;
+        IsEnteringApprovalFeedback = false;
         ShowApprovalDialog = false;
+    }
+
+    /// <summary>
+    /// Handles an approval request from the agent (main chat or a tagged multi-agent event): auto-approves it when a
+    /// standing rule covers the tool, otherwise records it in the timeline and queues it for the dialog with its
+    /// diff / command preview.
+    /// </summary>
+    internal void OnApprovalRequested(ApprovalRequestEvent approval, string? agentId = null, string? role = null)
+    {
+        var risk = approval.Risk.ToString();
+        var item = Timeline.AddApproval(approval.Call, risk, role ?? agentId);
+
+        if (Approvals.TryAutoApprove(approval.Call.Name, out var reason))
+        {
+            approval.Approval.TrySetResult(true);
+            item.Resolve(true, reason);
+            return;
+        }
+
+        var preview = ApprovalPreviewBuilder.Build(approval.Call, approval.Preview);
+        EnqueueApproval(approval.Approval, risk, approval.Call.Name, FormatArguments(approval.Call.Arguments),
+            ApprovalAgentLabel(agentId, role), role ?? string.Empty, item, preview, approval.Feedback);
+        Activity.SetBlocking($"⏸ Waiting for your approval: {AgentActivityTracker.DescribeTool(approval.Call.Name, approval.Call.Arguments)}");
+    }
+
+    /// <summary>Who asks: the agent's role/id in multi-agent runs, else the active character's display name, else nobody.</summary>
+    private string ApprovalAgentLabel(string? agentId, string? role)
+    {
+        if (!string.IsNullOrWhiteSpace(role) && !string.IsNullOrWhiteSpace(agentId) && role != agentId)
+            return $"{role} ({agentId})";
+        if (!string.IsNullOrWhiteSpace(role)) return role!;
+        if (!string.IsNullOrWhiteSpace(agentId)) return agentId!;
+        if (!HasActiveCharacter) return string.Empty;
+        try
+        {
+            var character = ActiveCharacter();
+            return string.IsNullOrWhiteSpace(character?.DisplayName) ? SelectedCharacterName : character!.DisplayName;
+        }
+        catch
+        {
+            return SelectedCharacterName;
+        }
+    }
+
+    /// <summary>Answers the approval in the dialog, records why in the timeline, and shows the next one.</summary>
+    private void ResolveCurrentApproval(bool approved, string? note = null)
+    {
+        _pendingApproval?.TrySetResult(approved);
+        _pendingApproval = null;
+        _currentApprovalItem?.Resolve(approved, note);
+        _currentApprovalItem = null;
+        _currentApprovalFeedback = null;
+        Activity.ClearBlocking();
+        ShowNextApproval();
     }
 
     private void DenyAllApprovals()
@@ -180,6 +292,9 @@ public partial class ChatViewModel : ObservableObject
         _pendingApproval = null;
         _currentApprovalItem?.Resolve(false);
         _currentApprovalItem = null;
+        _currentApprovalFeedback = null;
+        ApprovalPreview = null;
+        IsEnteringApprovalFeedback = false;
         while (_approvalQueue.Count > 0)
         {
             var queued = _approvalQueue.Dequeue();
@@ -244,6 +359,8 @@ public partial class ChatViewModel : ObservableObject
         {
             StopActivityTimer();
             Activity.End();
+            // "Approve all edits this task" ends with the task.
+            Approvals.EndTask();
         }
     }
 
@@ -858,10 +975,7 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 // An explicit approval entry in the timeline, at the point where the agent
                                 // asked, so the user sees that a decision is needed (and later, what it was).
-                                var approvalItem = Timeline.AddApproval(approval.Call, approval.Risk.ToString());
-                                EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
-                                    FormatArguments(approval.Call.Arguments), item: approvalItem);
-                                Activity.SetBlocking($"⏸ Waiting for your approval: {AgentActivityTracker.DescribeTool(approval.Call.Name, approval.Call.Arguments)}");
+                                OnApprovalRequested(approval);
                             },
                             token,
                             TaskCreationOptions.None,
@@ -1091,24 +1205,61 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private void ApproveTool()
     {
-        _pendingApproval?.TrySetResult(true);
-        _pendingApproval = null;
-        _currentApprovalItem?.Resolve(true);
-        _currentApprovalItem = null;
-        Activity.ClearBlocking();
-        ShowNextApproval();
         // No card is added here: the orchestrator emits ToolCallStartEvent right after approval,
         // and that event creates the (single) card for this call.
+        ResolveCurrentApproval(true);
     }
+
+    /// <summary>Approves this edit and every later edit tool call until the task ends. Commands still ask.</summary>
+    [RelayCommand]
+    private void ApproveAllEditsThisTask()
+    {
+        if (!CanApproveAllEdits) return;
+        Approvals.AllowEditsForTask();
+        ResolveCurrentApproval(true, "edits allowed for this task");
+    }
+
+    /// <summary>Approves this call and every later call of the same tool for the rest of the chat session.</summary>
+    [RelayCommand]
+    private void AlwaysAllowToolThisSession()
+    {
+        if (!CanSetApprovalRules) return;
+        Approvals.AllowToolForSession(ApprovalToolName);
+        ResolveCurrentApproval(true, "always allowed this session");
+    }
+
     [RelayCommand]
     private void DenyTool()
     {
-        _pendingApproval?.TrySetResult(false);
-        _pendingApproval = null;
-        _currentApprovalItem?.Resolve(false);
-        _currentApprovalItem = null;
-        Activity.ClearBlocking();
-        ShowNextApproval();
+        ResolveCurrentApproval(false);
+    }
+
+    [RelayCommand]
+    private void StartDenyWithFeedback()
+    {
+        IsEnteringApprovalFeedback = true;
+    }
+
+    [RelayCommand]
+    private void CancelDenyWithFeedback()
+    {
+        IsEnteringApprovalFeedback = false;
+        ApprovalFeedbackText = string.Empty;
+    }
+
+    /// <summary>Denies the call and sends the typed note to the model as the tool result; the agent continues.</summary>
+    [RelayCommand]
+    private void DenyWithFeedback()
+    {
+        var text = ApprovalFeedbackText?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            ResolveCurrentApproval(false);
+            return;
+        }
+
+        if (_currentApprovalFeedback != null) _currentApprovalFeedback.Text = text;
+        ResolveCurrentApproval(false, $"feedback: {text}");
     }
     [RelayCommand]
     private void SetPermissionMode(string mode)
@@ -1154,9 +1305,7 @@ public partial class ChatViewModel : ObservableObject
                 break;
             case ApprovalRequestEvent approval:
                 // The approval entry sits in the timeline where the agent asked, for multi-agent sessions too.
-                var approvalItem = Timeline.AddApproval(approval.Call, approval.Risk.ToString(), tagged.Role ?? tagged.AgentId);
-                EnqueueApproval(approval.Approval, approval.Risk.ToString(), approval.Call.Name,
-                    FormatArguments(approval.Call.Arguments), tagged.AgentId ?? "", tagged.Role ?? "", approvalItem);
+                OnApprovalRequested(approval, tagged.AgentId, tagged.Role);
                 break;
             case StatusUpdateEvent status:
                 StatusText = $"[{tagged.AgentId}] {status.Status}";
@@ -1471,6 +1620,7 @@ public partial class ChatViewModel : ObservableObject
     private void ClearChat()
     {
         Timeline.Clear();
+        Approvals.ResetSession();
         Timeline.Add(new ChatMessage
         {
             Role = "Assistant",
@@ -2139,7 +2289,10 @@ public partial class ChatViewModel : ObservableObject
         var approvalItem = Timeline.AddApproval("git", message, message, "Write");
 
         var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        EnqueueApproval(confirmation, "Write", "git", message, item: approvalItem);
+        var gitCall = new ToolCall { Name = "git", Arguments = new Dictionary<string, object?> { ["action"] = message } };
+        EnqueueApproval(confirmation, "Write", "git", message, item: approvalItem,
+            preview: ApprovalPreviewBuilder.Build(gitCall, null),
+            rulesApply: false); // an explicit confirmation (push, PR) is never skipped by "always allow"
         // Approve/Deny (and DenyAllApprovals on cancel) resolve the task and advance the queue.
         return await confirmation.Task.ConfigureAwait(true);
     }

@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:controls="using:AiCodeAgent.App.Controls"
+             x:Class="AiCodeAgent.App.Views.DiffPreviewView"
+             x:DataType="vm:ApprovalPreviewViewModel"
+             x:CompileBindings="True">
+    <!-- Compact unified diff of a pending file change (approval dialog). Uses the diff viewer's DiffTextBlock
+         for word-level highlights; old | new line numbers in the gutter. -->
+    <StackPanel Spacing="4">
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding FilePath}" FontFamily="Consolas,Menlo,monospace"
+                       FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Grid.Column="1" Name="ChangeSummary" Text="{Binding ChangeSummary}" FontSize="11"
+                       Opacity="0.75" Margin="8,0,0,0"/>
+        </Grid>
+
+        <TextBlock Text="No changes: the file would stay exactly the same." IsVisible="{Binding HasNoChanges}"
+                   FontSize="12" Opacity="0.6"/>
+
+        <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="0,4">
+            <ItemsControl Name="DiffLines" ItemsSource="{Binding VisibleLines}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:UnifiedDiffLine">
+                        <Panel>
+                            <Grid ColumnDefinitions="40,40,16,*" Background="{Binding Background}" IsVisible="{Binding IsLine}">
+                                <TextBlock Grid.Column="0" Text="{Binding OldNumberText}" Opacity="0.45" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace" HorizontalAlignment="Right"
+                                           VerticalAlignment="Top" Margin="0,1,6,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding NewNumberText}" Opacity="0.45" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace" HorizontalAlignment="Right"
+                                           VerticalAlignment="Top" Margin="0,1,6,0"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Marker}" Foreground="{Binding MarkerColor}"
+                                           FontWeight="Bold" FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                           VerticalAlignment="Top"/>
+                                <controls:DiffTextBlock Grid.Column="3"
+                                                        LineText="{Binding Text}"
+                                                        Segments="{Binding Segments}"
+                                                        HighlightBrush="{Binding HighlightBrush}"
+                                                        TextWrapping="Wrap" FontSize="12"
+                                                        FontFamily="Consolas,Menlo,monospace"
+                                                        Margin="0,1,6,1"/>
+                            </Grid>
+                            <TextBlock IsVisible="{Binding IsHunkHeader}" Text="{Binding Text}"
+                                       Background="{Binding Background}" Foreground="#4A9EFF" FontSize="11"
+                                       FontFamily="Consolas,Menlo,monospace" Padding="8,2"/>
+                            <TextBlock IsVisible="{Binding IsGap}" Text="{Binding Text}"
+                                       FontSize="11" Opacity="0.6" Padding="12,2"/>
+                        </Panel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+
+        <Button Name="ShowAllButton"
+                Content="{Binding ShowAllText}"
+                Command="{Binding ToggleShowAllCommand}"
+                IsVisible="{Binding HasMoreLines}"
+                HorizontalAlignment="Left" FontSize="11" Padding="10,3"/>
+    </StackPanel>
+</UserControl>
