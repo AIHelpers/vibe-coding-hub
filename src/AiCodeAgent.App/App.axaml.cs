@@ -288,7 +288,9 @@ public partial class App : Application
         // Agent Session Coordinator (multi-agent orchestration)
         services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
         services.AddSingleton<AgentSessionCoordinator>();
-        services.AddSingleton<SdlcPipelineLoader>();
+        // Built-in -> ~/.aiagent/pipelines -> <working directory>/.aiagent/pipelines; MainViewModel re-points the project layer when the folder changes.
+        services.AddSingleton(sp => new SdlcPipelineLoader(
+            sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, Directory.GetCurrentDirectory()));
         services.AddSingleton<SdlcPipelineRunner>();
 
         // Multi-agent session registry (Feature 5) - shared by SessionDashboardViewModel

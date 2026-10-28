@@ -139,7 +139,7 @@ under its own role preset (system prompt, allowed tools, permission mode) and al
 session, so later stages see what earlier stages did:
 
 ```bash
-# List built-in and user-defined pipelines
+# List built-in, global and project pipelines (the SCOPE column says which)
 dotnet run --project src/AiCodeAgent.CLI -- pipeline list
 
 # Run the full pipeline: analyze -> implement -> review -> test -> deploy
@@ -150,7 +150,24 @@ dotnet run --project src/AiCodeAgent.CLI -- pipeline run "Fix off-by-one in date
 ```
 
 Pipelines are plain JSON and fully configurable — drop a file in `~/.aiagent/pipelines/*.json` to add
-your own stage sequence (custom roles, prompts, or a subset of the SDLC). Agent roles themselves are
+your own stage sequence (custom roles, prompts, or a subset of the SDLC), or in `<repo>/.aiagent/pipelines/*.json`
+to commit it next to the code it works on and share it with your team.
+
+| Scope | Folder | Who sees it |
+|---|---|---|
+| `builtin` | ships with the app (`full-sdlc`, `quick-fix`) | everyone |
+| `global` | `~/.aiagent/pipelines` | only you |
+| `project` | `<repo>/.aiagent/pipelines` | everyone who clones the repo |
+
+Load order is built-in, then global, then project: **on a name clash the project flow wins** (the same rule as
+skills and characters), and the Flows panel shows "overrides global". The project folder is the working
+directory (`--dir` on the CLI); it is re-read when you switch folders. `pipeline run` resolves the project flow
+first, and `pipeline copy <name> --to project|global [--force]` copies a built-in, global or project pipeline
+into the other scope so you can edit it there:
+
+```bash
+aiagent pipeline copy feature-team --to project   # → <repo>/.aiagent/pipelines/feature-team.json
+``` Agent roles themselves are
 equally configurable via `~/.aiagent/presets/*.json` (see `RolePresetLoader`); built-in roles are
 `planner`, `implementer`, `reviewer`, `tester`, and `deployer`.
 
@@ -358,7 +375,9 @@ In the desktop app, open **🔀 Flows** (or "Flows" / "New Flow" in the command 
   outcomes and confirmation; select an arrow to set its condition and loop limit. Delete removes the
   selection; Ctrl+Z / Ctrl+Y undo and redo; the wheel zooms and dragging empty canvas pans.
 - **Check:** problems are outlined in red as you edit, and the header shows which steps run in parallel.
-  **Auto-layout** arranges steps left to right by execution order. **Save** writes `~/.aiagent/pipelines/<name>.json`.
+  **Auto-layout** arranges steps left to right by execution order. **Save** writes `<name>.json` to the flow's own scope; a new flow asks
+  *Project (shared via git)* or *Global (only me)* (Project is the default inside a git repository). The header shows a
+  scope badge (`project`, `global`, `builtin`, `new`), and the pipeline list is grouped by scope.
 - **Run:** type the task and press **▶ Run**. Each step shows ⏳ waiting, ▶ running, ✓ done (with its
   outcome), ✕ failed or – skipped, plus the round number in loops; arrows light up as they are taken. Click a
   step to watch its output, and approve steps that ask for confirmation right on the step.
