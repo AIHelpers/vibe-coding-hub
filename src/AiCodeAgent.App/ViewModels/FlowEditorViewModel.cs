@@ -42,6 +42,8 @@ public partial class FlowEditorViewModel : ObservableObject
     public ObservableCollection<FlowEdgeViewModel> Edges { get; } = new();
     public ObservableCollection<FlowPaletteItem> Palette { get; } = new();
     public ObservableCollection<string> Pipelines { get; } = new();
+    /// <summary>The dropdown entries with their scope, grouped project, then global, then built-in.</summary>
+    public ObservableCollection<PipelineListItem> PipelineItems { get; } = new();
     public ObservableCollection<FlowProblem> Problems { get; } = new();
     /// <summary>Choices for the selected edge's condition: "(always)", the source's outcomes, and "loop-exhausted" when it applies.</summary>
     public ObservableCollection<string> ConditionOptions { get; } = new();
@@ -66,6 +68,26 @@ public partial class FlowEditorViewModel : ObservableObject
     [ObservableProperty] private string _wavesText = string.Empty;
     [ObservableProperty] private string _selectedCondition = AlwaysCondition;
     [ObservableProperty] private bool _isConfirmingDelete;
+    [ObservableProperty] private string _deletePrompt = string.Empty;
+
+    /// <summary>The entry picked in the pipeline dropdown (kept in step with <see cref="SelectedPipeline"/>).</summary>
+    [ObservableProperty] private PipelineListItem? _selectedPipelineItem;
+
+    /// <summary>Where the open flow comes from (builtin, global or project); null for a new, unsaved flow.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ScopeBadge))]
+    private PipelineScope? _loadedScope;
+
+    /// <summary>"overrides global" / "overrides built-in" when the open flow hides another one of the same name.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOverridesText))]
+    private string _overridesText = string.Empty;
+
+    /// <summary>Save was pressed for a flow that has no file yet: waiting for the choice Project / Global.</summary>
+    [ObservableProperty] private bool _isChoosingSaveScope;
+
+    /// <summary>Name of the flow that was last opened or saved; the open flow is saved back into its own file only while the name is unchanged.</summary>
+    private string? _loadedName;
 
     /// <summary>While dragging a new arrow: where its loose end is (canvas coordinates).</summary>
     [ObservableProperty] private FlowNodeViewModel? _pendingEdgeSource;
@@ -89,6 +111,22 @@ public partial class FlowEditorViewModel : ObservableObject
     }
 
     public bool HasSelection => SelectedNode != null || SelectedEdge != null;
+
+    /// <summary><c>builtin</c>, <c>global</c> or <c>project</c> for the open flow; <c>new</c> before it is saved.</summary>
+    public string ScopeBadge => LoadedScope?.Label() ?? "new";
+    public bool HasOverridesText => OverridesText.Length > 0;
+    /// <summary>True when a project folder is set, so a flow can be saved either into the project or globally.</summary>
+    public bool CanChooseSaveScope => _loader?.ProjectDirectory != null;
+    /// <summary>Project when the folder is a git repository (the flow is then shared with the team), otherwise global.</summary>
+    public PipelineScope DefaultSaveScope => _loader?.DefaultSaveScope ?? PipelineScope.Global;
+    public bool IsProjectSaveDefault => DefaultSaveScope == PipelineScope.Project;
+
+    /// <summary>The working directory changed: flows in its <c>.aiagent/pipelines</c> are listed next to the global ones.</summary>
+    public void SetProjectDirectory(string? directory)
+    {
+        _loader?.SetProjectDirectory(directory);
+        RefreshPipelineList();
+    }
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool HasProblems => Problems.Count > 0;
@@ -251,16 +289,62 @@ public partial class FlowEditorViewModel : ObservableObject
     {
         if (_loader == null) return;
         var keep = SelectedPipeline;
-        Pipelines.Clear();
-        foreach (var p in _loader.GetAllPipelines().OrderByDescending(p => p.IsFlow).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
-            Pipelines.Add(p.Name);
         _restoring = true;
-        SelectedPipeline = keep != null && Pipelines.Contains(keep) ? keep : null;
-        _restoring = false;
+        try
+        {
+            Pipelines.Clear();
+            PipelineItems.Clear();
+            // Project flows first, then global, then built-in; flows before linear pipelines, then by name.
+            var ordered = _loader.GetEntries()
+                .OrderByDescending(x => x.Scope)
+                .ThenByDescending(x => x.Pipeline.IsFlow)
+                .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in ordered)
+            {
+                Pipelines.Add(entry.Name);
+                PipelineItems.Add(new PipelineListItem(entry.Name, entry.ScopeLabel, entry.OverridesText));
+            }
+            SelectedPipeline = keep != null && Pipelines.Contains(keep) ? keep : null;
+            SelectedPipelineItem = SelectedPipeline == null
+                ? null
+                : PipelineItems.FirstOrDefault(i => string.Equals(i.Name, SelectedPipeline, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _restoring = false;
+        }
+        RefreshScopeInfo();
+    }
+
+    /// <summary>Update the scope badge and the "overrides ..." text from the loader's view of the open flow.</summary>
+    private void RefreshScopeInfo()
+    {
+        var entry = _loadedName != null ? _loader?.GetEntry(_loadedName) : null;
+        LoadedScope = entry?.Scope;
+        OverridesText = entry?.OverridesText ?? string.Empty;
+        OnPropertyChanged(nameof(CanChooseSaveScope));
+        OnPropertyChanged(nameof(DefaultSaveScope));
+        OnPropertyChanged(nameof(IsProjectSaveDefault));
+    }
+
+    partial void OnSelectedPipelineItemChanged(PipelineListItem? value)
+    {
+        if (_restoring || value == null) return;
+        SelectedPipeline = value.Name;
     }
 
     partial void OnSelectedPipelineChanged(string? value)
     {
+        if (!_restoring)
+        {
+            var item = value == null ? null : PipelineItems.FirstOrDefault(i => string.Equals(i.Name, value, StringComparison.OrdinalIgnoreCase));
+            if (item != null && !ReferenceEquals(item, SelectedPipelineItem))
+            {
+                _restoring = true;
+                SelectedPipelineItem = item;
+                _restoring = false;
+            }
+        }
         if (_restoring || value == null || string.Equals(value, FlowName, StringComparison.OrdinalIgnoreCase) && !IsDirty) return;
         Load(value);
     }
@@ -290,6 +374,12 @@ public partial class FlowEditorViewModel : ObservableObject
         _redo.Clear();
         RaiseUndo();
         IsDirty = false;
+        IsChoosingSaveScope = false;
+        _restoring = true;
+        SelectedPipelineItem = null;
+        _restoring = false;
+        _loadedName = null;
+        RefreshScopeInfo();
         Revalidate();
         StatusText = "New flow. Drag characters from the left onto the canvas, then connect them.";
     }
@@ -318,7 +408,11 @@ public partial class FlowEditorViewModel : ObservableObject
         IsDirty = false;
         _restoring = true;
         SelectedPipeline = pipeline.Name;
+        SelectedPipelineItem = PipelineItems.FirstOrDefault(i => string.Equals(i.Name, pipeline.Name, StringComparison.OrdinalIgnoreCase));
         _restoring = false;
+        IsChoosingSaveScope = false;
+        _loadedName = pipeline.Name;
+        RefreshScopeInfo();
         StatusText = WasLinear
             ? $"'{pipeline.Name}' is a linear pipeline (one shared history). Saving it here turns it into a flow."
             : $"Opened flow '{pipeline.Name}'.";
@@ -773,9 +867,54 @@ public partial class FlowEditorViewModel : ObservableObject
 
     // ============================================================ save / delete
 
+    /// <summary>
+    /// Save. A flow that already lives in a project or global file is written back to it. Any other flow (new, renamed,
+    /// or a built-in) asks where to go when a project folder is set: <b>Project (shared via git)</b> or
+    /// <b>Global (only me)</b>; without a project folder it is saved globally.
+    /// </summary>
     [RelayCommand]
     public async Task SaveAsync()
     {
+        if (_loader == null) return;
+        var name = FlowName.Trim();
+        if (!LocalFileStore.IsValidName(name))
+        {
+            StatusText = $"Name '{name}' must be kebab-case (letters, numbers, hyphens), e.g. feature-team.";
+            return;
+        }
+        if (_loadedName != null && string.Equals(_loadedName, name, StringComparison.OrdinalIgnoreCase) &&
+            LoadedScope is PipelineScope.Global or PipelineScope.Project)
+        {
+            await SaveToScopeAsync(LoadedScope!.Value);
+            return;
+        }
+        if (CanChooseSaveScope)
+        {
+            IsConfirmingDelete = false;
+            IsChoosingSaveScope = true;
+            StatusText = $"Where should '{name}' be saved? Project flows are shared with your team through git; global flows are only yours.";
+            return;
+        }
+        await SaveToScopeAsync(PipelineScope.Global);
+    }
+
+    [RelayCommand]
+    public Task SaveToProjectAsync() => SaveToScopeAsync(PipelineScope.Project);
+
+    [RelayCommand]
+    public Task SaveToGlobalAsync() => SaveToScopeAsync(PipelineScope.Global);
+
+    [RelayCommand]
+    public void CancelSaveScope()
+    {
+        IsChoosingSaveScope = false;
+        StatusText = "Save cancelled.";
+    }
+
+    /// <summary>Write the open flow to the project (<c>.aiagent/pipelines</c> in the working directory) or the global folder.</summary>
+    public async Task SaveToScopeAsync(PipelineScope scope)
+    {
+        IsChoosingSaveScope = false;
         if (_loader == null) return;
         var name = FlowName.Trim();
         if (!LocalFileStore.IsValidName(name))
@@ -787,17 +926,22 @@ public partial class FlowEditorViewModel : ObservableObject
         try
         {
             var def = ToDefinition();
-            await _loader.SavePipelineAsync(def);
+            var path = await _loader.SavePipelineAsync(def, scope);
             var converted = WasLinear;
             WasLinear = false;
             IsDirty = false;
+            _loadedName = name;
             RefreshPipelineList();
             _restoring = true;
             SelectedPipeline = name;
+            SelectedPipelineItem = PipelineItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
             _restoring = false;
+            RefreshScopeInfo();
             var issues = Problems.Count(p => p.IsError);
-            StatusText = $"Saved '{name}' to {_loader.GetPipelinePath(name)}" +
+            var hiddenBy = _loader.GetEntry(name) is { } inForce && inForce.Scope > scope ? inForce.Scope : (PipelineScope?)null;
+            StatusText = $"Saved '{name}' as a {scope.Label()} flow to {path}" +
                          (converted ? " — it is now a flow." : ".") +
+                         (hiddenBy is { } h ? $" A {h.Label()} flow with this name still takes precedence." : "") +
                          (issues > 0 ? $" It has {issues} problem(s) to fix before it can run." : "");
         }
         catch (Exception ex)
@@ -810,7 +954,12 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public void RequestDelete()
     {
-        if (_loader == null || !System.IO.File.Exists(_loader.GetPipelinePath(FlowName))) return;
+        if (_loader == null) return;
+        var entry = _loader.GetEntry(FlowName);
+        if (entry?.FilePath is not { } path || !System.IO.File.Exists(path)) return;
+        IsChoosingSaveScope = false;
+        DeletePrompt = $"Delete the {entry.ScopeLabel} flow file {System.IO.Path.GetFileName(path)}?" +
+                       (entry.Scope == PipelineScope.Project ? " It is shared with your team through git." : "");
         IsConfirmingDelete = true;
     }
 
@@ -823,13 +972,14 @@ public partial class FlowEditorViewModel : ObservableObject
         IsConfirmingDelete = false;
         if (_loader == null) return;
         var name = FlowName;
+        var deleted = _loader.GetEntry(name);
         if (_loader.DeletePipeline(name))
         {
             RefreshPipelineList();
-            if (_loader.GetPipeline(name) != null)
+            if (_loader.GetEntry(name) is { } shown)
             {
-                Load(name); // a built-in it overrode is back
-                StatusText = $"Deleted your '{name}'; the built-in version is shown again.";
+                Load(name); // the global or built-in flow it overrode is back
+                StatusText = $"Deleted your {deleted?.ScopeLabel} '{name}'; the {shown.ScopeLabel} version is shown again.";
             }
             else
             {
@@ -1025,4 +1175,13 @@ public partial class FlowEditorViewModel : ObservableObject
 
     private FlowNodeViewModel? FindNode(string id) =>
         Nodes.FirstOrDefault(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>One entry of the pipeline dropdown: the flow name and where it comes from.</summary>
+/// <param name="Name">Pipeline name.</param>
+/// <param name="Scope"><c>project</c>, <c>global</c> or <c>builtin</c>.</param>
+/// <param name="Overrides">"overrides global" / "overrides built-in", or null.</param>
+public sealed record PipelineListItem(string Name, string Scope, string? Overrides)
+{
+    public bool HasOverrides => Overrides != null;
 }

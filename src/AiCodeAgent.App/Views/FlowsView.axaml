@@ -63,10 +63,25 @@
                         <Style Selector="WrapPanel#HeaderTools > Control"><Setter Property="Margin" Value="0,0,6,3"/></Style>
                     </WrapPanel.Styles>
                     <TextBlock Text="Flows" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox ItemsSource="{Binding Pipelines}" SelectedItem="{Binding SelectedPipeline}" MinWidth="170" FontSize="11"
-                              PlaceholderText="Open a pipeline…" ToolTip.Tip="Open a saved flow or pipeline"/>
+                    <ComboBox x:Name="PipelineBox" ItemsSource="{Binding PipelineItems}" SelectedItem="{Binding SelectedPipelineItem}" MinWidth="170" FontSize="11"
+                              PlaceholderText="Open a pipeline…" ToolTip.Tip="Open a saved flow or pipeline. Listed by scope: project, global, built-in">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="vm:PipelineListItem">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding Name}" FontSize="11"/>
+                                    <TextBlock Text="{Binding Scope}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Border x:Name="ScopeBadge" Background="{DynamicResource AppDeepBrush}" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
+                            ToolTip.Tip="Where this flow is stored: project (.aiagent/pipelines in the working directory, shared via git), global (~/.aiagent/pipelines, only you) or built-in">
+                        <TextBlock x:Name="ScopeBadgeText" Text="{Binding ScopeBadge}" FontSize="10"/>
+                    </Border>
+                    <TextBlock x:Name="OverridesLabel" Text="{Binding OverridesText}" IsVisible="{Binding HasOverridesText}" FontSize="10"
+                               Foreground="{DynamicResource ThemeWarningBrush}" VerticalAlignment="Center"/>
                     <Button Content="＋ New" Command="{Binding NewFlowCommand}" FontSize="11" Padding="8,3"/>
-                    <Button Content="💾 Save" Command="{Binding SaveCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Save to ~/.aiagent/pipelines"/>
+                    <Button Content="💾 Save" Command="{Binding SaveCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Save this flow. A new flow asks where: project (shared via git) or global (only you)"/>
                     <Button Content="🗑" Command="{Binding RequestDeleteCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Delete this flow"/>
                     <Border Width="1" Background="#40888888" Margin="0,2,10,5"/>
                     <Button Content="↶" Command="{Binding UndoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Undo (Ctrl+Z)"/>
@@ -223,10 +238,26 @@
             <!-- Inspector -->
             <Border Grid.Column="2" Background="{DynamicResource AppSubBrush}" Padding="8">
                 <Grid RowDefinitions="Auto,*">
+                    <!-- Where to save: project (shared via git) or global (only me) -->
+                    <Border x:Name="SaveScopePanel" Grid.Row="0" IsVisible="{Binding IsChoosingSaveScope}" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding FlowName, StringFormat='Save {0} where?'}" FontSize="11" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsProjectSaveDefault}">
+                                <Button x:Name="SaveProjectButton" Content="Project (shared via git)" Command="{Binding SaveToProjectCommand}" IsDefault="True" FontSize="11" Padding="10,3"/>
+                                <Button Content="Global (only me)" Command="{Binding SaveToGlobalCommand}" FontSize="11" Padding="10,3"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsProjectSaveDefault}">
+                                <Button x:Name="SaveGlobalButton" Content="Global (only me)" Command="{Binding SaveToGlobalCommand}" IsDefault="True" FontSize="11" Padding="10,3"/>
+                                <Button Content="Project (shared via git)" Command="{Binding SaveToProjectCommand}" FontSize="11" Padding="10,3"/>
+                            </StackPanel>
+                            <Button Content="Cancel" Command="{Binding CancelSaveScopeCommand}" FontSize="11" Padding="10,3" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Delete confirmation -->
                     <Border Grid.Row="0" IsVisible="{Binding IsConfirmingDelete}" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8" Margin="0,0,0,6">
                         <StackPanel Spacing="6">
-                            <TextBlock Text="{Binding FlowName, StringFormat='Delete the flow file {0}?'}" FontSize="11" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding DeletePrompt}" FontSize="11" TextWrapping="Wrap"/>
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <Button Content="Delete" Command="{Binding ConfirmDeleteCommand}" FontSize="11" Padding="10,3"/>
                                 <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" FontSize="11" Padding="10,3"/>

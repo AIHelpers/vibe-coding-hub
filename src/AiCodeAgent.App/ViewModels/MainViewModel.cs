@@ -69,6 +69,9 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>The Flows panel: draw and run flows of characters.</summary>
     public FlowEditorViewModel Flows { get; }
+
+    /// <summary>A new working directory: its <c>.aiagent/pipelines</c> flows are listed next to the global ones (project flows win on a name clash).</summary>
+    partial void OnWorkingDirectoryChanged(string value) => Flows?.SetProjectDirectory(value);
     public BackgroundTaskManagerViewModel BackgroundTasks { get; }
     public SourceControlViewModel SourceControl { get; }
 

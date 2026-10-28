@@ -183,13 +183,18 @@ pipelineRunCommand.SetHandler(async context =>
     catch (FormatException ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; return; }
     var services = await BuildServiceProvider(provider, model, dir);
     var loader = services.GetRequiredService<SdlcPipelineLoader>();
-    var pipeline = loader.GetPipeline(pipelineName);
-    if (pipeline == null)
+    // The loader looks in <dir>/.aiagent/pipelines first, then ~/.aiagent/pipelines, then the built-ins.
+    var entry = loader.GetEntry(pipelineName);
+    var pipeline = entry?.Pipeline;
+    if (entry == null || pipeline == null)
     {
         Console.Error.WriteLine($"Unknown pipeline '{pipelineName}'. Run 'pipeline list' to see available pipelines.");
         Environment.Exit(1);
         return;
     }
+    Console.Error.WriteLine($"Using {entry.ScopeLabel} pipeline '{pipelineName}'" +
+        (entry.FilePath != null ? $" ({entry.FilePath})" : "") +
+        (entry.OverridesText != null ? $" - {entry.OverridesText}" : ""));
 
     var runner = new PipelineRunMode(services.GetRequiredService<SdlcPipelineRunner>());
     try
@@ -203,15 +208,19 @@ pipelineRunCommand.SetHandler(async context =>
     }
 });
 
-var pipelineListCommand = new Command("list", "List available pipelines");
-pipelineListCommand.SetHandler(async () =>
+var pipelineListCommand = new Command("list", "List available pipelines with their scope (project, global or builtin)");
+pipelineListCommand.AddOption(dirOption);
+pipelineListCommand.SetHandler(async context =>
 {
-    var services = await BuildServiceProvider(null, null, null);
+    var dir = context.ParseResult.GetValueForOption(dirOption);
+    var services = await BuildServiceProvider(null, null, dir);
     var loader = services.GetRequiredService<SdlcPipelineLoader>();
     Console.WriteLine("Available pipelines:");
-    foreach (var p in loader.GetAllPipelines())
+    Console.WriteLine($"  {"NAME",-18} {"SCOPE",-8} DESCRIPTION");
+    foreach (var entry in loader.GetEntries())
     {
-        Console.WriteLine($"  {p.Name,-12} {(p.IsFlow ? "[flow] " : "")}{p.Description}");
+        var p = entry.Pipeline;
+        Console.WriteLine($"  {p.Name,-18} {entry.ScopeLabel,-8} {(p.IsFlow ? "[flow] " : "")}{p.Description}{(entry.OverridesText != null ? $" ({entry.OverridesText})" : "")}");
         if (p.IsFlow)
         {
             Console.WriteLine($"      {AiCodeAgent.Core.Flows.FlowGraph.Build(p).DescribeWaves()}");
@@ -225,7 +234,8 @@ pipelineListCommand.SetHandler(async () =>
 // pipeline validate / show: check a flow and see what runs in parallel, without a provider.
 async Task<(SdlcPipelineDefinition? Pipeline, AiCodeAgent.Core.Flows.FlowGraph? Graph)> LoadGraphAsync(string name, string? cast, string? dir)
 {
-    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance);
+    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance,
+        null, dir ?? Directory.GetCurrentDirectory());
     var pipeline = loader.GetPipeline(name);
     if (pipeline == null)
     {
@@ -302,6 +312,46 @@ pipelineCommand.AddCommand(pipelineRunCommand);
 pipelineCommand.AddCommand(pipelineListCommand);
 pipelineCommand.AddCommand(pipelineValidateCommand);
 pipelineCommand.AddCommand(pipelineShowCommand);
+
+// pipeline copy: start a project (or global) flow from a built-in, global or project one.
+var copyNameArg = new Argument<string>("name", "Pipeline to copy");
+var copyToOption = new Option<string>("--to", "Where to copy it: project (<dir>/.aiagent/pipelines, shared via git) or global (~/.aiagent/pipelines)") { IsRequired = true };
+var copyForceOption = new Option<bool>("--force", "Overwrite a pipeline of the same name in the target scope");
+var pipelineCopyCommand = new Command("copy", "Copy a pipeline into the project or global scope so you can edit it there");
+pipelineCopyCommand.AddArgument(copyNameArg);
+pipelineCopyCommand.AddOption(copyToOption);
+pipelineCopyCommand.AddOption(copyForceOption);
+pipelineCopyCommand.AddOption(dirOption);
+pipelineCopyCommand.SetHandler(async (name, to, force, dir) =>
+{
+    if (!PipelineScopeExtensions.TryParse(to, out var target) || target == PipelineScope.BuiltIn)
+    {
+        Console.Error.WriteLine($"Unknown scope '{to}'. Use --to project or --to global.");
+        Environment.ExitCode = 1;
+        return;
+    }
+    var projectDir = dir ?? Directory.GetCurrentDirectory();
+    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance, null, projectDir);
+    if (target == PipelineScope.Project && loader.ProjectDirectory == null)
+    {
+        Console.Error.WriteLine($"'{projectDir}' cannot hold project pipelines (use --dir to pick the repository folder).");
+        Environment.ExitCode = 1;
+        return;
+    }
+    try
+    {
+        var copied = await loader.CopyPipelineAsync(name, target, force);
+        Console.WriteLine($"Copied '{name}' to the {target.Label()} scope: {copied.FilePath}");
+        if (target == PipelineScope.Project && !SdlcPipelineLoader.IsGitRepository(projectDir))
+            Console.WriteLine("Note: this folder is not a git repository, so the flow is not shared until it is committed somewhere.");
+    }
+    catch (InvalidOperationException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        Environment.ExitCode = 1;
+    }
+}, copyNameArg, copyToOption, copyForceOption, dirOption);
+pipelineCommand.AddCommand(pipelineCopyCommand);
 
 // config command
 var configCommand = new Command("config", "Configure the agent");
@@ -543,7 +593,9 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<RolePresetLoader>();
     services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
     services.AddSingleton<AgentSessionCoordinator>();
-    services.AddSingleton<SdlcPipelineLoader>();
+    // Built-in -> ~/.aiagent/pipelines -> <dir>/.aiagent/pipelines (the project wins on a name clash).
+    services.AddSingleton(sp => new SdlcPipelineLoader(
+        sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, dir ?? Directory.GetCurrentDirectory()));
     services.AddSingleton<SdlcPipelineRunner>();
 
     // Session export/import services (Priority 5)
