@@ -972,6 +972,7 @@ public partial class ChatViewModel : ObservableObject
                             () =>
                             {
                                 Timeline.ToolStarted(start.Call);
+                                RaiseCommandStarting(start.Call);
                                 Activity.ToolStarted(start.Call.Id, start.Call.Name, start.Call.Arguments);
                             },
                             token,
@@ -1321,6 +1322,7 @@ public partial class ChatViewModel : ObservableObject
                 break;
             case ToolCallStartEvent start:
                 Timeline.ToolStarted(start.Call, tagged.AgentId, tagged.Role);
+                RaiseCommandStarting(start.Call);
                 break;
             case ToolCallEndEvent end:
                 Timeline.ToolEnded(end.Call, end.Result, end.Duration, tagged.AgentId, tagged.Role);

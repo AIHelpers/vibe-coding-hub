@@ -99,6 +99,10 @@ public partial class MainViewModel : ObservableObject
         _serviceProvider = serviceProvider;
         FileExplorer = fileExplorer;
         Terminal = terminal;
+        // The terminal opens its shells in the project folder and with the shell chosen in Settings.
+        Terminal.Configure(() => _configurationService?.Config.Ui?.TerminalShell, () => WorkingDirectory);
+        Terminal.SendToChatRequested += OnTerminalSendToChat;
+        Terminal.AskAgentRequested += OnTerminalAskAgent;
         EditorPane = editorPane;
         PreviewPane = previewPane;
         CheckpointBrowser = checkpointBrowser;
@@ -208,6 +212,9 @@ public partial class MainViewModel : ObservableObject
         }
         CheckpointBrowser.ViewDiffRequested -= OnCheckpointViewDiffRequested;
         BackgroundTasks.AddProjectRequested -= OnBackgroundTaskAddProjectRequested;
+        Terminal.SendToChatRequested -= OnTerminalSendToChat;
+        Terminal.AskAgentRequested -= OnTerminalAskAgent;
+        Terminal.Dispose();
         BackgroundTasks.OpenInChatRequested -= OnOpenOutputInChatRequested;
         Flows.OpenInChatRequested -= OnOpenOutputInChatRequested;
         SessionManager.OpenSessionRequested -= OnOpenSessionRequested;
@@ -601,6 +608,40 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>"Open in chat" on a flow step or background task result: shows it in the chat as a message.</summary>
+    private const int MaxTerminalTextForChat = 8000;
+
+    /// <summary>Terminal text for a chat message: the end of it when it is long (the end is where the error is).</summary>
+    internal static string TerminalTextForChat(string text)
+    {
+        var trimmed = text.Replace("```", "'''").TrimEnd();
+        return trimmed.Length <= MaxTerminalTextForChat ? trimmed : "\u2026\n" + trimmed[^MaxTerminalTextForChat..];
+    }
+
+    private ChatViewModel ShowChatForTerminal()
+    {
+        var chat = GetOrCreateChatViewModel();
+        CloseOverlays();
+        IsSettingsMode = false;
+        GoToScreen(AppScreen.Chat);
+        return chat;
+    }
+
+    /// <summary>Terminal → "Send to chat": the selected text goes into the chat input as a code block, ready to be completed.</summary>
+    private void OnTerminalSendToChat(string text)
+    {
+        var chat = ShowChatForTerminal();
+        var block = "```text\n" + TerminalTextForChat(text) + "\n```";
+        chat.InputText = string.IsNullOrWhiteSpace(chat.InputText) ? block : chat.InputText.TrimEnd() + "\n\n" + block;
+    }
+
+    /// <summary>Terminal → "Ask the agent": sends the text with a question to the agent right away.</summary>
+    private void OnTerminalAskAgent(string text)
+    {
+        var chat = ShowChatForTerminal();
+        chat.InputText = "This is output from my terminal (working directory `" + WorkingDirectory + "`). If it shows an error, explain what went wrong and fix it.\n\n```text\n" + TerminalTextForChat(text) + "\n```";
+        if (chat.SendCommand.CanExecute(null)) chat.SendCommand.Execute(null);
+    }
+
     private void OnOpenOutputInChatRequested(string title, string markdown)
     {
         var chat = GetOrCreateChatViewModel();
@@ -1410,6 +1451,13 @@ public partial class MainViewModel : ObservableObject
 
             // The sample project's checklist ticks off as the user sends the task and the agent edits and tests.
             _chatViewModel.TaskSubmitted += (_, _) => ReportToSampleGuide(c => c.TaskSent());
+
+            // What the agent runs shows in the terminal's "Agent output" tab.
+            _chatViewModel.CommandStarting += (_, command) => Terminal.AgentCommandStarted(command);
+            _chatViewModel.ToolFinished += (_, e) =>
+            {
+                if (e.ToolName == "execute_command") Terminal.AgentCommandFinished(e.Output, e.IsError);
+            };
             _chatViewModel.ToolFinished += (_, e) => ReportToSampleGuide(
                 c => c.ToolFinished(ApprovalPolicy.IsEditTool(e.ToolName), e.ToolName, e.Command, e.IsError));
 

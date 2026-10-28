@@ -1,0 +1,117 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             xmlns:ctl="using:AiCodeAgent.App.Controls"
+             x:Class="AiCodeAgent.App.Views.TerminalPanelView"
+             x:DataType="vm:TerminalViewModel"
+             x:CompileBindings="True">
+    <UserControl.Styles>
+        <Style Selector="ListBox.terminalTabs ListBoxItem">
+            <Setter Property="Padding" Value="10,4,4,4"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+        </Style>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeDangerBrush}"/>
+        </Style>
+        <Style Selector="Button.terminalTool">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+        </Style>
+    </UserControl.Styles>
+    <Border Background="{DynamicResource AppInsetBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="0,1,0,0">
+        <Grid RowDefinitions="Auto,Auto,*">
+            <!-- Drag handle: pull the top edge to resize the panel -->
+            <Border Name="ResizeHandle" Grid.Row="0" Height="6" Background="Transparent"
+                    Cursor="SizeNorthSouth"
+                    ToolTip.Tip="Drag to resize"/>
+
+            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Background="{DynamicResource AppHeaderBrush}">
+                <ListBox Name="TabStrip" Grid.Column="0" Classes="terminalTabs"
+                         ItemsSource="{Binding Tabs}"
+                         SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                         Background="Transparent"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TerminalTabViewModel">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Title}" FontSize="12" VerticalAlignment="Center"/>
+                                <Button Name="CloseTabButton"
+                                        Content="×"
+                                        IsVisible="{Binding IsClosable}"
+                                        Click="OnCloseTab"
+                                        Padding="5,0" Margin="6,0,0,0" MinHeight="0" MinWidth="0"
+                                        Background="Transparent" FontSize="14"
+                                        ToolTip.Tip="Close this shell"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="4,0,6,0" VerticalAlignment="Center">
+                    <!-- Only shown while the agent runs a command; nothing at all when idle (never "True"/"False"). -->
+                    <StackPanel Name="RunningIndicator"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                IsVisible="{Binding IsRunning}"
+                                VerticalAlignment="Center"
+                                Margin="0,0,8,0">
+                        <Ellipse Width="7" Height="7" Fill="{DynamicResource ThemeSuccessBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Text="running" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Name="NewShellButton" Classes="terminalTool" Content="+ Shell"
+                            Command="{Binding NewShellCommand}"
+                            ToolTip.Tip="Open another shell in the working directory"/>
+                    <Button Name="SendSelectionButton" Classes="terminalTool" Content="Send to chat"
+                            IsVisible="{Binding IsShellSelected}"
+                            Click="OnSendSelection"
+                            ToolTip.Tip="Put the selected text (select with the mouse) into the chat input"/>
+                    <Button Name="AskAgentButton" Classes="terminalTool" Content="Ask the agent"
+                            IsVisible="{Binding IsShellSelected}"
+                            Click="OnAskAgent"
+                            ToolTip.Tip="Ask the agent about the selected text, or about the last output if nothing is selected"/>
+                    <Button Name="ClearButton" Classes="terminalTool" Content="Clear"
+                            Command="{Binding ClearCommand}"
+                            ToolTip.Tip="Clear this tab"/>
+                    <Button Name="HidePanelButton" Classes="terminalTool" Content="×"
+                            Command="{Binding CloseCommand}"
+                            ToolTip.Tip="Hide the terminal (shells keep running) — Ctrl+`"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- The interactive shell -->
+            <ctl:TerminalControl Name="ShellHost" Grid.Row="2"
+                                 Session="{Binding SelectedShell}"
+                                 IsVisible="{Binding IsShellSelected}"
+                                 DefaultForeground="{DynamicResource ThemeTextBrush}"
+                                 DefaultBackground="{DynamicResource AppInsetBrush}"/>
+
+            <!-- What the agent ran -->
+            <ScrollViewer Name="AgentLog" Grid.Row="2"
+                          IsVisible="{Binding IsAgentSelected}"
+                          Margin="6,4"
+                          HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Entries}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TerminalEntry">
+                            <TextBlock Text="{Binding Text}"
+                                       FontSize="12"
+                                       FontFamily="Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace"
+                                       TextWrapping="Wrap"
+                                       Classes.error="{Binding IsError}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

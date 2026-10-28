@@ -49,6 +49,13 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _autoApprove;
 
+    /// <summary>Command line of the shell the terminal starts; empty = the default for this computer.</summary>
+    [ObservableProperty]
+    private string _terminalShell = string.Empty;
+
+    /// <summary>Says which shell is used while <see cref="TerminalShell"/> is empty.</summary>
+    public string DefaultTerminalShell => "Default on this computer: " + AiCodeAgent.Core.Terminal.ShellLocator.Resolve(null).Display;
+
     /// <summary>Theme choices shown in Settings: "System", "Light" or "Dark".</summary>
     public string[] ThemeOptions { get; } = { "System", "Light", "Dark" };
 
@@ -182,6 +189,7 @@ public partial class SettingsViewModel : ObservableObject
         SelectedRequirementsClarifier = (config.Agent?.RequirementsClarifier ?? RequirementsClarifierMode.Auto).ToString();
         SelectedResumeLastSession = (config.Ui?.ResumeLastSession ?? ResumeLastSessionMode.Ask).ToString();
         CheckForUpdates = config.Ui?.CheckForUpdates ?? true;
+        TerminalShell = config.Ui?.TerminalShell ?? string.Empty;
         // Intentional: set the backing field directly so the loaded value is not previewed/applied
         // via OnSelectedThemeChanged; the change notification is raised manually below.
 #pragma warning disable MVVMTK0034
@@ -430,6 +438,7 @@ public partial class SettingsViewModel : ObservableObject
         config.Ui ??= new UiConfiguration();
         config.Ui.ResumeLastSession = System.Enum.Parse<ResumeLastSessionMode>(SelectedResumeLastSession);
         config.Ui.CheckForUpdates = CheckForUpdates;
+        config.Ui.TerminalShell = string.IsNullOrWhiteSpace(TerminalShell) ? null : TerminalShell.Trim();
         config.Ui.Theme = AiCodeAgent.App.Services.ThemeService.Normalize(SelectedTheme);
 
         // Update provider config with model, URL, and API key
