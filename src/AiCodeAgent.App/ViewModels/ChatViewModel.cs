@@ -472,6 +472,10 @@ public partial class ChatViewModel : ObservableObject
         // The permission mode chosen in the setup wizard is where a new chat starts.
         if (_configurationService?.Config.Agent?.DefaultPermissionMode is ("Ask" or "AutoEdit" or "FullAuto" or "Plan") and var startMode)
             PermissionMode = startMode;
+        // The reasoning effort chosen in Settings -> Agent is where a new chat starts.
+        if (_configurationService?.Config.Agent?.DefaultReasoningEffort is { } startEffort
+            && EffortOptions.FirstOrDefault(o => string.Equals(o, startEffort, StringComparison.OrdinalIgnoreCase)) is { } effortName)
+            ReasoningEffortName = effortName;
         var savedModel = _configurationService?.Config.Ui?.SelectedModel;
         if (!string.IsNullOrWhiteSpace(savedModel))
         {
@@ -1027,7 +1031,13 @@ public partial class ChatViewModel : ObservableObject
                         break;
                     case StatusUpdateEvent status:
                         await Task.Factory.StartNew(
-                            () => StatusText = status.Status,
+                            () =>
+                            {
+                                StatusText = status.Status;
+                                // A run that stops early (spend cap, step limit) says why in the conversation, not only in the status line.
+                                if (status.Status == "Limit" && AgentOutputText.StatusNote(status) is { } limitNote)
+                                    run.AppendNote(limitNote);
+                            },
                             token,
                             TaskCreationOptions.None,
                             uiScheduler);
@@ -1334,6 +1344,8 @@ public partial class ChatViewModel : ObservableObject
                 break;
             case StatusUpdateEvent status:
                 StatusText = $"[{tagged.AgentId}] {status.Status}";
+                if (status.Status == "Limit" && AgentOutputText.StatusNote(status) is { } limitNote)
+                    run.AppendNote(limitNote);
                 break;
             case TokenUsageEvent usage:
                 TokenUsage = usage.Format();

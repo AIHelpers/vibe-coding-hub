@@ -75,6 +75,32 @@ public class AgentConfiguration
     /// Permission mode a new chat starts in: Ask, AutoEdit, FullAuto or Plan. Chosen in the setup wizard.
     /// </summary>
     public string DefaultPermissionMode { get; set; } = "Ask";
+
+    /// <summary>
+    /// Spend cap in USD per session (Settings → Cost). Null or 0 = no cap. The orchestrator reads it before every model
+    /// call, so a change applies to a task that is already running.
+    /// </summary>
+    public decimal? MaxBudgetUsd { get; set; }
+
+    /// <summary>Reasoning effort a new chat starts with: Default (the provider decides), Off, Low, Medium or High.</summary>
+    public string DefaultReasoningEffort { get; set; } = "Default";
+
+    /// <summary>Docker sandbox for the commands the agent runs. AIAGENT_SANDBOX* environment variables override these values.</summary>
+    public SandboxConfiguration Sandbox { get; set; } = new();
+
+    /// <summary>Chrome, Edge or Chromium used by the browser check. The AIAGENT_BROWSER environment variable overrides it.</summary>
+    public string? BrowserPath { get; set; }
+}
+
+/// <summary>Settings → Safety → Docker sandbox. The same five values the AIAGENT_SANDBOX* environment variables set.</summary>
+public class SandboxConfiguration
+{
+    public bool Enabled { get; set; }
+    public string Image { get; set; } = "ubuntu:24.04";
+    /// <summary>Allow network inside the container (package restore, npm install).</summary>
+    public bool Network { get; set; }
+    public string Memory { get; set; } = "4g";
+    public string Cpus { get; set; } = "2";
 }
 
 public class UiConfiguration

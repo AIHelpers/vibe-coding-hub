@@ -155,8 +155,10 @@ public partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(
         ConfigurationService configurationService,
         IStorageProvider? storageProvider = null,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        SettingsEnvironment? environment = null)
     {
+        _env = environment ?? new SettingsEnvironment();
         _configurationService = configurationService;
         _storageProvider = storageProvider;
         _loggerFactory = loggerFactory;
@@ -190,6 +192,7 @@ public partial class SettingsViewModel : ObservableObject
         SelectedResumeLastSession = (config.Ui?.ResumeLastSession ?? ResumeLastSessionMode.Ask).ToString();
         CheckForUpdates = config.Ui?.CheckForUpdates ?? true;
         TerminalShell = config.Ui?.TerminalShell ?? string.Empty;
+        LoadAdvancedSettings();
         // Intentional: set the backing field directly so the loaded value is not previewed/applied
         // via OnSelectedThemeChanged; the change notification is raised manually below.
 #pragma warning disable MVVMTK0034
@@ -427,6 +430,12 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task Save()
     {
+        // Check the Agent, Safety, Cost and Integrations values first: nothing is written when one of them is wrong.
+        SaveFailed = false;
+        SaveStatus = string.Empty;
+        if (!TryReadAdvancedSettings(out var advanced))
+            return;
+
         var config = _configurationService.Config;
 
         // Normalize to lowercase so DefaultProvider always matches the provider key casing
@@ -460,6 +469,19 @@ public partial class SettingsViewModel : ObservableObject
             Headers = existing?.Headers ?? new()
         };
 
+        try
+        {
+            ApplyAdvancedSettings(advanced);
+        }
+        catch (Exception ex)
+        {
+            await _configurationService.SaveAsync();
+            SaveFailed = true;
+            SaveStatus = "The settings were saved, but pricing.json could not be written: " + ex.Message;
+            return;
+        }
+
         await _configurationService.SaveAsync();
+        SaveStatus = "Settings saved.";
     }
 }

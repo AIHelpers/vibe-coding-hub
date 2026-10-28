@@ -307,11 +307,22 @@ public class BrowserCheckTool : BaseTool
         return new BrowserRun(p.ExitCode, await stdout, await stderr, false);
     }
 
-    /// <summary>Finds Chrome/Edge/Chromium: AIAGENT_BROWSER, then well-known install paths, then PATH.</summary>
-    internal static string? FindBrowser()
+    /// <summary>
+    /// The browser chosen in Settings -> Integrations. It is a provider, read on every check, so a change applies without a restart.
+    /// The AIAGENT_BROWSER environment variable still wins.
+    /// </summary>
+    public static Func<string?>? ConfiguredBrowserPath { get; set; }
+
+    /// <summary>Finds Chrome/Edge/Chromium: AIAGENT_BROWSER, then the Settings path, then well-known install paths, then PATH.</summary>
+    internal static string? FindBrowser() => FindBrowser(ConfiguredBrowserPath?.Invoke());
+
+    /// <summary>Same search with the Settings path given explicitly (the AIAGENT_BROWSER variable still comes first).</summary>
+    internal static string? FindBrowser(string? configured)
     {
         var fromEnv = Environment.GetEnvironmentVariable("AIAGENT_BROWSER");
         if (!string.IsNullOrWhiteSpace(fromEnv) && File.Exists(fromEnv)) return fromEnv;
+
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured)) return configured;
 
         var candidates = new List<string>();
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

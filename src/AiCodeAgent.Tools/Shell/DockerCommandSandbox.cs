@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Configuration;
 
 namespace AiCodeAgent.Tools.Shell;
 
@@ -16,19 +17,33 @@ public sealed record DockerSandboxOptions
 
     /// <summary>
     /// Reads AIAGENT_SANDBOX (docker|off), AIAGENT_SANDBOX_IMAGE, AIAGENT_SANDBOX_NETWORK (on|off),
-    /// AIAGENT_SANDBOX_MEMORY, AIAGENT_SANDBOX_CPUS.
+    /// AIAGENT_SANDBOX_MEMORY, AIAGENT_SANDBOX_CPUS. Everything else is the default.
     /// </summary>
-    public static DockerSandboxOptions FromEnvironment()
+    public static DockerSandboxOptions FromEnvironment() => FromConfiguration(null);
+
+    /// <summary>
+    /// The settings in force: the values saved in Settings → Safety, where every AIAGENT_SANDBOX* environment variable that is
+    /// set overrides its own value (a variable set to "off" switches the sandbox off even if Settings turned it on).
+    /// </summary>
+    public static DockerSandboxOptions FromConfiguration(SandboxConfiguration? configured, Func<string, string?>? getEnv = null)
     {
-        static string? Env(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } v ? v : null;
+        getEnv ??= Environment.GetEnvironmentVariable;
+        string? Env(string name) => getEnv(name) is { Length: > 0 } v ? v : null;
+        static string? NonBlank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+        var saved = configured ?? new SandboxConfiguration();
         var defaults = new DockerSandboxOptions();
-        return defaults with
+        return new DockerSandboxOptions
         {
-            Enabled = string.Equals(Env("AIAGENT_SANDBOX"), "docker", StringComparison.OrdinalIgnoreCase),
-            Image = Env("AIAGENT_SANDBOX_IMAGE") ?? defaults.Image,
-            Network = string.Equals(Env("AIAGENT_SANDBOX_NETWORK"), "on", StringComparison.OrdinalIgnoreCase),
-            Memory = Env("AIAGENT_SANDBOX_MEMORY") ?? defaults.Memory,
-            Cpus = Env("AIAGENT_SANDBOX_CPUS") ?? defaults.Cpus
+            Enabled = Env("AIAGENT_SANDBOX") is { } mode
+                ? string.Equals(mode, "docker", StringComparison.OrdinalIgnoreCase)
+                : saved.Enabled,
+            Image = Env("AIAGENT_SANDBOX_IMAGE") ?? NonBlank(saved.Image) ?? defaults.Image,
+            Network = Env("AIAGENT_SANDBOX_NETWORK") is { } network
+                ? string.Equals(network, "on", StringComparison.OrdinalIgnoreCase)
+                : saved.Network,
+            Memory = Env("AIAGENT_SANDBOX_MEMORY") ?? NonBlank(saved.Memory) ?? defaults.Memory,
+            Cpus = Env("AIAGENT_SANDBOX_CPUS") ?? NonBlank(saved.Cpus) ?? defaults.Cpus
         };
     }
 }
@@ -41,16 +56,32 @@ public sealed record DockerSandboxOptions
 /// </summary>
 public class DockerCommandSandbox : ICommandSandbox
 {
-    private readonly DockerSandboxOptions _options;
+    private readonly Func<DockerSandboxOptions> _options;
     private string? _availability;
     private bool _checked;
 
-    public DockerCommandSandbox(DockerSandboxOptions? options = null) => _options = options ?? DockerSandboxOptions.FromEnvironment();
+    /// <summary>A sandbox with fixed settings (null = the environment variables, read once).</summary>
+    public DockerCommandSandbox(DockerSandboxOptions? options = null)
+    {
+        var fixedOptions = options ?? DockerSandboxOptions.FromEnvironment();
+        _options = () => fixedOptions;
+    }
 
-    public bool Enabled => _options.Enabled;
+    /// <summary>
+    /// A sandbox whose settings are read on every use, so a change in Settings applies to the next command without a restart.
+    /// </summary>
+    public DockerCommandSandbox(Func<DockerSandboxOptions> optionsProvider) => _options = optionsProvider;
 
-    public string Description =>
-        $"docker (image {_options.Image}, network {(_options.Network ? "on" : "off")})";
+    public bool Enabled => _options().Enabled;
+
+    public string Description
+    {
+        get
+        {
+            var o = _options();
+            return $"docker (image {o.Image}, network {(o.Network ? "on" : "off")})";
+        }
+    }
 
     public async Task<string?> CheckAvailabilityAsync(CancellationToken ct = default)
     {
@@ -101,17 +132,18 @@ public class DockerCommandSandbox : ICommandSandbox
             ? "/workspace"
             : "/workspace/" + relative;
 
+        var o = _options();
         var args = new List<string>
         {
             "run", "--rm", "-i",
-            "--network", _options.Network ? "bridge" : "none",
-            "--memory", _options.Memory,
-            "--cpus", _options.Cpus,
+            "--network", o.Network ? "bridge" : "none",
+            "--memory", o.Memory,
+            "--cpus", o.Cpus,
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "-v", $"{root}:/workspace",
             "-w", containerDir,
-            _options.Image,
+            o.Image,
             "bash", "-c", command
         };
         return args;

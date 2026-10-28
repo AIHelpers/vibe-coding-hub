@@ -100,6 +100,24 @@ Open it with Ctrl+backtick (or the command palette). It docks along the bottom a
 
 How it works: Windows uses ConPTY (`CreatePseudoConsole`, Windows 10 1809+), Linux/macOS use `forkpty`; both are small P/Invoke wrappers in `AiCodeAgent.Core/Terminal` and need no extra package (the candidates `Pty.Net` and `Quick.PtyNet` are unmaintained previews, and a ~400-line wrapper is easier to test on all three CI systems than a dependency). The screen is a VT100/xterm emulator in Core (`TerminalEmulator`, covered by unit tests) drawn by `TerminalControl`.
 
+## Settings
+
+Settings groups every option into sections: **Model · Agent · Safety · Cost · Integrations · Appearance · Advanced**. Each value is written to the file or key the engine already reads, so editing the file by hand and using the page are the same thing.
+
+| Section | Option | Stored in |
+|---|---|---|
+| Agent | max iterations, reasoning-effort default, requirements questions | `config.json` (`Agent.MaxIterations`, `DefaultReasoningEffort`, `RequirementsClarifier`) |
+| Safety | default permission mode, Docker sandbox (on/off, image, network, memory, CPUs) | `config.json` (`Agent.DefaultPermissionMode`, `Agent.Sandbox`) |
+| Safety | hooks (list, trust status, trust button) | `settings.json` hooks, trust file in `~/.aiagent` |
+| Cost | budget per task (USD) | `config.json` (`Agent.MaxBudgetUsd`) |
+| Cost | price table | `~/.aiagent/pricing.json` |
+| Integrations | MCP servers (list), browser path | `mcp.json`, `config.json` (`Agent.BrowserPath`) |
+| Advanced | log folder, config folder, reset settings | n/a |
+
+Environment variables still override the page, and the page says so, for example "Overridden by AIAGENT_SANDBOX": `AIAGENT_SANDBOX`, `AIAGENT_SANDBOX_IMAGE`, `AIAGENT_SANDBOX_NETWORK`, `AIAGENT_SANDBOX_MEMORY`, `AIAGENT_SANDBOX_CPUS` and `AIAGENT_BROWSER`.
+
+A budget cap is read before every model call, so a change applies to a task that is already running. When a task reaches the cap it stops with "budget exceeded" in the chat. Models without a price (for example local ones) count as $0.
+
 ## Usage
 
 ```bash
