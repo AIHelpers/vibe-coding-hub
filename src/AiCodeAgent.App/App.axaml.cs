@@ -60,6 +60,8 @@ public partial class App : Application
 
             // Load configuration on background thread to avoid async-over-sync deadlock
             var configSvc = Services.GetRequiredService<ConfigurationService>();
+            // The browser check reads the path from Settings -> Integrations on every use.
+            AiCodeAgent.Tools.Browser.BrowserCheckTool.ConfiguredBrowserPath = () => configSvc.Config.Agent?.BrowserPath;
             try
             {
                 Task.Run(() => configSvc.LoadAsync()).GetAwaiter().GetResult();
@@ -380,7 +382,13 @@ public partial class App : Application
         services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AskUserTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Verification.VerifyChangesTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Browser.BrowserCheckTool>();
-        services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox, AiCodeAgent.Tools.Shell.DockerCommandSandbox>();
+        // The sandbox reads Settings -> Safety (and the AIAGENT_SANDBOX* variables) on every command.
+        services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox>(sp =>
+        {
+            var agentConfig = sp.GetRequiredService<AgentConfiguration>();
+            return new AiCodeAgent.Tools.Shell.DockerCommandSandbox(
+                () => AiCodeAgent.Tools.Shell.DockerSandboxOptions.FromConfiguration(agentConfig.Sandbox));
+        });
         services.AddSingleton<AiCodeAgent.Core.Agent.IUserQuestionHandler, AiCodeAgent.App.Services.AvaloniaUserQuestionHandler>();
         services.AddSingleton<AiCodeAgent.Core.Sessions.ConversationRewinder>();
         services.AddSingleton<AiCodeAgent.App.Services.IRewindPrompt, AiCodeAgent.App.Services.AvaloniaRewindPrompt>();
@@ -550,7 +558,8 @@ public partial class App : Application
             new SettingsViewModel(
                 sp.GetRequiredService<ConfigurationService>(),
                 null,
-                sp.GetRequiredService<ILoggerFactory>()));
+                sp.GetRequiredService<ILoggerFactory>(),
+                new SettingsEnvironment { Hooks = sp.GetService<AiCodeAgent.Core.Interfaces.IHookRegistry>() }));
 
         // Services
         services.AddSingleton<AgentService>();

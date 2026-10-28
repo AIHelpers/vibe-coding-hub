@@ -80,6 +80,57 @@ public static class ModelPricing
         }
     }
 
+    /// <summary>The built-in estimates (read-only), keyed by a fragment of the model id.</summary>
+    public static IReadOnlyDictionary<string, ModelPrice> BuiltIn => Defaults;
+
+    private static readonly JsonSerializerOptions StoreOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    /// <summary>
+    /// The rows of pricing.json, sorted by key, read from disk (not from the cache) so an editor shows what is really there.
+    /// Empty when the file is missing or unreadable.
+    /// </summary>
+    public static IReadOnlyList<KeyValuePair<string, ModelPrice>> LoadOverrideRows(string? path = null)
+    {
+        try
+        {
+            path ??= DefaultOverridePath;
+            if (!File.Exists(path)) return Array.Empty<KeyValuePair<string, ModelPrice>>();
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, ModelPrice>>(File.ReadAllText(path), StoreOptions);
+            return (parsed ?? new()).OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch
+        {
+            return Array.Empty<KeyValuePair<string, ModelPrice>>();
+        }
+    }
+
+    /// <summary>
+    /// Writes the rows to pricing.json (the file <see cref="Lookup"/> reads) and drops the cache, so the next cost
+    /// calculation, also in a task that is already running, uses the new prices.
+    /// </summary>
+    public static void SaveOverrides(IEnumerable<KeyValuePair<string, ModelPrice>> rows, string? path = null)
+    {
+        path ??= DefaultOverridePath;
+        var table = new Dictionary<string, ModelPrice>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, price) in rows)
+            if (!string.IsNullOrWhiteSpace(key))
+                table[key.Trim()] = price;
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(table, StoreOptions));
+        File.Move(temp, path, overwrite: true);
+
+        if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(DefaultOverridePath), StringComparison.OrdinalIgnoreCase))
+            lock (Gate) _overrides = null;
+    }
+
     /// <summary>Test hook: replace the override table.</summary>
     internal static void SetOverridesForTests(Dictionary<string, ModelPrice>? overrides)
     {

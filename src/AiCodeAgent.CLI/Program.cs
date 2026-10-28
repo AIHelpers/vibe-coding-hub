@@ -606,7 +606,14 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AskUserTool>();
     services.AddSingleton<ITool, AiCodeAgent.Tools.Verification.VerifyChangesTool>();
     services.AddSingleton<ITool, AiCodeAgent.Tools.Browser.BrowserCheckTool>();
-    services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox, AiCodeAgent.Tools.Shell.DockerCommandSandbox>();
+    // The sandbox reads the saved settings (and the AIAGENT_SANDBOX* variables) on every command.
+    services.AddSingleton<AiCodeAgent.Core.Agent.ICommandSandbox>(sp =>
+    {
+        var agentConfig = sp.GetRequiredService<AgentConfiguration>();
+        return new AiCodeAgent.Tools.Shell.DockerCommandSandbox(
+            () => AiCodeAgent.Tools.Shell.DockerSandboxOptions.FromConfiguration(agentConfig.Sandbox));
+    });
+    AiCodeAgent.Tools.Browser.BrowserCheckTool.ConfiguredBrowserPath = () => configSvc.Config.Agent?.BrowserPath;
     services.AddSingleton<AiCodeAgent.Core.Agent.IUserQuestionHandler, ConsoleUserQuestionHandler>();
     services.AddSingleton<ITool, ExecuteCommandTool>();
     services.AddSingleton<ITool, GitTool>();

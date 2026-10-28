@@ -21,6 +21,8 @@ public class AgentService
     private readonly IAgentEventBus _eventBus;
     private readonly SessionRecorder _recorder;
     private readonly IProjectMemoryLoader? _memoryLoader;
+    private readonly AiCodeAgent.Core.Configuration.ConfigurationService? _configuration;
+    private static readonly int DefaultMaxIterations = new AgentOptions().MaxIterations;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _sessionCts = new();
 
     // Cache the loaded project memory (AGENTS.md/AGENT.md/AIAGENT.md) keyed
@@ -41,8 +43,10 @@ public class AgentService
         ILogger<AgentService> logger,
         IAgentEventBus eventBus,
         SessionRecorder recorder,
-        IProjectMemoryLoader? memoryLoader = null)
+        IProjectMemoryLoader? memoryLoader = null,
+        AiCodeAgent.Core.Configuration.ConfigurationService? configuration = null)
     {
+        _configuration = configuration;
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;
         _contextManager = contextManager;
@@ -54,6 +58,32 @@ public class AgentService
         // Begin recording all agent events from the shared bus so the
         // current chat session can be exported (Priority 5).
         _recorder.Start("default");
+    }
+
+    /// <summary>
+    /// Fills in what Settings controls and the caller left open: the step limit (a caller that kept the built-in 50 gets the
+    /// configured one) and the model the run is priced with (the provider's default model, which is also what the provider
+    /// itself uses when no model is given). Without a model the cost of a run is unknown and a budget cap cannot trip.
+    /// </summary>
+    internal AgentOptions ApplyConfiguredDefaults(AgentOptions options)
+    {
+        var config = _configuration?.Config;
+        if (config is null)
+            return options;
+
+        var result = options;
+        var steps = config.Agent?.MaxIterations ?? 0;
+        if (steps > 0 && steps != DefaultMaxIterations && result.MaxIterations == DefaultMaxIterations)
+            result = result with { MaxIterations = steps };
+
+        if (string.IsNullOrWhiteSpace(result.Model))
+        {
+            var model = _configuration!.GetProvider(config.DefaultProvider)?.DefaultModel;
+            if (!string.IsNullOrWhiteSpace(model))
+                result = result with { Model = model };
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -120,7 +150,7 @@ public class AgentService
                 Content = message
             });
 
-            var options = await EnsureProjectMemoryAsync(new AgentOptions());
+            var options = ApplyConfiguredDefaults(await EnsureProjectMemoryAsync(new AgentOptions()));
             var response = await _orchestrator.RunAsync(
                 message,
                 sessionId,
@@ -160,7 +190,7 @@ public class AgentService
         {
             _logger.LogInformation("Streaming message: {Message}", message);
 
-            var effectiveOptions = await EnsureProjectMemoryAsync(options ?? new AgentOptions());
+            var effectiveOptions = ApplyConfiguredDefaults(await EnsureProjectMemoryAsync(options ?? new AgentOptions()));
             var runReport = new RunReportBuilder(sessionId, message);
 
             try

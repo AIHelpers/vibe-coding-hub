@@ -3,6 +3,7 @@ using AiCodeAgent.Core.Usage;
 
 namespace AiCodeAgent.Core.Tests.Usage;
 
+[Collection("ModelPricing")]
 public class CostTrackingTests
 {
     [Fact]

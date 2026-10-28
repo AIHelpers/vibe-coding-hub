@@ -26,6 +26,16 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IPermissionManager? _permissionManager;
     private readonly Usage.SessionCostTracker? _costTracker;
 
+    /// <summary>
+    /// The spend cap in force: the run's own <see cref="AgentOptions.MaxBudgetUsd"/>, otherwise the one configured in
+    /// Settings (read on every call, so a change reaches runs that are already going). Null = no cap.
+    /// </summary>
+    private decimal? EffectiveBudgetCap(AgentOptions options)
+    {
+        var cap = options.MaxBudgetUsd ?? _config.MaxBudgetUsd;
+        return cap is > 0 ? cap : null;
+    }
+
     public AgentOrchestrator(
         IAiProvider provider,
         IContextManager contextManager,
@@ -191,6 +201,11 @@ public class AgentOrchestrator : IAgentOrchestrator
             iteration++;
 
             // Spend cap: checked before every model call, so a run can overshoot by at most one response.
+            // The cap is read live (Settings → Cost), so lowering it stops a task that is already running.
+            if (!budgetExceeded && _costTracker is not null
+                && EffectiveBudgetCap(options) is { } liveCap
+                && _costTracker.Get(sessionId).CostUsd >= liveCap)
+                budgetExceeded = true;
             if (budgetExceeded)
             {
                 stopReason = "budget_exceeded";
@@ -319,7 +334,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                         var snapshot = _costTracker.Record(sessionId, options.Model, chunk.Usage);
                         if (options.AgentId is not null)
                             _costTracker.Record("agent:" + options.AgentId, options.Model, chunk.Usage);
-                        if (options.MaxBudgetUsd is > 0 && snapshot.CostUsd >= options.MaxBudgetUsd.Value)
+                        if (EffectiveBudgetCap(options) is { } cap && snapshot.CostUsd >= cap)
                             budgetExceeded = true;
                     }
                     var usageEvent = new TokenUsageEvent(totalUsage,
@@ -846,7 +861,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             var reasonText = stopReason == "repeated_errors"
                 ? "Stopped: every tool call failed several rounds in a row. Check the errors above, then send a follow-up to continue."
                 : stopReason == "budget_exceeded"
-                ? $"Stopped: this session reached its spend cap of ${options.MaxBudgetUsd:0.00}. Raise the cap to continue."
+                ? $"Stopped: budget exceeded. This session reached its spend cap of ${(EffectiveBudgetCap(options) ?? 0m).ToString("0.00##", System.Globalization.CultureInfo.InvariantCulture)}. Raise the cap in Settings → Cost to continue."
                 : $"Stopped: reached the limit of {options.MaxIterations} steps before the task was complete. Send a follow-up to continue.";
             fullContent.AppendLine().AppendLine().Append(reasonText);
             var limitEvent = new StatusUpdateEvent("Limit", reasonText);

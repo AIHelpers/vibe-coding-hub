@@ -8,6 +8,27 @@
                 x:Class="AiCodeAgent.App.Views.SettingsView"
                 x:DataType="vm:SettingsViewModel">
 
+    <UserControl.Styles>
+        <Style Selector="TextBlock.section">
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,20,0,0"/>
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeTextMutedBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="TextBlock.override">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeWarningBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource ThemeDangerBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
     <!-- The footer is pinned OUTSIDE the ScrollViewer so the single Save
          button is always on screen, however small the window is or wherever
          the scrollbar happens to be. Only the fields in the middle row scroll. -->
@@ -17,7 +38,7 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="24,24,24,8">
             <StackPanel Grid.Column="0" Spacing="4">
                 <TextBlock Text="⚙️ Settings" FontSize="24" FontWeight="SemiBold"/>
-                <TextBlock Text="Configure your AI agent settings" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="13"/>
+                <TextBlock Text="Model · Agent · Safety · Cost · Integrations · Appearance · Advanced" Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="13"/>
             </StackPanel>
             <Button Grid.Column="1"
                     Content="✕ Close"
@@ -34,7 +55,11 @@
                       VerticalScrollBarVisibility="Visible"
                       HorizontalScrollBarVisibility="Disabled"
                       AllowAutoHide="False">
-            <StackPanel Spacing="16" MaxWidth="600" Margin="24,8,24,8">
+            <StackPanel Spacing="16" MaxWidth="680" Margin="24,8,24,8">
+
+                <!-- ============================== Model ============================== -->
+                <TextBlock Classes="section" Text="Model" Margin="0"/>
+
                 <!-- Provider Selection -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="AI Provider" FontSize="13" FontWeight="SemiBold"/>
@@ -49,8 +74,7 @@
                     <TextBox x:Name="BaseUrlBox" Text="{Binding BaseUrl}"
                              Width="400" HorizontalAlignment="Left"
                              Watermark="e.g. http://localhost:1234"/>
-                    <TextBlock Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12"/>
+                    <TextBlock Classes="hint" Text="Custom URL for local providers (LM Studio, vLLM, LocalAI, etc.)"/>
                 </StackPanel>
 
                 <!-- Model -->
@@ -92,11 +116,11 @@
                                      Margin="8,0,0,0"
                                      VerticalAlignment="Center"/>
                     </Grid>
-                    <TextBlock Text="{Binding ModelsStatus}"
-                                Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap" Width="400" HorizontalAlignment="Left"/>
-                    <TextBlock Text="{Binding RetiredModelWarning}"
+                    <TextBlock Classes="hint" Text="{Binding ModelsStatus}" Width="400" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint"
+                               Text="{Binding RetiredModelWarning}"
                                IsVisible="{Binding HasRetiredModelWarning}"
-                               Foreground="{DynamicResource ThemeWarningBrush}" FontSize="12" TextWrapping="Wrap" Width="400" HorizontalAlignment="Left"/>
+                               Foreground="{DynamicResource ThemeWarningBrush}" Width="400" HorizontalAlignment="Left"/>
                 </StackPanel>
 
                 <!-- API Key -->
@@ -105,8 +129,7 @@
                     <TextBox x:Name="ApiKeyBox" Text="{Binding ApiKey}"
                              PasswordChar="●"
                              Width="400" HorizontalAlignment="Left"/>
-                    <TextBlock Text="Optional for local providers, required for cloud providers"
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12"/>
+                    <TextBlock Classes="hint" Text="Optional for local providers, required for cloud providers"/>
                 </StackPanel>
 
                 <!-- SSL Verification -->
@@ -117,15 +140,8 @@
                               FontSize="13"/>
                 </StackPanel>
 
-                <!-- Theme -->
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Theme" FontSize="13" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="ThemeComboBox" ItemsSource="{Binding ThemeOptions}"
-                              SelectedItem="{Binding SelectedTheme}"
-                              Width="300" HorizontalAlignment="Left"/>
-                    <TextBlock Text="System follows your OS light/dark setting. Press Save to keep the choice."
-                               FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
-                </StackPanel>
+                <!-- ============================== Agent ============================== -->
+                <TextBlock Classes="section" Text="Agent"/>
 
                 <!-- Working Directory -->
                 <StackPanel Spacing="4">
@@ -142,15 +158,204 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- Requirements questions -->
+                <!-- Requirements questions (clarifier mode) -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Requirements questions" FontSize="13" FontWeight="SemiBold"/>
                     <ComboBox ItemsSource="{Binding RequirementsClarifierOptions}"
                               SelectedItem="{Binding SelectedRequirementsClarifier}"
                               Width="300" HorizontalAlignment="Left"/>
-                    <TextBlock Text="Off: never ask · Auto: ask before a new app or feature · Always: ask before every build task"
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Classes="hint" Text="Off: never ask · Auto: ask before a new app or feature · Always: ask before every build task"/>
                 </StackPanel>
+
+                <!-- Max iterations -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Max iterations" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Name="MaxIterationsBox" Text="{Binding MaxIterationsText}" Width="120" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint" Text="The most model calls one task may make (1 to 500) before it stops and says so. Applies to the next task."/>
+                </StackPanel>
+
+                <!-- Reasoning effort default -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Reasoning effort" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox Name="ReasoningEffortComboBox"
+                              ItemsSource="{Binding ReasoningEffortOptions}"
+                              SelectedItem="{Binding SelectedReasoningEffort}"
+                              Width="300" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint" Text="Where a new chat starts. Default leaves it to the provider. You can still change it per chat in the header."/>
+                </StackPanel>
+
+                <!-- ============================== Safety ============================== -->
+                <TextBlock Classes="section" Text="Safety"/>
+
+                <!-- Permission Mode -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Default permission mode" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox Name="PermissionModeComboBox"
+                              ItemsSource="{Binding PermissionModeOptions}"
+                              SelectedItem="{Binding SelectedPermissionMode}"
+                              Width="300" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint" Text="Ask: confirm edits and commands · AutoEdit: edit files freely, confirm commands · FullAuto: no confirmations · Plan: read-only planning. Applies to new chats."/>
+                    <CheckBox IsChecked="{Binding AutoApprove}"
+                              Content="Auto-approve tool calls (FullAuto)"
+                              FontSize="13"/>
+                </StackPanel>
+
+                <!-- Docker sandbox -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Docker sandbox" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox Name="SandboxEnabledBox" IsChecked="{Binding SandboxEnabled}"
+                              Content="Run the agent's shell commands in a throw-away Docker container"
+                              FontSize="13"/>
+                    <TextBlock Classes="override" Text="{Binding SandboxEnabledNote}"
+                               IsVisible="{Binding SandboxEnabledNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                    <TextBlock Text="Image" FontSize="12" Margin="0,6,0,0"/>
+                    <TextBox Name="SandboxImageBox" Text="{Binding SandboxImage}" Width="300" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="override" Text="{Binding SandboxImageNote}"
+                               IsVisible="{Binding SandboxImageNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                    <CheckBox Name="SandboxNetworkBox" IsChecked="{Binding SandboxNetwork}"
+                              Content="Allow network inside the container (package restore, npm install)"
+                              FontSize="13" Margin="0,6,0,0"/>
+                    <TextBlock Classes="override" Text="{Binding SandboxNetworkNote}"
+                               IsVisible="{Binding SandboxNetworkNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                    <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,6,0,0">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Memory" FontSize="12"/>
+                            <TextBox Name="SandboxMemoryBox" Text="{Binding SandboxMemory}" Width="120" Watermark="4g"/>
+                        </StackPanel>
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="CPUs" FontSize="12"/>
+                            <TextBox Name="SandboxCpusBox" Text="{Binding SandboxCpus}" Width="120" Watermark="2"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Classes="override" Text="{Binding SandboxMemoryNote}"
+                               IsVisible="{Binding SandboxMemoryNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    <TextBlock Classes="override" Text="{Binding SandboxCpusNote}"
+                               IsVisible="{Binding SandboxCpusNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                    <TextBlock Classes="hint" Text="{Binding SandboxSummary}" Margin="0,6,0,0"/>
+                    <TextBlock Classes="hint" Text="The workspace is mounted at /workspace; nothing else on this computer is visible to the command. Your own terminal is not sandboxed."/>
+                </StackPanel>
+
+                <!-- Hooks -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Hooks" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Classes="hint" Text="{Binding HooksSummary}"/>
+                    <ItemsControl Name="HooksList" ItemsSource="{Binding HookRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:HookRowViewModel">
+                                <StackPanel Spacing="1" Margin="0,4,0,0">
+                                    <TextBlock Text="{Binding Title}" FontSize="13"/>
+                                    <TextBlock Classes="hint" Text="{Binding Command}"/>
+                                    <TextBlock Classes="hint" Text="{Binding Status}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Name="TrustHooksButton"
+                            Content="Trust this project's hooks"
+                            Command="{Binding TrustProjectHooksCommand}"
+                            IsVisible="{Binding HasUntrustedHooks}"
+                            HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <!-- ============================== Cost ============================== -->
+                <TextBlock Classes="section" Text="Cost"/>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Budget per task (USD)" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Name="BudgetCapBox" Text="{Binding BudgetCapText}" Width="160" HorizontalAlignment="Left" Watermark="no cap"/>
+                    <TextBlock Classes="hint" Text="A task stops with &quot;budget exceeded&quot; once it has spent this much. Leave empty for no cap. A running task picks up a change before its next model call."/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Price table" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Classes="hint" Text="USD per million tokens. Rows replace or extend the built-in estimates and are saved to pricing.json. A row matches any model id that contains its name; the longest match wins."/>
+                    <Grid ColumnDefinitions="*,76,76,76,76,32" Margin="0,4,0,0">
+                        <TextBlock Grid.Column="0" Classes="hint" Text="Model"/>
+                        <TextBlock Grid.Column="1" Classes="hint" Text="Input" Margin="4,0,0,0"/>
+                        <TextBlock Grid.Column="2" Classes="hint" Text="Output" Margin="4,0,0,0"/>
+                        <TextBlock Grid.Column="3" Classes="hint" Text="Cache read" Margin="4,0,0,0"/>
+                        <TextBlock Grid.Column="4" Classes="hint" Text="Cache write" Margin="4,0,0,0"/>
+                    </Grid>
+                    <ItemsControl Name="PriceRowsList" ItemsSource="{Binding PriceRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PriceRowViewModel">
+                                <Grid ColumnDefinitions="*,76,76,76,76,32" Margin="0,2,0,0">
+                                    <TextBox Grid.Column="0" Text="{Binding Model}" Watermark="claude-sonnet"/>
+                                    <TextBox Grid.Column="1" Text="{Binding InputText}" Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="2" Text="{Binding OutputText}" Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="3" Text="{Binding CacheReadText}" Margin="4,0,0,0"/>
+                                    <TextBox Grid.Column="4" Text="{Binding CacheWriteText}" Margin="4,0,0,0"/>
+                                    <Button Grid.Column="5" Content="✕" Padding="0" Width="28" Height="28" Margin="4,0,0,0"
+                                            ToolTip.Tip="Remove this row"
+                                            Command="{Binding $parent[ItemsControl].((vm:SettingsViewModel)DataContext).RemovePriceRowCommand}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Name="AddPriceRowButton" Content="+ Add price" Command="{Binding AddPriceRowCommand}"
+                            HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                    <TextBlock Classes="hint" Text="{Binding BuiltInPricesText}" Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <!-- ============================== Integrations ============================== -->
+                <TextBlock Classes="section" Text="Integrations"/>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="MCP servers" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Classes="hint" Text="{Binding McpSummary}"/>
+                    <ItemsControl Name="McpServersList" ItemsSource="{Binding McpServerRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:McpServerRowViewModel">
+                                <StackPanel Spacing="1" Margin="0,4,0,0">
+                                    <TextBlock Text="{Binding Title}" FontSize="13"/>
+                                    <TextBlock Classes="hint" Text="{Binding Target}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="hint" Text="{Binding McpConfigPath}" Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Browser" FontSize="13" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0" Name="BrowserPathBox" Text="{Binding BrowserPath}"
+                                 Watermark="Leave empty to find Chrome or Edge automatically" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="Browse…" Command="{Binding BrowseBrowserCommand}" Width="90" Height="28"/>
+                    </Grid>
+                    <TextBlock Classes="override" Text="{Binding BrowserPathNote}"
+                               IsVisible="{Binding BrowserPathNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                    <TextBlock Classes="hint" Text="Chrome, Edge or Chromium used by the browser check that opens the app the agent built."/>
+                </StackPanel>
+
+                <!-- ============================== Appearance ============================== -->
+                <TextBlock Classes="section" Text="Appearance"/>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Theme" FontSize="13" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="ThemeComboBox" ItemsSource="{Binding ThemeOptions}"
+                              SelectedItem="{Binding SelectedTheme}"
+                              Width="300" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint" Text="System follows your OS light/dark setting. Press Save to keep the choice."/>
+                </StackPanel>
+
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Terminal shell" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Name="TerminalShellBox"
+                             Text="{Binding TerminalShell}"
+                             Watermark="Leave empty for the default"
+                             Width="420" HorizontalAlignment="Left"/>
+                    <TextBlock Classes="hint" Text="{Binding DefaultTerminalShell}"/>
+                    <TextBlock Classes="hint" Text="The program (and arguments) the terminal starts, for example pwsh -NoLogo or /bin/zsh -l. Applies to new terminal tabs."/>
+                </StackPanel>
+
+                <!-- ============================== Advanced ============================== -->
+                <TextBlock Classes="section" Text="Advanced"/>
 
                 <!-- Start-up: continue the last session -->
                 <StackPanel Spacing="4">
@@ -158,8 +363,7 @@
                     <ComboBox ItemsSource="{Binding ResumeLastSessionOptions}"
                               SelectedItem="{Binding SelectedResumeLastSession}"
                               Width="300" HorizontalAlignment="Left"/>
-                    <TextBlock Text="Ask: offer to resume the last session of this project · Always: resume it right away · Never: start with an empty chat"
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Classes="hint" Text="Ask: offer to resume the last session of this project · Always: resume it right away · Never: start with an empty chat"/>
                 </StackPanel>
 
                 <!-- Updates -->
@@ -168,32 +372,10 @@
                     <CheckBox IsChecked="{Binding CheckForUpdates}"
                               Content="Check for updates automatically"
                               FontSize="13"/>
-                    <TextBlock Text="When the app starts (at most once a day) it asks GitHub for the latest release and shows a banner if it is newer. Nothing else is sent. Command Palette → &quot;Check for updates&quot; looks right now."
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Classes="hint" Text="When the app starts (at most once a day) it asks GitHub for the latest release and shows a banner if it is newer. Nothing else is sent. Command Palette → &quot;Check for updates&quot; looks right now."/>
                 </StackPanel>
 
-                <!-- Terminal -->
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Terminal shell" FontSize="13" FontWeight="SemiBold"/>
-                    <TextBox Name="TerminalShellBox"
-                             Text="{Binding TerminalShell}"
-                             Watermark="Leave empty for the default"
-                             Width="420" HorizontalAlignment="Left"/>
-                    <TextBlock Text="{Binding DefaultTerminalShell}"
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
-                    <TextBlock Text="The program (and arguments) the terminal starts, for example pwsh -NoLogo or /bin/zsh -l. Applies to new terminal tabs. This is your own shell: the Docker sandbox setting only applies to commands the agent runs."
-                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
-                </StackPanel>
-
-                <!-- Permission Mode -->
-                <StackPanel Spacing="4">
-                    <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>
-                    <CheckBox IsChecked="{Binding AutoApprove}"
-                              Content="Auto-approve tool calls (FullAuto)"
-                              FontSize="13"/>
-                </StackPanel>
-
-                <!-- Log folder (read-only): logs are written here, never into a project -->
+                <!-- Log folder: logs are written here, never into a project -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Log folder" FontSize="13" FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="*,Auto">
@@ -208,6 +390,38 @@
                     </Grid>
                 </StackPanel>
 
+                <!-- Config folder: config.json, pricing.json, mcp.json -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Config folder" FontSize="13" FontWeight="SemiBold"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding ConfigFolder}"
+                                 IsReadOnly="True"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="1"
+                                Name="OpenConfigFolderButton"
+                                Content="Open"
+                                Command="{Binding OpenConfigFolderCommand}"
+                                Width="90" Height="28"/>
+                    </Grid>
+                    <TextBlock Classes="hint" Text="Holds config.json, pricing.json and mcp.json."/>
+                </StackPanel>
+
+                <!-- Reset -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Reset settings" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Classes="hint" Text="Puts the options on this page back to their defaults. Providers, API keys, project folders and pricing.json are kept."/>
+                    <Button Name="ResetSettingsButton"
+                            Content="Reset settings…"
+                            Command="{Binding RequestResetCommand}"
+                            IsVisible="{Binding !IsConfirmingReset}"
+                            HorizontalAlignment="Left"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsConfirmingReset}">
+                        <Button Name="ConfirmResetButton" Content="Yes, reset" Command="{Binding ConfirmResetCommand}"/>
+                        <Button Name="CancelResetButton" Content="Cancel" Command="{Binding CancelResetCommand}"/>
+                    </StackPanel>
+                </StackPanel>
+
                 <!-- Breathing room so the last row can be scrolled clear of the footer -->
                 <Border Height="56"/>
             </StackPanel>
@@ -220,11 +434,18 @@
                 Margin="24,4,24,16"
                 Padding="16,10">
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0"
-                           Text="Changes are written to the configuration file when you save."
-                           FontSize="12"
-                           Foreground="{DynamicResource ThemeTextMutedBrush}"
-                           VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Name="SaveStatusText"
+                               Text="{Binding SaveStatus}"
+                               Classes.error="{Binding SaveFailed}"
+                               IsVisible="{Binding SaveStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               FontSize="12"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="Changes are written to the configuration files when you save. Environment variables still override what is set here."
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                </StackPanel>
                 <Button Grid.Column="1"
                         Content="💾 Save Settings"
                         Command="{Binding SaveCommand}"
