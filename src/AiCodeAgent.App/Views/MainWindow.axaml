@@ -454,7 +454,9 @@
 
                 <!-- Main Content (Editor + Chat + Terminal) -->
                 <SplitView.Content>
-                    <Grid>
+                    <!-- Editor + Chat on top, the terminal docked along the bottom of the whole area -->
+                    <Grid RowDefinitions="*,Auto">
+                    <Grid Grid.Row="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="{Binding EditorColumnWidth}"/>
                             <ColumnDefinition Width="Auto"/>
@@ -543,34 +545,6 @@
                                     <Button Content="Resume" Command="{Binding ChatViewModel.AcceptResumeOfferCommand}" Padding="10,3"/>
                                     <Button Content="New" Command="{Binding ChatViewModel.DismissResumeOfferCommand}" Padding="10,3"/>
                                 </StackPanel>
-                            </Border>
-
-                            <!-- Terminal Pane -->
-                            <Border Grid.Row="1" 
-                                    IsVisible="{Binding Terminal.IsVisible}" 
-                                    Background="{DynamicResource AppInsetBrush}" 
-                                    CornerRadius="4" 
-                                    Margin="16,0,16,4"
-                                    MinHeight="100"
-                                    MaxHeight="400">
-                                <Grid RowDefinitions="Auto,*">
-                                    <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="8,4" CornerRadius="4,4,0,0">
-                                        <views:TerminalHeaderView DataContext="{Binding Terminal}"/>
-                                    </Border>
-                                    <ScrollViewer Grid.Row="1" Margin="4">
-                                        <ItemsControl ItemsSource="{Binding Terminal.Entries}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="vm:TerminalEntry">
-                                                    <TextBlock Text="{Binding Text}" 
-                                                               FontSize="11" 
-                                                               FontFamily="Consolas" 
-                                                               TextWrapping="Wrap"
-                                                               Foreground="{Binding IsError, Converter={StaticResource BoolToErrorBrush}}"/>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
-                                </Grid>
                             </Border>
 
                             <!-- Feature 8: Requirements Clarification Panel -->
@@ -822,6 +796,14 @@
                                 </ScrollViewer>
                             </Grid>
                         </Border>
+                    </Grid>
+
+                    <!-- Terminal: shell tabs + Agent output. Hidden panels keep their shells running (Ctrl+`). -->
+                    <Border Name="TerminalDock" Grid.Row="1"
+                            IsVisible="{Binding Terminal.IsVisible}"
+                            Height="{Binding Terminal.TerminalHeight}">
+                        <views:TerminalPanelView DataContext="{Binding Terminal}"/>
+                    </Border>
                     </Grid>
                 </SplitView.Content>
             </SplitView>

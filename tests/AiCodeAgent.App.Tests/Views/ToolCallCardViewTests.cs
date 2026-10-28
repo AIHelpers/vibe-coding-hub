@@ -39,7 +39,7 @@ public class ToolCallCardViewTests
             {
                 Children =
                 {
-                    new TerminalHeaderView { DataContext = terminal },
+                    new TerminalPanelView { DataContext = terminal },
                     new ItemsControl
                     {
                         ItemsSource = cards,
@@ -125,7 +125,7 @@ public class ToolCallCardViewTests
     public void TerminalHeader_NeverShowsBool()
     {
         var (window, _, terminal) = CreateWindow();
-        var indicator = window.GetVisualDescendants().OfType<TerminalHeaderView>().Single()
+        var indicator = window.GetVisualDescendants().OfType<TerminalPanelView>().Single()
             .FindControl<StackPanel>("RunningIndicator")!;
 
         Assert.False(indicator.IsVisible);

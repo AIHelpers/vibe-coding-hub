@@ -172,6 +172,19 @@
                                Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
                 </StackPanel>
 
+                <!-- Terminal -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Terminal shell" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBox Name="TerminalShellBox"
+                             Text="{Binding TerminalShell}"
+                             Watermark="Leave empty for the default"
+                             Width="420" HorizontalAlignment="Left"/>
+                    <TextBlock Text="{Binding DefaultTerminalShell}"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                    <TextBlock Text="The program (and arguments) the terminal starts, for example pwsh -NoLogo or /bin/zsh -l. Applies to new terminal tabs. This is your own shell: the Docker sandbox setting only applies to commands the agent runs."
+                               Foreground="{DynamicResource ThemeTextMutedBrush}" FontSize="12" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Permission Mode -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Permission Mode" FontSize="13" FontWeight="SemiBold"/>

@@ -115,6 +115,9 @@ public class UiConfiguration
     /// <summary>Show the labels next to the activity bar icons (the bar is icon-only otherwise).</summary>
     public bool ActivityBarExpanded { get; set; }
 
+    /// <summary>Command line of the shell the terminal starts (program and arguments); null/empty = the system default (pwsh/powershell/cmd, or $SHELL).</summary>
+    public string? TerminalShell { get; set; }
+
     /// <summary>Which side panel was open and how wide it was, per workspace folder (see <see cref="AiCodeAgent.Core.Layout.SidePanelMemory"/>).</summary>
     public Dictionary<string, AiCodeAgent.Core.Layout.WorkspacePanelState> WorkspacePanels { get; set; } = new();
 }

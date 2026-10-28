@@ -88,6 +88,18 @@ The bar on the left edge replaces the old row of emoji buttons. Press the menu i
 
 Changes, Tasks, Checkpoints, Sessions and Dashboard (and the agent's plan) open in **one side panel** docked on the right, so they never cover the chat or each other. Drag its left edge to resize it. The open panel and its width are remembered per project folder. The top bar keeps the working folder, model, permission mode and Read/Edit/Exec; everything that no longer has a button (terminal, preview pane, diff of the active file, refresh, open file, Screens mode, quick open) is in the command palette (`Ctrl+Shift+P`).
 
+## Terminal
+
+Open it with Ctrl+backtick (or the command palette). It docks along the bottom and has **Shell** tabs and one **Agent output** tab.
+
+- A shell tab is a real interactive shell (PowerShell 7 / Windows PowerShell / cmd on Windows, `$SHELL` elsewhere) started in the working directory, with colours, `Ctrl+C`, arrow keys, history, full-screen programs (vim, less) and reflow when you resize the panel. Several tabs can run at once; they keep running while the panel is hidden and end when you close the tab or the app.
+- **Agent output** is the log of the commands the agent ran.
+- Select text with the mouse (double click = word, triple click = line). `Ctrl+Shift+C` copies (plain `Ctrl+C` copies only while text is selected, otherwise it interrupts the program), `Ctrl+Shift+V` / `Shift+Insert` pastes, right click copies a selection or pastes. `Shift+PageUp/PageDown` and the mouse wheel scroll the history.
+- **Send to chat** puts the selection into the chat input; **Ask the agent** sends the selection (or, with nothing selected, the last output) with the question "what went wrong, please fix it".
+- Settings -> Terminal shell chooses another shell, e.g. `pwsh -NoLogo`. Your own shell is not sandboxed: the Docker sandbox setting only applies to commands the agent runs.
+
+How it works: Windows uses ConPTY (`CreatePseudoConsole`, Windows 10 1809+), Linux/macOS use `forkpty`; both are small P/Invoke wrappers in `AiCodeAgent.Core/Terminal` and need no extra package (the candidates `Pty.Net` and `Quick.PtyNet` are unmaintained previews, and a ~400-line wrapper is easier to test on all three CI systems than a dependency). The screen is a VT100/xterm emulator in Core (`TerminalEmulator`, covered by unit tests) drawn by `TerminalControl`.
+
 ## Usage
 
 ```bash

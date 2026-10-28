@@ -4,6 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <!-- The Unix pseudo-terminal calls forkpty/execve through function pointers (Terminal/UnixPty.cs). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>AiCodeAgent.Core</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
