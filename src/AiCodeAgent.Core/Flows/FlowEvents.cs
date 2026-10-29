@@ -24,7 +24,9 @@ public enum FlowRunStatus
     Failed,
     /// <summary>Ended early on purpose: loop limit, run limit, or a declined confirmation.</summary>
     Stopped,
-    Cancelled
+    Cancelled,
+    /// <summary>The flow's spend reached its budget cap: running steps finished their current call and no new step started.</summary>
+    BudgetExceeded
 }
 
 /// <summary>Per-node summary of a finished flow run.</summary>
@@ -41,6 +43,15 @@ public sealed record FlowNodeRunSummary(
 public sealed record FlowRunResult(FlowRunStatus Status, string Message, IReadOnlyList<FlowNodeRunSummary> Nodes)
 {
     public bool Succeeded => Status == FlowRunStatus.Succeeded;
+
+    /// <summary>Every step run (loop rounds included) with its tokens, cost and duration, in the order they finished.</summary>
+    public IReadOnlyList<FlowStepRunUsage> StepRuns { get; init; } = Array.Empty<FlowStepRunUsage>();
+
+    /// <summary>The budget cap the run had, or null.</summary>
+    public decimal? BudgetUsd { get; init; }
+
+    /// <summary>The run total: the sum of <see cref="StepRuns"/>.</summary>
+    public FlowUsageTotals Usage => FlowUsageTotals.Sum(StepRuns);
 }
 
 /// <summary>A flow started: its nodes and the waves of work that can run in parallel.</summary>

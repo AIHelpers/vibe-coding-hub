@@ -17,13 +17,15 @@ public class PipelineRunMode
     public PipelineRunMode(SdlcPipelineRunner runner) => _runner = runner;
 
     public async Task RunAsync(SdlcPipelineDefinition pipeline, string task, string workingDirectory, string? model,
-        IReadOnlyDictionary<string, string>? cast = null, int? maxParallel = null)
+        IReadOnlyDictionary<string, string>? cast = null, int? maxParallel = null, decimal? maxBudgetUsd = null, bool json = false)
     {
         if (pipeline.IsFlow)
         {
-            await RunFlowAsync(pipeline, task, workingDirectory, model, cast, maxParallel);
+            await RunFlowAsync(pipeline, task, workingDirectory, model, cast, maxParallel, maxBudgetUsd, json);
             return;
         }
+        if (json || maxBudgetUsd != null)
+            Console.Error.WriteLine("Note: --json and --max-budget apply to flows (pipelines with edges); this linear pipeline ignores them.");
 
         Console.OutputEncoding = Encoding.UTF8;
         var sessionId = Guid.NewGuid().ToString();
@@ -102,17 +104,19 @@ public class PipelineRunMode
     /// Instead each node prints status lines and its answer when it finishes.
     /// </summary>
     private async Task RunFlowAsync(SdlcPipelineDefinition pipeline, string task, string workingDirectory, string? model,
-        IReadOnlyDictionary<string, string>? cast, int? maxParallel)
+        IReadOnlyDictionary<string, string>? cast, int? maxParallel, decimal? maxBudgetUsd, bool json)
     {
         Console.OutputEncoding = Encoding.UTF8;
         var sessionId = Guid.NewGuid().ToString();
-        Console.WriteLine($"Running flow '{pipeline.Name}': {pipeline.Description}");
-        Console.WriteLine($"Task: {task}");
+        // With --json, stdout carries only the JSON result; everything else goes to stderr.
+        var log = json ? Console.Error : Console.Out;
+        log.WriteLine($"Running flow '{pipeline.Name}': {pipeline.Description}");
+        log.WriteLine($"Task: {task}");
         if (cast is { Count: > 0 })
-            Console.WriteLine($"Cast: {string.Join(", ", cast.Select(kv => $"{kv.Key} = {kv.Value}"))}");
+            log.WriteLine($"Cast: {string.Join(", ", cast.Select(kv => $"{kv.Key} = {kv.Value}"))}");
 
         FlowRunResult? result = null;
-        await foreach (var evt in _runner.RunAsync(pipeline, task, sessionId, workingDirectory, model, cast: cast, maxParallel: maxParallel))
+        await foreach (var evt in _runner.RunAsync(pipeline, task, sessionId, workingDirectory, model, cast: cast, maxParallel: maxParallel, maxBudgetUsd: maxBudgetUsd))
         {
             if (evt is AgentTaggedEvent { Inner: ApprovalRequestEvent approval } gate)
             {
@@ -124,13 +128,14 @@ public class PipelineRunMode
             }
             if (evt is FlowFinishedEvent finished) result = finished.Result;
             var line = FlowConsoleFormatter.Format(evt);
-            if (line != null) Console.WriteLine(line);
+            if (line != null) log.WriteLine(line);
         }
 
-        Console.WriteLine();
+        log.WriteLine();
         if (result != null)
         {
-            Console.WriteLine(FlowConsoleFormatter.Summary(result));
+            log.WriteLine(FlowConsoleFormatter.Summary(result));
+            if (json) Console.WriteLine(FlowUsageFormat.ToJson(pipeline.Name, result));
             if (!result.Succeeded) Environment.ExitCode = 1;
         }
     }
@@ -149,6 +154,7 @@ public static class FlowConsoleFormatter
         FlowNodeStatusEvent { State: FlowNodeState.Failed } n => $"✕ {n.NodeId}{Who(n)} failed: {n.Detail}",
         FlowNodeStatusEvent { State: FlowNodeState.Skipped } n => $"– {n.NodeId} skipped ({n.Detail})",
         FlowNodeStatusEvent { State: FlowNodeState.Pending, Detail: { } d } n when d.StartsWith("sent back", StringComparison.Ordinal) => $"↺ {n.NodeId} {d}",
+        FlowUsageEvent u => $"  {u.NodeId}: {FlowUsageFormat.Badge(u.Node)} · {FlowUsageFormat.Header(u.Run, u.BudgetUsd)}",
         FlowEdgeTakenEvent { IsLoop: true } e => $"↺ {e.From} → {e.To} ({e.When ?? "always"}, loop {e.LoopCount})",
         AgentTaggedEvent { Inner: AgentFinishedEvent f } t when !string.IsNullOrWhiteSpace(f.Response.Content) =>
             $"\n───── {t.AgentId} ─────\n{f.Response.Content.Trim()}\n",
@@ -161,7 +167,7 @@ public static class FlowConsoleFormatter
 
     public static string Summary(FlowRunResult result)
     {
-        var sb = new StringBuilder($"Flow {result.Status.ToString().ToLowerInvariant()}: {result.Message}\n");
+        var sb = new StringBuilder($"Flow {FlowUsageFormat.StatusName(result.Status)}: {result.Message}\n");
         foreach (var n in result.Nodes)
         {
             var mark = n.State switch { FlowNodeState.Done => "✓", FlowNodeState.Failed => "✕", FlowNodeState.Skipped => "–", _ => "·" };
@@ -170,6 +176,8 @@ public static class FlowConsoleFormatter
             if (n.Detail != null) sb.Append($"  ({n.Detail})");
             sb.Append('\n');
         }
+        if (result.StepRuns.Count > 0)
+            sb.Append('\n').Append(FlowUsageFormat.Table(result)).Append('\n');
         return sb.ToString().TrimEnd();
     }
 

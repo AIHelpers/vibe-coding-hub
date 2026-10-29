@@ -106,6 +106,9 @@
                     <TextBlock x:Name="ParallelLabel" Text="parallel" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
                     <NumericUpDown x:Name="MaxParallelBox" Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" FormatString="0" MinWidth="110" FontSize="11"
                                    ToolTip.Tip="Most characters working at the same time"/>
+                    <TextBlock x:Name="BudgetLabel" Text="budget $" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <TextBox x:Name="BudgetBox" Text="{Binding BudgetText}" Width="64" FontSize="11" Watermark="none"
+                             ToolTip.Tip="Spend cap for one run. When the finished steps cost this much, running steps finish their current call, no new step starts, and the flow ends as budget_exceeded. Saved in the flow as maxBudgetUsd."/>
                 </StackPanel>
                 <TextBox x:Name="RunTaskBox" Grid.Column="3" Text="{Binding RunTask}" FontSize="11" Margin="8,0" Watermark="Task for the flow, e.g. Add churn prediction to the customer API"/>
                 <Button x:Name="RunButton" Grid.Column="4" Content="▶ Run" Command="{Binding RunCommand}" IsEnabled="{Binding CanRun}" FontSize="11" Padding="12,3"/>
@@ -215,8 +218,10 @@
                                                 <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding StateGlyph}" FontSize="13" Margin="4,0,0,0"/>
                                                 <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Subtitle}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding OutcomesText}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="{Binding OutcomesText}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                                            TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                                <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding UsageText}" IsVisible="{Binding HasUsage}" FontSize="9"
+                                                           Foreground="{DynamicResource ThemeTextMutedBrush}" HorizontalAlignment="Right" Margin="0,2,0,0"/>
                                             </Grid>
                                         </Border>
                                         <!-- Input handle (left) and output handle (right, drag to connect) -->
@@ -342,16 +347,51 @@
         <!-- Bottom: status, problems, selected step's output -->
         <Border Grid.Row="3" Background="{DynamicResource AppSubBrush}" Padding="8,4" MaxHeight="220">
             <Grid RowDefinitions="Auto,*" ColumnDefinitions="*,*">
-                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding StatusText}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4"/>
-                <ScrollViewer Grid.Row="1" Grid.Column="0" IsVisible="{Binding HasProblems}" Margin="0,0,6,0">
-                    <ItemsControl ItemsSource="{Binding Problems}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="flows:FlowProblem">
-                                <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,4">
+                    <TextBlock Text="{Binding StatusText}" FontSize="11" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="RunUsageLabel" Text="{Binding RunUsageText}" FontSize="11" FontWeight="SemiBold" IsVisible="{Binding HasRunUsage}"
+                               ToolTip.Tip="Tokens and cost of the steps that have finished in this run"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,6,0" Spacing="4">
+                    <ScrollViewer IsVisible="{Binding HasProblems}" MaxHeight="70">
+                        <ItemsControl ItemsSource="{Binding Problems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="flows:FlowProblem">
+                                    <TextBlock Text="{Binding}" FontSize="10" TextWrapping="Wrap"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <!-- Usage of the last run: one line per step run, then the total -->
+                    <ScrollViewer x:Name="UsageTable" IsVisible="{Binding HasUsageRows}" MaxHeight="130" HorizontalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <Grid ColumnDefinitions="90,34,130,46,46,60,44">
+                                <TextBlock Grid.Column="0" Text="step" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Grid.Column="1" Text="rnd" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Grid.Column="2" Text="model" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Grid.Column="3" Text="in" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="out" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="cost" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="time" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}" TextAlignment="Right"/>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding UsageRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:FlowUsageRowViewModel">
+                                        <Grid ColumnDefinitions="90,34,130,46,46,60,44">
+                                            <TextBlock Grid.Column="0" Text="{Binding Step}" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Round}" FontSize="10"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Model}" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding TokensIn}" FontSize="10" TextAlignment="Right"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding TokensOut}" FontSize="10" TextAlignment="Right"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding Cost}" FontSize="10" TextAlignment="Right"/>
+                                            <TextBlock Grid.Column="6" Text="{Binding Time}" FontSize="10" TextAlignment="Right"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </StackPanel>
                 <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*"
                       IsVisible="{Binding SelectedOutput, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,4">

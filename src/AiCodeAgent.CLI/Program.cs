@@ -166,6 +166,10 @@ pipelineRunCommand.AddOption(pipelineNameOption);
 pipelineRunCommand.AddOption(castOption);
 var maxParallelOption = new Option<int?>("--max-parallel", "Flows: most characters working at the same time (default: the flow's maxParallel, else 3)");
 pipelineRunCommand.AddOption(maxParallelOption);
+var maxBudgetOption = new Option<decimal?>("--max-budget", "Flows: spend cap in USD for the run (default: the flow's maxBudgetUsd, else none). Running steps finish their current call, no new step starts, and the flow ends as budget_exceeded");
+var jsonOption = new Option<bool>("--json", "Flows: print the result (status, totals, one entry per step run with tokens and cost) as JSON on stdout; progress goes to stderr");
+pipelineRunCommand.AddOption(maxBudgetOption);
+pipelineRunCommand.AddOption(jsonOption);
 pipelineRunCommand.AddOption(providerOption);
 pipelineRunCommand.AddOption(modelOption);
 pipelineRunCommand.AddOption(dirOption);
@@ -175,6 +179,8 @@ pipelineRunCommand.SetHandler(async context =>
     var pipelineName = context.ParseResult.GetValueForOption(pipelineNameOption)!;
     var cast = context.ParseResult.GetValueForOption(castOption);
     var maxParallel = context.ParseResult.GetValueForOption(maxParallelOption);
+    var maxBudget = context.ParseResult.GetValueForOption(maxBudgetOption);
+    var asJson = context.ParseResult.GetValueForOption(jsonOption);
     var provider = context.ParseResult.GetValueForOption(providerOption);
     var model = context.ParseResult.GetValueForOption(modelOption);
     var dir = context.ParseResult.GetValueForOption(dirOption);
@@ -199,7 +205,7 @@ pipelineRunCommand.SetHandler(async context =>
     var runner = new PipelineRunMode(services.GetRequiredService<SdlcPipelineRunner>());
     try
     {
-        await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model, castMap, maxParallel);
+        await runner.RunAsync(pipeline, task, dir ?? Directory.GetCurrentDirectory(), model, castMap, maxParallel, maxBudget, asJson);
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("character", StringComparison.OrdinalIgnoreCase))
     {
