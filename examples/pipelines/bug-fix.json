@@ -1,0 +1,55 @@
+{
+  "name": "bug-fix",
+  "description": "Reproduce the bug with a failing test, fix it, verify, and review; a rejected review sends the fix back (up to 2 times).",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "reproduce",
+      "name": "Reproduce",
+      "character": "quinn-qa",
+      "promptTemplate": "Bug report: {task}\n\nReproduce the bug and write a failing automated test that demonstrates it. Do not fix the bug. Report the test name and the failure message."
+    },
+    {
+      "id": "fix",
+      "name": "Fix",
+      "character": "sam-developer",
+      "promptTemplate": "Fix the bug: {task}\n\nMake the smallest change that turns the failing test green.\n\n{input:reproduce}"
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "character": "quinn-qa",
+      "promptTemplate": "Run the new test and the full test suite for the change that fixed: {task}\n\nReport what ran, what passed and any regressions.\n\n{input:fix}"
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "character": "stella-style",
+      "promptTemplate": "Review the fix for: {task}\n\nCheck that it addresses the root cause, not just the symptom, and that the test is meaningful. Answer with an outcome.",
+      "outcomes": [
+        "approved",
+        "rejected"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "reproduce",
+      "to": "fix"
+    },
+    {
+      "from": "fix",
+      "to": "verify"
+    },
+    {
+      "from": "verify",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "to": "fix",
+      "when": "rejected",
+      "maxLoops": 2
+    }
+  ]
+}

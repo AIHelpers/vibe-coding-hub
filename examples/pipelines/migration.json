@@ -1,0 +1,73 @@
+{
+  "name": "migration",
+  "description": "Plan a mechanical migration, apply it to three slices of the codebase in parallel, build and test, then review.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "plan",
+      "name": "Plan",
+      "character": "alex-architect",
+      "promptTemplate": "Migration: {task}\n\nList the transformation rules and split the affected folders into three roughly equal slices."
+    },
+    {
+      "id": "batch-1",
+      "name": "Batch 1",
+      "character": "maya-migration",
+      "promptTemplate": "Apply the migration to slice 1 of the plan only. Task: {task}\n\n{input:plan}"
+    },
+    {
+      "id": "batch-2",
+      "name": "Batch 2",
+      "character": "maya-migration",
+      "promptTemplate": "Apply the migration to slice 2 of the plan only. Task: {task}\n\n{input:plan}"
+    },
+    {
+      "id": "batch-3",
+      "name": "Batch 3",
+      "character": "maya-migration",
+      "promptTemplate": "Apply the migration to slice 3 of the plan only. Task: {task}\n\n{input:plan}"
+    },
+    {
+      "id": "build-test",
+      "name": "Build & test",
+      "character": "quinn-qa",
+      "promptTemplate": "Build the whole solution and run all tests after the migration: {task}\n\nReport every failure with the file it comes from."
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "character": "stella-style",
+      "promptTemplate": "Review the migration for: {task}\n\nCheck that all slices were treated the same way and nothing was missed."
+    }
+  ],
+  "edges": [
+    {
+      "from": "plan",
+      "to": "batch-1"
+    },
+    {
+      "from": "plan",
+      "to": "batch-2"
+    },
+    {
+      "from": "plan",
+      "to": "batch-3"
+    },
+    {
+      "from": "batch-1",
+      "to": "build-test"
+    },
+    {
+      "from": "batch-2",
+      "to": "build-test"
+    },
+    {
+      "from": "batch-3",
+      "to": "build-test"
+    },
+    {
+      "from": "build-test",
+      "to": "review"
+    }
+  ]
+}

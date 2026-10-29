@@ -562,7 +562,7 @@ public partial class MainViewModel : ObservableObject
             IsSettingsMode = false;
             await Flows.OpenAsync(WorkingDirectory);
         }
-        Flows.NewFlow();
+        await Flows.OpenGalleryAsync(); // "New Flow" starts from the template gallery (which also offers a blank flow)
     }
 
     /// <summary>Opens Project Knowledge directly on a tab (1 = Skills, 2 = Characters), optionally starting the "new" form.</summary>

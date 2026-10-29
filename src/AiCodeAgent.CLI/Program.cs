@@ -237,6 +237,13 @@ async Task<(SdlcPipelineDefinition? Pipeline, AiCodeAgent.Core.Flows.FlowGraph? 
     var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance,
         null, dir ?? Directory.GetCurrentDirectory());
     var pipeline = loader.GetPipeline(name);
+    if (pipeline == null && AiCodeAgent.Core.Flows.ExampleLibrary.FromEmbedded().Templates()
+            .FirstOrDefault(t => t.Id.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } bundled)
+    {
+        // A bundled flow template that was not copied yet: check it against the characters of this project.
+        pipeline = bundled.Flow;
+        Console.Error.WriteLine($"'{name}' is a bundled template (copy it with 'pipeline copy {name} --to project').");
+    }
     if (pipeline == null)
     {
         Console.Error.WriteLine($"Unknown pipeline '{name}'. Run 'pipeline list' to see available pipelines.");
@@ -317,12 +324,14 @@ pipelineCommand.AddCommand(pipelineShowCommand);
 var copyNameArg = new Argument<string>("name", "Pipeline to copy");
 var copyToOption = new Option<string>("--to", "Where to copy it: project (<dir>/.aiagent/pipelines, shared via git) or global (~/.aiagent/pipelines)") { IsRequired = true };
 var copyForceOption = new Option<bool>("--force", "Overwrite a pipeline of the same name in the target scope");
+var copyWithCharactersOption = new Option<bool>("--with-characters", "For a bundled template: also create the example characters (and skills) the project lacks");
 var pipelineCopyCommand = new Command("copy", "Copy a pipeline into the project or global scope so you can edit it there");
 pipelineCopyCommand.AddArgument(copyNameArg);
 pipelineCopyCommand.AddOption(copyToOption);
 pipelineCopyCommand.AddOption(copyForceOption);
+pipelineCopyCommand.AddOption(copyWithCharactersOption);
 pipelineCopyCommand.AddOption(dirOption);
-pipelineCopyCommand.SetHandler(async (name, to, force, dir) =>
+pipelineCopyCommand.SetHandler(async (name, to, force, withCharacters, dir) =>
 {
     if (!PipelineScopeExtensions.TryParse(to, out var target) || target == PipelineScope.BuiltIn)
     {
@@ -338,6 +347,37 @@ pipelineCopyCommand.SetHandler(async (name, to, force, dir) =>
         Environment.ExitCode = 1;
         return;
     }
+    var library = AiCodeAgent.Core.Flows.ExampleLibrary.FromEmbedded();
+    if (loader.GetEntry(name) == null && library.Templates().FirstOrDefault(t => t.Id.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } template)
+    {
+        // Not in any scope yet: copy it from the bundled templates.
+        if (loader.GetEntry(name, target) != null && !force)
+        {
+            Console.Error.WriteLine($"A {target.Label()} pipeline '{name}' already exists. Use --force to overwrite it.");
+            Environment.ExitCode = 1;
+            return;
+        }
+        var registries = await SkillCharacterCommands.OpenAsync(projectDir);
+        var plan = library.Plan(template,
+            (await registries.Characters.ListAsync()).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
+            (await registries.Skills.ListAllAsync()).Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
+        if (withCharacters && !plan.NothingToCreate)
+        {
+            var inProject = target == PipelineScope.Project;
+            var written = library.Install(plan,
+                inProject ? registries.Characters.ProjectCharactersDirectory ?? registries.Characters.GlobalCharactersDirectory : registries.Characters.GlobalCharactersDirectory,
+                inProject ? registries.Skills.ProjectSkillsDirectory ?? registries.Skills.GlobalSkillsDirectory : registries.Skills.GlobalSkillsDirectory);
+            foreach (var file in written) Console.WriteLine($"Created {file}");
+        }
+        else if (plan.CharactersToCreate.Count > 0)
+        {
+            Console.WriteLine($"Missing characters: {string.Join(", ", plan.CharactersToCreate)}. Run again with --with-characters to create them.");
+        }
+        var saved = await loader.SavePipelineAsync(template.Flow, target);
+        Console.WriteLine($"Copied template '{name}' to the {target.Label()} scope: {saved}");
+        Console.WriteLine($"Sample task: {template.SampleTask}");
+        return;
+    }
     try
     {
         var copied = await loader.CopyPipelineAsync(name, target, force);
@@ -350,8 +390,26 @@ pipelineCopyCommand.SetHandler(async (name, to, force, dir) =>
         Console.Error.WriteLine(ex.Message);
         Environment.ExitCode = 1;
     }
-}, copyNameArg, copyToOption, copyForceOption, dirOption);
+}, copyNameArg, copyToOption, copyForceOption, copyWithCharactersOption, dirOption);
 pipelineCommand.AddCommand(pipelineCopyCommand);
+
+// pipeline templates: the bundled flow templates and which of their characters this project has.
+var pipelineTemplatesCommand = new Command("templates", "List the bundled flow templates (bug-fix, pr-review, release, ...) and the characters each needs");
+pipelineTemplatesCommand.AddOption(dirOption);
+pipelineTemplatesCommand.SetHandler(async (string? dir) =>
+{
+    var registries = await SkillCharacterCommands.OpenAsync(dir);
+    var existing = (await registries.Characters.ListAsync()).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    Console.WriteLine("Flow templates (copy one with: pipeline copy <name> --to project [--with-characters]):");
+    foreach (var template in AiCodeAgent.Core.Flows.ExampleLibrary.FromEmbedded().Templates())
+    {
+        Console.WriteLine($"  {template.Id,-18} {template.Title}");
+        Console.WriteLine($"      {template.Description}");
+        Console.WriteLine($"      needs: {string.Join(", ", template.Characters.Select(c => (existing.Contains(c) ? "✓ " : "✗ ") + c))}");
+        Console.WriteLine($"      sample task: {template.SampleTask}");
+    }
+}, dirOption);
+pipelineCommand.AddCommand(pipelineTemplatesCommand);
 
 // config command
 var configCommand = new Command("config", "Configure the agent");

@@ -10,6 +10,7 @@ using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Flows;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -31,6 +32,7 @@ public partial class FlowEditorViewModel : ObservableObject
     private readonly SdlcPipelineRunner? _runner;
     private readonly ICharacterRegistry? _characters;
     private readonly ILogger<FlowEditorViewModel>? _logger;
+    private readonly ISkillRegistry? _skills;
     private readonly Stack<string> _undo = new();
     private readonly Stack<string> _redo = new();
     private bool _restoring;
@@ -42,6 +44,12 @@ public partial class FlowEditorViewModel : ObservableObject
     public ObservableCollection<FlowEdgeViewModel> Edges { get; } = new();
     public ObservableCollection<FlowPaletteItem> Palette { get; } = new();
     public ObservableCollection<string> Pipelines { get; } = new();
+    /// <summary>The cards of the template gallery.</summary>
+    public ObservableCollection<FlowTemplateCardViewModel> Templates { get; } = new();
+
+    /// <summary>The bundled example flows, characters and skills the gallery installs from.</summary>
+    public ExampleLibrary Examples { get; set; } = ExampleLibrary.FromEmbedded();
+
     /// <summary>The dropdown entries with their scope, grouped project, then global, then built-in.</summary>
     public ObservableCollection<PipelineListItem> PipelineItems { get; } = new();
     public ObservableCollection<FlowProblem> Problems { get; } = new();
@@ -69,6 +77,9 @@ public partial class FlowEditorViewModel : ObservableObject
     [ObservableProperty] private string _selectedCondition = AlwaysCondition;
     [ObservableProperty] private bool _isConfirmingDelete;
     [ObservableProperty] private string _deletePrompt = string.Empty;
+
+    /// <summary>The template gallery (＋ New) is showing instead of the canvas.</summary>
+    [ObservableProperty] private bool _isGalleryOpen;
 
     /// <summary>The entry picked in the pipeline dropdown (kept in step with <see cref="SelectedPipeline"/>).</summary>
     [ObservableProperty] private PipelineListItem? _selectedPipelineItem;
@@ -100,8 +111,10 @@ public partial class FlowEditorViewModel : ObservableObject
         SdlcPipelineLoader? loader = null,
         SdlcPipelineRunner? runner = null,
         ICharacterRegistry? characters = null,
-        ILogger<FlowEditorViewModel>? logger = null)
+        ILogger<FlowEditorViewModel>? logger = null,
+        ISkillRegistry? skills = null)
     {
+        _skills = skills;
         _loader = loader;
         _runner = runner;
         _characters = characters;
@@ -228,6 +241,135 @@ public partial class FlowEditorViewModel : ObservableObject
 
     [RelayCommand]
     public void Close() => IsVisible = false;
+
+    // ============================================================ template gallery
+
+    /// <summary>＋ New: show the gallery of ready-made flows (with a "Blank flow" card).</summary>
+    [RelayCommand]
+    public async Task OpenGalleryAsync()
+    {
+        if (IsRunning) return;
+        await RefreshCharactersAsync();
+        await RebuildTemplatesAsync();
+        IsGalleryOpen = true;
+        StatusText = "Pick a template to copy into your project, or start with a blank flow.";
+    }
+
+    [RelayCommand]
+    public void CloseGallery()
+    {
+        IsGalleryOpen = false;
+        foreach (var card in Templates) card.IsConfirming = false;
+    }
+
+    [RelayCommand]
+    public void StartBlankFlow()
+    {
+        CloseGallery();
+        NewFlow();
+    }
+
+    private async Task RebuildTemplatesAsync()
+    {
+        var existing = _characterById.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        HashSet<string>? existingSkills = null;
+        if (_skills != null)
+        {
+            try { existingSkills = (await _skills.ListAllAsync()).Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase); }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Could not list skills for the template gallery"); }
+        }
+        Templates.Clear();
+        foreach (var template in Examples.Templates())
+            Templates.Add(new FlowTemplateCardViewModel(template, Examples.Plan(template, existing, existingSkills), existing));
+    }
+
+    /// <summary>
+    /// <b>Use template</b>. When the project lacks characters the flow needs, the card first asks whether to create them
+    /// from the examples; otherwise the flow is copied into the project right away.
+    /// </summary>
+    [RelayCommand]
+    public async Task UseTemplateAsync(FlowTemplateCardViewModel? card)
+    {
+        if (card == null || IsRunning) return;
+        if (card.HasMissing && _characters != null)
+        {
+            foreach (var other in Templates) other.IsConfirming = false;
+            var inProject = _loader?.ProjectDirectory != null;
+            var names = string.Join(", ", card.Plan.CharactersToCreate);
+            var skills = card.Plan.SkillsToCreate.Count > 0 ? $" and {card.Plan.SkillsToCreate.Count} skill(s)" : string.Empty;
+            card.ConfirmText = $"Create {card.Plan.CharactersToCreate.Count} missing character(s){skills} ({names}) in " +
+                               (inProject ? "this project's .aiagent folder?" : "your global .aiagent folder?");
+            card.IsConfirming = true;
+            return;
+        }
+        await ApplyTemplateAsync(card, createMissing: false);
+    }
+
+    [RelayCommand]
+    public Task CreateAndUseTemplateAsync(FlowTemplateCardViewModel? card) =>
+        card == null ? Task.CompletedTask : ApplyTemplateAsync(card, createMissing: true);
+
+    /// <summary>Copy the flow without creating the missing characters; the editor then outlines the steps that lack one.</summary>
+    [RelayCommand]
+    public Task UseTemplateAnywayAsync(FlowTemplateCardViewModel? card) =>
+        card == null ? Task.CompletedTask : ApplyTemplateAsync(card, createMissing: false);
+
+    [RelayCommand]
+    public void CancelTemplate(FlowTemplateCardViewModel? card)
+    {
+        if (card != null) card.IsConfirming = false;
+    }
+
+    private async Task ApplyTemplateAsync(FlowTemplateCardViewModel card, bool createMissing)
+    {
+        if (IsRunning) return;
+        card.IsConfirming = false;
+        try
+        {
+            var created = string.Empty;
+            if (createMissing && _characters != null && !card.Plan.NothingToCreate)
+            {
+                var inProject = _loader?.ProjectDirectory != null;
+                var charactersDir = inProject
+                    ? _characters.ProjectCharactersDirectory ?? _characters.GlobalCharactersDirectory
+                    : _characters.GlobalCharactersDirectory;
+                var skillsDir = _skills == null ? null : inProject
+                    ? _skills.ProjectSkillsDirectory ?? _skills.GlobalSkillsDirectory
+                    : _skills.GlobalSkillsDirectory;
+                Examples.Install(card.Plan, charactersDir, skillsDir);
+                _characters.Refresh();
+                _skills?.Refresh();
+                await RefreshCharactersAsync();
+                created = $" Created {card.Plan.CharactersToCreate.Count} character(s) in {charactersDir}.";
+            }
+
+            var flow = card.Template.Flow with { Name = UniqueName(card.Template.Id) };
+            flow = FlowLayout.Apply(flow, FlowGraph.Build(flow));
+            IsGalleryOpen = false;
+            if (_loader != null)
+            {
+                var scope = _loader.ProjectDirectory != null ? PipelineScope.Project : PipelineScope.Global;
+                var path = await _loader.SavePipelineAsync(flow, scope);
+                RefreshPipelineList();
+                Load(flow.Name);
+                RunTask = card.SampleTask;
+                StatusText = $"Copied template '{card.Template.Title}' to {path}.{created} Adapt it, then run it with the sample task.";
+            }
+            else
+            {
+                LoadDefinition(flow);
+                RunTask = card.SampleTask;
+                IsDirty = true;
+                StatusText = $"Opened template '{card.Template.Title}'.{created}";
+            }
+            Revalidate();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to use template {Template}", card.Template.Id);
+            StatusText = $"Could not use the template: {ex.Message}";
+        }
+    }
 
     public async Task RefreshCharactersAsync()
     {
