@@ -363,24 +363,70 @@ public sealed class FlowGraph
         return result;
     }
 
-    /// <summary>Mermaid flowchart for docs and PRs.</summary>
-    public string ToMermaid(Func<string, string?>? characterLabel = null)
+    /// <summary>
+    /// Mermaid flowchart for docs and PRs. With <paramref name="run"/> the nodes are coloured by what happened in that run
+    /// (done, failed, skipped, not run), a node that ran more than once shows its rounds, and a loop edge shows how often
+    /// it was actually taken ("↺ 1/3").
+    /// </summary>
+    public string ToMermaid(Func<string, string?>? characterLabel = null, FlowRunRecord? run = null)
     {
         var sb = new StringBuilder("flowchart LR\n");
+        var classes = new SortedDictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var n in Nodes)
         {
             var character = n.Stage.Character ?? n.Stage.Role;
             var who = characterLabel?.Invoke(character) ?? character;
-            var label = string.IsNullOrEmpty(who) || Same(who, n.Name) ? n.Name : $"{n.Name}<br/><small>{who}</small>";
-            sb.Append("    ").Append(MermaidId(n.Id)).Append("[\"").Append(label.Replace("\"", "'")).AppendLine("\"]");
+            var label = n.Stage.IsHuman
+                ? $"{n.Name}<br/><small>human</small>"
+                : string.IsNullOrEmpty(who) || Same(who, n.Name) ? n.Name : $"{n.Name}<br/><small>{who}</small>";
+            if (run != null)
+            {
+                var steps = run.Steps.Where(x => Same(x.NodeId, n.Id)).OrderBy(x => x.Round).ToList();
+                var last = steps.Count == 0 ? null : steps[^1];
+                var rounds = steps.Count == 0 ? 0 : steps.Max(x => x.Round);
+                var note = new List<string>();
+                if (last?.Outcome != null) note.Add("→ " + last.Outcome);
+                if (rounds > 1) note.Add($"×{rounds}");
+                if (note.Count > 0) label += $"<br/><small>{string.Join(" ", note)}</small>";
+                var cls = last == null ? "notrun" : last.State switch
+                {
+                    FlowNodeState.Done => "done",
+                    FlowNodeState.Failed => "failed",
+                    FlowNodeState.Skipped => "skipped",
+                    _ => "notrun"
+                };
+                if (!classes.TryGetValue(cls, out var list)) classes[cls] = list = new List<string>();
+                list.Add(MermaidId(n.Id));
+            }
+            sb.Append("    ").Append(MermaidId(n.Id)).Append("[\"").Append(label.Replace("\"", "'")).Append("\"]\n");
         }
-        foreach (var e in Edges)
+        foreach (var e in Edges.OrderBy(x => x.Index))
         {
             var arrow = e.IsLoop ? "-.->" : "-->";
-            var label = e.IsLoop ? $"{e.When ?? "always"} ↺{e.MaxLoops}" : e.When;
+            string? label;
+            if (e.IsLoop)
+            {
+                label = $"{e.When ?? "always"} ↺{e.MaxLoops}";
+                if (run != null)
+                {
+                    var prefix = $"{e.From} → {e.To}";
+                    var taken = run.Events.Count(x => x.Kind == "loop" && x.Text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+                    label = $"{e.When ?? "always"} ↺ {taken}/{e.MaxLoops}";
+                }
+            }
+            else label = e.When;
             sb.Append("    ").Append(MermaidId(e.From)).Append(' ').Append(arrow);
-            if (!string.IsNullOrEmpty(label)) sb.Append("|").Append(label.Replace("|", "/")).Append('|');
-            sb.Append(' ').AppendLine(MermaidId(e.To));
+            if (!string.IsNullOrEmpty(label)) sb.Append('|').Append(label.Replace("|", "/")).Append('|');
+            sb.Append(' ').Append(MermaidId(e.To)).Append('\n');
+        }
+        if (run != null)
+        {
+            sb.Append("    classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d\n");
+            sb.Append("    classDef failed fill:#fee2e2,stroke:#dc2626,color:#7f1d1d\n");
+            sb.Append("    classDef skipped fill:#f3f4f6,stroke:#9ca3af,color:#4b5563,stroke-dasharray:4 3\n");
+            sb.Append("    classDef notrun fill:#ffffff,stroke:#d1d5db,color:#6b7280\n");
+            foreach (var (cls, ids) in classes)
+                sb.Append("    class ").Append(string.Join(",", ids)).Append(' ').Append(cls).Append('\n');
         }
         return sb.ToString();
     }

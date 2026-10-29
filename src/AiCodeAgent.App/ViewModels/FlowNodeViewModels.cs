@@ -311,6 +311,14 @@ public sealed partial class FlowEdgeViewModel : ObservableObject
 
     private static string F(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
+    /// <summary>The box around the curve's control points (a Bezier curve never leaves it): used to size an exported image.</summary>
+    public (double MinX, double MinY, double MaxX, double MaxY) Extent()
+    {
+        var c = Curve();
+        return (Math.Min(Math.Min(c.X1, c.C1X), Math.Min(c.C2X, c.X2)), Math.Min(Math.Min(c.Y1, c.C1Y), Math.Min(c.C2Y, c.Y2)),
+                Math.Max(Math.Max(c.X1, c.C1X), Math.Max(c.C2X, c.X2)), Math.Max(Math.Max(c.Y1, c.C1Y), Math.Max(c.C2Y, c.Y2)));
+    }
+
     /// <summary>SVG-style path data of the curve.</summary>
     public string PathData
     {

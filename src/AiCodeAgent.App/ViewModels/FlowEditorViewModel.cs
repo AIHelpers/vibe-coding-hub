@@ -526,15 +526,20 @@ public partial class FlowEditorViewModel : ObservableObject
                 .OrderByDescending(x => x.Scope)
                 .ThenByDescending(x => x.Pipeline.IsFlow)
                 .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase);
+            // Look the selection up in a local list, not in the live collection: a refresh posted to the UI thread can
+            // overlap one running on the caller's thread (tests, startup), and a half-filled collection must not throw here.
+            var items = new List<PipelineListItem>();
             foreach (var entry in ordered)
             {
                 Pipelines.Add(entry.Name);
-                PipelineItems.Add(new PipelineListItem(entry.Name, entry.ScopeLabel, entry.OverridesText));
+                var item = new PipelineListItem(entry.Name, entry.ScopeLabel, entry.OverridesText);
+                PipelineItems.Add(item);
+                items.Add(item);
             }
             SelectedPipeline = keep != null && Pipelines.Contains(keep) ? keep : null;
             SelectedPipelineItem = SelectedPipeline == null
                 ? null
-                : PipelineItems.FirstOrDefault(i => string.Equals(i.Name, SelectedPipeline, StringComparison.OrdinalIgnoreCase));
+                : items.FirstOrDefault(i => string.Equals(i.Name, SelectedPipeline, StringComparison.OrdinalIgnoreCase));
         }
         finally
         {

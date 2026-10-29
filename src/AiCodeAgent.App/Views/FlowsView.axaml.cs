@@ -240,6 +240,51 @@ public partial class FlowsView : UserControl
         e.Handled = true;
     }
 
+    // ============================================================ export (E5-S8)
+
+    private async void OnCopyReport(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.BuildMarkdownReport() is not { } report) return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(report);
+    }
+
+    private async void OnCopyMermaid(object? sender, RoutedEventArgs e)
+    {
+        if (Vm == null) return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard == null) return;
+        await clipboard.SetTextAsync("```mermaid\n" + Vm.BuildMermaid().TrimEnd('\n') + "\n```");
+        Vm.StatusText = "Copied the flow as a Mermaid block.";
+    }
+
+    private async void OnSavePng(object? sender, RoutedEventArgs e)
+    {
+        if (Vm == null || _surface == null || _viewport == null) return;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage == null) return;
+        try
+        {
+            var name = string.IsNullOrWhiteSpace(Vm.FlowName) ? "flow" : Vm.FlowName.Trim();
+            var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+            {
+                Title = "Save the flow as PNG",
+                SuggestedFileName = name + ".png",
+                DefaultExtension = "png",
+                FileTypeChoices = new[] { Avalonia.Platform.Storage.FilePickerFileTypes.ImagePng }
+            });
+            if (file == null) return;
+            var background = _viewport.Background ?? Brushes.White;
+            await using var stream = await file.OpenWriteAsync();
+            FlowCanvasImage.WritePng(_surface, Vm.ExportBounds(), background, stream);
+            Vm.StatusText = $"Saved {file.Name}.";
+        }
+        catch (Exception ex)
+        {
+            Vm.StatusText = $"Could not save the PNG: {ex.Message}";
+        }
+    }
+
     private void OnResetView(object? sender, RoutedEventArgs e)
     {
         _scale.ScaleX = _scale.ScaleY = 1;
