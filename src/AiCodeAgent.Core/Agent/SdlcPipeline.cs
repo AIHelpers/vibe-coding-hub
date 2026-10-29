@@ -751,7 +751,8 @@ public class SdlcPipelineRunner
         IReadOnlyDictionary<string, string>? cast = null,
         int? maxParallel = null,
         decimal? maxBudgetUsd = null,
-        Flows.FlowReplayPlan? replay = null)
+        Flows.FlowReplayPlan? replay = null,
+        PermissionMode? permissionMode = null)
     {
         if (pipeline.IsFlow)
         {
@@ -764,7 +765,8 @@ public class SdlcPipelineRunner
                 MaxParallel = maxParallel ?? pipeline.MaxParallel,
                 MaxBudgetUsd = maxBudgetUsd ?? pipeline.MaxBudgetUsd,
                 Store = _runStore,
-                Replay = replay
+                Replay = replay,
+                PermissionMode = permissionMode
             }, cancellationToken);
         }
         var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage, cast);

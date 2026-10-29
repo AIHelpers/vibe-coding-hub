@@ -158,7 +158,13 @@ runCommand.SetHandler(async (prompt, provider, model, dir) =>
 var pipelineCommand = new Command("pipeline", "Run a configurable multi-agent SDLC pipeline (analyze/implement/review/test/deploy)");
 
 var pipelineRunCommand = new Command("run", "Run a pipeline against a task");
-var pipelineTaskArg = new Argument<string>("task", "Description of the task to carry through the pipeline");
+var pipelineTaskArg = new Argument<string>("task", () => string.Empty, "Description of the task to carry through the pipeline (or use --task-file)");
+var taskFileOption = new Option<string?>("--task-file", "Read the task from this file instead of the argument (long task descriptions, CI)");
+var nonInteractiveOption = new Option<bool>("--non-interactive", "CI mode for flows: never ask anything. Tool requests that need approval are denied, a step with requireConfirmation (or a human step) ends the flow with a reason. Exit codes: 0 success, 1 failed step, 2 budget exceeded, 3 validation error, 4 configuration error");
+var permissionOption = new Option<string?>("--permission", "Flows: permission mode for every step, replacing the role defaults: Plan (read-only), Ask, AutoEdit or FullAuto. With --non-interactive, whatever the mode would still ask about is denied");
+var outputOption = new Option<string?>("--output", "Non-interactive: report format, json or markdown (written to --output-file, else stdout)");
+var outputFileOption = new Option<string?>("--output-file", "Non-interactive: write the report to this file");
+var timeoutOption = new Option<int?>("--timeout", "Non-interactive: stop the run after this many seconds (exit code 1)");
 var pipelineNameOption = new Option<string>("--pipeline", () => "full-sdlc", "Pipeline to run (see 'pipeline list')");
 var castOption = new Option<string?>("--cast", "Cast characters into stages: role=character[,role=character...], e.g. planner=alex-architect,implementer=sam-dev");
 pipelineRunCommand.AddArgument(pipelineTaskArg);
@@ -170,6 +176,12 @@ var maxBudgetOption = new Option<decimal?>("--max-budget", "Flows: spend cap in 
 var jsonOption = new Option<bool>("--json", "Flows: print the result (status, totals, one entry per step run with tokens and cost) as JSON on stdout; progress goes to stderr");
 pipelineRunCommand.AddOption(maxBudgetOption);
 pipelineRunCommand.AddOption(jsonOption);
+pipelineRunCommand.AddOption(taskFileOption);
+pipelineRunCommand.AddOption(nonInteractiveOption);
+pipelineRunCommand.AddOption(permissionOption);
+pipelineRunCommand.AddOption(outputOption);
+pipelineRunCommand.AddOption(outputFileOption);
+pipelineRunCommand.AddOption(timeoutOption);
 pipelineRunCommand.AddOption(providerOption);
 pipelineRunCommand.AddOption(modelOption);
 pipelineRunCommand.AddOption(dirOption);
@@ -184,6 +196,25 @@ pipelineRunCommand.SetHandler(async context =>
     var provider = context.ParseResult.GetValueForOption(providerOption);
     var model = context.ParseResult.GetValueForOption(modelOption);
     var dir = context.ParseResult.GetValueForOption(dirOption);
+    var taskFile = context.ParseResult.GetValueForOption(taskFileOption);
+    if (context.ParseResult.GetValueForOption(nonInteractiveOption))
+    {
+        // CI: no prompts, a report file and a meaningful exit code.
+        Environment.ExitCode = await HeadlessPipelineMode.RunAsync(
+            new HeadlessArgs(pipelineName, task, taskFile, cast, maxParallel, maxBudget,
+                context.ParseResult.GetValueForOption(permissionOption),
+                context.ParseResult.GetValueForOption(outputOption) ?? (asJson ? "json" : null),
+                context.ParseResult.GetValueForOption(outputFileOption),
+                context.ParseResult.GetValueForOption(timeoutOption), model, dir),
+            async () => await BuildServiceProvider(provider, model, dir));
+        return;
+    }
+    if (!HeadlessPipelineMode.TryResolveTask(task, taskFile, out task, out var taskError))
+    {
+        Console.Error.WriteLine(taskError);
+        Environment.ExitCode = 1;
+        return;
+    }
     Dictionary<string, string> castMap;
     try { castMap = SdlcPipelineRunner.ParseCast(cast); }
     catch (FormatException ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; return; }
@@ -921,13 +952,9 @@ static void RegisterProvider(
     // Normalize the provider name to lowercase so it matches the provider key casing
     providerName = providerName.ToLowerInvariant();
 
-    // Try to get API key from environment (both legacy and new naming are supported)
-    var envKeyNew = $"AI_CODE_AGENT_{providerName.ToUpper()}_API_KEY";
-    var envKeyLegacy = $"AIAGENT_{providerName.ToUpper()}_API_KEY";
-    var apiKey = Environment.GetEnvironmentVariable(envKeyNew)
-              ?? Environment.GetEnvironmentVariable(envKeyLegacy)
-              ?? cfg.ApiKey;
-    cfg = cfg with { ApiKey = apiKey };
+    // The environment wins over the config file: API key, base URL (a self-hosted OpenAI-compatible server) and
+    // default model, as AI_CODE_AGENT_<PROVIDER>_API_KEY / _BASE_URL / _MODEL (AIAGENT_<PROVIDER>_... also works).
+    cfg = ProviderEnvironment.Apply(cfg, providerName);
 
     services.AddSingleton<IAiProvider>(sp =>
     {
@@ -938,6 +965,6 @@ static void RegisterProvider(
     // Per-step providers for flows (E5-S3).
     services.AddSingleton<IAiProviderResolver>(sp => new ConfiguredProviderResolver(
         () => providerName,
-        name => configSvc.GetProvider(name),
+        name => configSvc.GetProvider(name) is { } found ? ProviderEnvironment.Apply(found, name) : null,
         sp.GetRequiredService<ILoggerFactory>()));
 }
