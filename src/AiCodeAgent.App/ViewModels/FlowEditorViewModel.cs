@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
+using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Flows;
 using AiCodeAgent.Core.Interfaces;
@@ -56,6 +57,44 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>Choices for the selected edge's condition: "(always)", the source's outcomes, and "loop-exhausted" when it applies.</summary>
     public ObservableCollection<string> ConditionOptions { get; } = new();
     public ObservableCollection<string> CharacterOptions { get; } = new();
+    /// <summary>Entries of the inspector's Model combo: inherit, the tiers, then the catalog's models.</summary>
+    public ObservableCollection<string> ModelOptions { get; } = new(BuildModelOptions());
+    /// <summary>Entries of the inspector's Provider combo: the session's provider, then the catalog's providers.</summary>
+    public ObservableCollection<string> ProviderOptions { get; } = new(BuildProviderOptions());
+
+    /// <summary>The tier aliases a step's <c>model</c> accepts.</summary>
+    public static readonly string[] ModelTiers = { "fast", "balanced", "frontier" };
+
+    private static IEnumerable<string> BuildModelOptions()
+    {
+        var options = new List<string> { FlowNodeViewModel.InheritModelLabel };
+        options.AddRange(ModelTiers);
+        try
+        {
+            options.AddRange(ModelCatalogLoader.Default.Models.Where(m => !m.Retired).Select(m => m.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Where(id => !options.Contains(id, StringComparer.OrdinalIgnoreCase)));
+        }
+        catch { /* no catalog: tiers and inherit still work */ }
+        return options;
+    }
+
+    private static IEnumerable<string> BuildProviderOptions()
+    {
+        var options = new List<string> { FlowNodeViewModel.InheritProviderLabel };
+        try
+        {
+            options.AddRange(ModelCatalogLoader.Default.Models.Select(m => m.Provider).Distinct(StringComparer.OrdinalIgnoreCase));
+        }
+        catch { /* no catalog */ }
+        return options;
+    }
+
+    /// <summary>A model or provider typed into a flow file by hand must show in its combo.</summary>
+    private static void EnsureOption(ObservableCollection<string> options, string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && !options.Contains(value, StringComparer.OrdinalIgnoreCase))
+            options.Add(value);
+    }
 
     [ObservableProperty] private bool _isVisible;
     [ObservableProperty] private string _flowName = "new-flow";
@@ -592,6 +631,8 @@ public partial class FlowEditorViewModel : ObservableObject
                     Name = string.IsNullOrWhiteSpace(s.Name) ? node.Id : s.Name,
                     CharacterId = s.Character,
                     Role = s.Role,
+                    Model = s.Model?.Trim() ?? string.Empty,
+                    Provider = s.Provider?.Trim() ?? string.Empty,
                     PromptTemplate = s.PromptTemplate,
                     OutcomesText = string.Join(", ", s.Outcomes ?? new List<string>()),
                     RequireConfirmation = s.RequireConfirmation,
@@ -600,6 +641,8 @@ public partial class FlowEditorViewModel : ObservableObject
                     Y = pos.Item2
                 };
                 ApplyCharacterLabel(vm);
+                EnsureOption(ModelOptions, vm.Model);
+                EnsureOption(ProviderOptions, vm.Provider);
                 vm.PropertyChanged += OnNodePropertyChanged;
                 Nodes.Add(vm);
             }
@@ -648,6 +691,8 @@ public partial class FlowEditorViewModel : ObservableObject
             Name = n.Name,
             Character = string.IsNullOrWhiteSpace(n.CharacterId) ? null : n.CharacterId,
             Role = n.Role ?? string.Empty,
+            Model = string.IsNullOrWhiteSpace(n.Model) ? null : n.Model.Trim(),
+            Provider = string.IsNullOrWhiteSpace(n.Provider) ? null : n.Provider.Trim(),
             PromptTemplate = n.PromptTemplate ?? string.Empty,
             Outcomes = n.Outcomes.Count == 0 ? null : n.Outcomes.ToList(),
             RequireConfirmation = n.RequireConfirmation,
@@ -768,6 +813,8 @@ public partial class FlowEditorViewModel : ObservableObject
             case nameof(FlowNodeViewModel.Enabled):
             case nameof(FlowNodeViewModel.Role):
             case nameof(FlowNodeViewModel.CharacterId):
+            case nameof(FlowNodeViewModel.Model):
+            case nameof(FlowNodeViewModel.Provider):
                 // Typing in a box is one undo step per field, not one per keystroke.
                 var key = node.Id + "/" + e.PropertyName;
                 if (_lastEditKey != key)

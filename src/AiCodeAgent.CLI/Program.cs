@@ -927,4 +927,10 @@ static void RegisterProvider(
         var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
         return ProviderFactory.Create(providerName, cfg, loggerFactory);
     });
+
+    // Per-step providers for flows (E5-S3).
+    services.AddSingleton<IAiProviderResolver>(sp => new ConfiguredProviderResolver(
+        () => providerName,
+        name => configSvc.GetProvider(name),
+        sp.GetRequiredService<ILoggerFactory>()));
 }

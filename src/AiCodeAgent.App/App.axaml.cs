@@ -361,6 +361,16 @@ public partial class App : Application
             }, loggerFactory);
         });
 
+        // Per-step providers for flows (E5-S3): a step that names another provider talks to it directly.
+        services.AddSingleton<IAiProviderResolver>(sp =>
+        {
+            var configSvc = sp.GetRequiredService<ConfigurationService>();
+            return new ConfiguredProviderResolver(
+                () => configSvc.Config.DefaultProvider,
+                name => configSvc.GetProvider(name),
+                sp.GetRequiredService<ILoggerFactory>());
+        });
+
         // Backend primitives
         services.AddSingleton<BackendPrimitiveCatalog>();
         services.AddSingleton<BackendScaffolder>();
