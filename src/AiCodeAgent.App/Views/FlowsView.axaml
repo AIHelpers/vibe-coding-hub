@@ -222,7 +222,7 @@
                                                 Classes.warning="{Binding HasWarning}" Classes.running="{Binding IsRunning}"
                                                 Classes.done="{Binding IsDone}" Classes.failed="{Binding IsFailed}"
                                                 Classes.skipped="{Binding IsSkipped}" Classes.waiting="{Binding IsWaiting}"
-                                                Classes.approval="{Binding IsAwaitingApproval}"
+                                                Classes.approval="{Binding NeedsAnswer}"
                                                 Classes.disabled="{Binding !Enabled}"
                                                 ToolTip.Tip="{Binding ProblemText}">
                                             <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" Margin="8,6">
@@ -300,18 +300,65 @@
                             <!-- Node -->
                             <StackPanel IsVisible="{Binding SelectedNode, Converter={x:Static ObjectConverters.IsNotNull}}" Spacing="5">
                                 <TextBlock Text="Step" FontSize="12" FontWeight="SemiBold"/>
+                                <!-- Tool approval inside a step -->
                                 <Border IsVisible="{Binding SelectedNode.IsAwaitingApproval, FallbackValue=False}" Background="#30E5A100" CornerRadius="4" Padding="6">
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Waiting for your approval" FontSize="11" FontWeight="SemiBold"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <!-- Confirmation gate in front of the step -->
+                                        <StackPanel x:Name="GatePanel" Spacing="4" IsVisible="{Binding SelectedNode.IsAwaitingGate, FallbackValue=False}">
+                                            <TextBox x:Name="GateNoteBox" Text="{Binding GateNote}" IsVisible="{Binding IsEnteringGateNote}" AcceptsReturn="True" TextWrapping="Wrap"
+                                                     MinHeight="50" MaxHeight="120" FontSize="11" Watermark="Note for the step, e.g. also handle null due dates"/>
+                                            <WrapPanel>
+                                                <WrapPanel.Styles>
+                                                    <Style Selector="WrapPanel > Button"><Setter Property="Margin" Value="0,0,6,4"/></Style>
+                                                </WrapPanel.Styles>
+                                                <Button x:Name="GateApproveButton" Content="Approve" Command="{Binding ApproveCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"
+                                                        IsVisible="{Binding !IsEnteringGateNote}"/>
+                                                <Button x:Name="GateNoteButton" Content="Approve with note…" Command="{Binding BeginGateNoteCommand}" FontSize="11" Padding="10,3"
+                                                        IsVisible="{Binding !IsEnteringGateNote}"/>
+                                                <Button x:Name="GateSendNoteButton" Content="Approve with this note" Command="{Binding ApproveWithNoteCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"
+                                                        IsVisible="{Binding IsEnteringGateNote}"/>
+                                                <Button x:Name="GateSkipButton" Content="Skip step" Command="{Binding SkipStepCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"
+                                                        ToolTip.Tip="Do not run this step; the rest of the flow carries on"/>
+                                                <Button x:Name="GateStopButton" Content="Stop flow" Command="{Binding StopAtGateCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"
+                                                        ToolTip.Tip="End the flow here; steps already running finish"/>
+                                            </WrapPanel>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !SelectedNode.IsAwaitingGate, FallbackValue=True}">
                                             <Button Content="Approve" Command="{Binding ApproveCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"/>
                                             <Button Content="Decline" Command="{Binding DeclineCommand}" CommandParameter="{Binding SelectedNode}" FontSize="11" Padding="10,3"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
+                                <!-- Human step: choose an outcome -->
+                                <Border x:Name="HumanPanel" IsVisible="{Binding SelectedNode.IsAwaitingChoice, FallbackValue=False}" Background="#30E5A100" CornerRadius="4" Padding="6">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Your decision is needed" FontSize="11" FontWeight="SemiBold"/>
+                                        <TextBox x:Name="HumanNoteBox" Text="{Binding GateNote}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="120"
+                                                 FontSize="11" Watermark="Note (optional) — handed to the steps after this one"/>
+                                        <ItemsControl ItemsSource="{Binding SelectedNode.Outcomes, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Button Content="{Binding}" Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}" FontSize="11" Padding="10,3" Margin="0,0,6,4"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button x:Name="HumanContinueButton" Content="Continue" Command="{Binding ChooseCommand}" FontSize="11" Padding="10,3" HorizontalAlignment="Left"
+                                                IsVisible="{Binding SelectedNode.HasNoOutcomes, FallbackValue=False}"/>
+                                        <Button x:Name="HumanStopButton" Content="Stop flow" Command="{Binding StopHumanCommand}" FontSize="11" Padding="10,3" HorizontalAlignment="Left"/>
+                                    </StackPanel>
+                                </Border>
                                 <TextBlock Text="Name" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <TextBox Text="{Binding SelectedNode.Name, FallbackValue=''}" FontSize="11"/>
                                 <TextBlock Text="{Binding SelectedNode.Id, StringFormat='id: {0}', FallbackValue=''}" FontSize="9" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Text="Human step: runs no agent. It shows the prompt and asks you to pick one of the outcomes below."
+                                           FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"
+                                           IsVisible="{Binding SelectedNode.IsHuman, FallbackValue=False}"/>
+                                <StackPanel x:Name="AgentSettings" Spacing="5" IsVisible="{Binding SelectedNode.IsAgent, FallbackValue=True}">
                                 <TextBlock Text="Character" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox ItemsSource="{Binding CharacterOptions}" SelectedItem="{Binding SelectedNode.CharacterId, FallbackValue={x:Null}}"
                                           HorizontalAlignment="Stretch" FontSize="11"/>
@@ -322,12 +369,15 @@
                                 <TextBlock Text="Provider" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox x:Name="ProviderCombo" ItemsSource="{Binding ProviderOptions}" SelectedItem="{Binding SelectedNode.ProviderSelection, FallbackValue={x:Null}}"
                                           HorizontalAlignment="Stretch" FontSize="11"/>
+                                </StackPanel>
                                 <TextBlock Text="Prompt ({task} = the flow's task, {input:step-id} = that step's result)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding SelectedNode.PromptTemplate, FallbackValue=''}" AcceptsReturn="True" TextWrapping="Wrap"
                                          MinHeight="90" MaxHeight="220" FontSize="11"/>
                                 <TextBlock Text="Outcomes (e.g. approved, rejected) — arrows can route on them" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding SelectedNode.OutcomesText, FallbackValue=''}" FontSize="11" Watermark="approved, rejected"/>
-                                <CheckBox Content="Ask me before this step starts" IsChecked="{Binding SelectedNode.RequireConfirmation, FallbackValue=False}" FontSize="11"/>
+                                <CheckBox Content="Ask me before this step starts" IsChecked="{Binding SelectedNode.RequireConfirmation, FallbackValue=False}" FontSize="11"
+                                          IsVisible="{Binding SelectedNode.IsAgent, FallbackValue=True}"
+                                          ToolTip.Tip="At the gate you can approve, approve with a note for the step, skip the step, or stop the flow"/>
                                 <CheckBox Content="Enabled (unchecked = skipped, arrows pass through)" IsChecked="{Binding SelectedNode.Enabled, FallbackValue=True}" FontSize="11"/>
                                 <TextBlock Text="{Binding SelectedNode.ProblemText, FallbackValue=''}" FontSize="10" Foreground="{DynamicResource ThemeDangerBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding SelectedNode.ProblemText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}"/>

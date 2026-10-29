@@ -99,6 +99,76 @@ public class PipelineRunMode
         return key.Key == ConsoleKey.Y;
     }
 
+    /// <summary>Reads one line of text (an empty line or no input is null).</summary>
+    private static string? AskLine(string question)
+    {
+        Console.Error.Write(question);
+        var line = Console.ReadLine();
+        return string.IsNullOrWhiteSpace(line) ? null : line.Trim();
+    }
+
+    /// <summary>
+    /// The gate in front of a step: approve, approve with a note (it is added to the step's prompt), skip the step, or stop the flow.
+    /// Without a terminal (redirected input) the first word of a line decides: y/a = approve, n = note, s = skip; anything else stops.
+    /// </summary>
+    internal static void AnswerGate(ApprovalRequestEvent approval, string stage)
+    {
+        Console.Error.Write($"\nStart '{stage}'? [a]pprove / approve with [n]ote / [s]kip step / s[t]op flow: ");
+        var choice = Console.IsInputRedirected
+            ? (Console.ReadLine()?.Trim().FirstOrDefault() ?? 't')
+            : Console.ReadKey(intercept: false).KeyChar;
+        if (!Console.IsInputRedirected) Console.Error.WriteLine();
+        switch (char.ToLowerInvariant(choice))
+        {
+            case 'y':
+            case 'a':
+                approval.Approval.TrySetResult(true);
+                break;
+            case 'n':
+                approval.Feedback.Text = AskLine("Note for the step: ");
+                approval.Approval.TrySetResult(true);
+                break;
+            case 's':
+                approval.Feedback.Skip = true;
+                approval.Approval.TrySetResult(false);
+                break;
+            default:
+                approval.Approval.TrySetResult(false);
+                break;
+        }
+    }
+
+    /// <summary>A human step: show what it needs a decision on, then take one of its outcomes (or stop the flow).</summary>
+    internal static void AnswerHuman(FlowHumanRequestEvent request)
+    {
+        Console.Error.WriteLine($"\n── '{request.NodeId}' needs your decision ──\n{request.Prompt}\n");
+        if (request.Outcomes.Count == 0)
+        {
+            var go = AskLine("Press Enter to continue (or type a note), q to stop: ");
+            request.Choice.TrySetResult(string.Equals(go, "q", StringComparison.OrdinalIgnoreCase)
+                ? new FlowHumanChoice(null, null, Stop: true)
+                : new FlowHumanChoice(null, go));
+            return;
+        }
+        for (var i = 0; i < request.Outcomes.Count; i++)
+            Console.Error.WriteLine($"  {i + 1}) {request.Outcomes[i]}");
+        var answer = AskLine("Choose a number or name (q = stop the flow): ");
+        if (answer == null || string.Equals(answer, "q", StringComparison.OrdinalIgnoreCase))
+        {
+            request.Choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
+            return;
+        }
+        var outcome = int.TryParse(answer, out var n) && n >= 1 && n <= request.Outcomes.Count
+            ? request.Outcomes[n - 1]
+            : request.Outcomes.FirstOrDefault(o => string.Equals(o, answer, StringComparison.OrdinalIgnoreCase));
+        if (outcome == null)
+        {
+            request.Choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
+            return;
+        }
+        request.Choice.TrySetResult(new FlowHumanChoice(outcome, AskLine("Note (optional): ")));
+    }
+
     /// <summary>
     /// Flows run several characters at once, so their text is not streamed (it would interleave).
     /// Instead each node prints status lines and its answer when it finishes.
@@ -120,10 +190,15 @@ public class PipelineRunMode
         {
             if (evt is AgentTaggedEvent { Inner: ApprovalRequestEvent approval } gate)
             {
-                var question = approval.Call.Name == "pipeline_stage"
-                    ? $"\nStart '{gate.AgentId}'? [y/N] "
-                    : $"\n'{gate.AgentId}' wants to run {approval.Call.Name}. Allow? [y/N] ";
-                approval.Approval.TrySetResult(AskYesNo(question));
+                if (approval.Call.Name == "pipeline_stage")
+                    AnswerGate(approval, gate.AgentId ?? "?");
+                else
+                    approval.Approval.TrySetResult(AskYesNo($"\n'{gate.AgentId}' wants to run {approval.Call.Name}. Allow? [y/N] "));
+                continue;
+            }
+            if (evt is AgentTaggedEvent { Inner: FlowHumanRequestEvent human })
+            {
+                AnswerHuman(human);
                 continue;
             }
             if (evt is FlowFinishedEvent finished) result = finished.Result;
