@@ -525,6 +525,7 @@ public class SdlcPipelineRunner
     private readonly ICharacterRegistry? _characters;
     private readonly IAiProviderResolver? _providers;
     private readonly ModelCatalog? _catalog;
+    private readonly Flows.FlowRunStore? _runStore;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
@@ -533,8 +534,10 @@ public class SdlcPipelineRunner
         ILogger<SdlcPipelineRunner> logger,
         ICharacterRegistry? characters = null,
         IAiProviderResolver? providers = null,
-        ModelCatalog? catalog = null)
+        ModelCatalog? catalog = null,
+        Flows.FlowRunStore? runStore = null)
     {
+        _runStore = runStore;
         _providers = providers;
         _catalog = catalog;
         _coordinator = coordinator;
@@ -738,7 +741,8 @@ public class SdlcPipelineRunner
         CancellationToken cancellationToken = default,
         IReadOnlyDictionary<string, string>? cast = null,
         int? maxParallel = null,
-        decimal? maxBudgetUsd = null)
+        decimal? maxBudgetUsd = null,
+        Flows.FlowReplayPlan? replay = null)
     {
         if (pipeline.IsFlow)
         {
@@ -749,7 +753,9 @@ public class SdlcPipelineRunner
                 MaxIterationsPerNode = maxIterationsPerStage,
                 Cast = cast,
                 MaxParallel = maxParallel ?? pipeline.MaxParallel,
-                MaxBudgetUsd = maxBudgetUsd ?? pipeline.MaxBudgetUsd
+                MaxBudgetUsd = maxBudgetUsd ?? pipeline.MaxBudgetUsd,
+                Store = _runStore,
+                Replay = replay
             }, cancellationToken);
         }
         var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage, cast);

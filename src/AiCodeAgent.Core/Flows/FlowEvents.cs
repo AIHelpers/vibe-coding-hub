@@ -52,6 +52,9 @@ public sealed record FlowRunResult(FlowRunStatus Status, string Message, IReadOn
 
     /// <summary>The run total: the sum of <see cref="StepRuns"/>.</summary>
     public FlowUsageTotals Usage => FlowUsageTotals.Sum(StepRuns);
+
+    /// <summary>Id of the saved run in the <see cref="FlowRunStore"/>; null when the run was not saved.</summary>
+    public string? RunId { get; init; }
 }
 
 /// <summary>A flow started: its nodes and the waves of work that can run in parallel.</summary>

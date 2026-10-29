@@ -49,6 +49,8 @@ public class AgentConfiguration
     public int MaxTokens { get; set; } = 150_000;
     public bool AutoApprove { get; set; } = false;
     public bool EnableMemory { get; set; } = true;
+    /// <summary>How many finished runs of each flow are kept in <c>~/.aiagent/runs/flows</c> (the newest ones). 0 = keep all.</summary>
+    public int FlowRunHistoryLimit { get; set; } = 50;
     public List<string> DefaultTools { get; set; } = new();
     /// <summary>
     /// Working directory the agent operates in (project root). When null/empty,

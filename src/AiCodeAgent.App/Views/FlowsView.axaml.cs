@@ -98,7 +98,7 @@ public partial class FlowsView : UserControl
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
-        if (Vm == null || e.Data.Get(CharacterFormat) is not string characterId) return;
+        if (Vm == null || Vm.IsLocked || e.Data.Get(CharacterFormat) is not string characterId) return;
         var p = _surface == null ? e.GetPosition(this) : e.GetPosition(_surface);
         // Drop point = card center.
         Vm.AddNode(characterId, p.X - FlowNodeViewModel.Width / 2, p.Y - FlowNodeViewModel.Height / 2);
@@ -129,7 +129,7 @@ public partial class FlowsView : UserControl
         // Output handle: start an arrow.
         if (source is Ellipse ellipse && ellipse.Classes.Contains("outport") && FindData<FlowNodeViewModel>(source) is { } fromNode)
         {
-            if (Vm.IsRunning) return;
+            if (Vm.IsLocked) return;
             _gesture = Gesture.DrawEdge;
             Vm.BeginEdge(fromNode, canvasPoint.X, canvasPoint.Y);
             e.Pointer.Capture(_viewport);
@@ -140,7 +140,7 @@ public partial class FlowsView : UserControl
         // Node card: select and start moving.
         if (FindData<FlowNodeViewModel>(source) is { } node)
         {
-            if (Vm.IsRunning)
+            if (Vm.IsLocked)
             {
                 Vm.SelectedNode = node; // still allowed: shows the node's output
                 e.Handled = true;
