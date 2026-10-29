@@ -85,6 +85,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSkillsTabActive));
         OnPropertyChanged(nameof(IsCharactersTabActive));
         OnPropertyChanged(nameof(IsPacksTabActive));
+        OnPropertyChanged(nameof(IsImportTabActive));
     }
 
     [RelayCommand]

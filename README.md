@@ -364,6 +364,24 @@ In the app, use **Project Knowledge → ＋ Add pack** (or the **Packs** tab). P
 
 **Security.** Before anything is installed you see every file plus any `hooks`, MCP server entries (`mcp.json`) and scripts or binaries. Packs never enable hooks or MCP servers, and the app never runs files from a pack. Symlinks are rejected, and packs are limited to 5000 files / 100 MB. Pack commands need `git` on your PATH.
 
+## Import skills and rules from other tools
+
+Bring an existing setup over with one command, or with **Project Knowledge → Import…** (a preview with checkboxes comes first):
+
+```
+aiagent import [all|claude|claude-md|cursor|kiro|copilot] [--dry-run] [--yes] [--no-user]
+```
+
+| Source | Found at | Becomes |
+|---|---|---|
+| Claude Code / Agent Skills | `.claude/skills/*/SKILL.md`, `~/.claude/skills` | skills, copied with their front matter and bundled files (user skills go to your global skills) |
+| `CLAUDE.md` | repo root | an `## Imported from CLAUDE.md` section in AGENTS.md |
+| Cursor rules | `.cursor/rules/*.mdc`, `.cursorrules` | skills (`description` from the front matter, `globs` noted in the text); `alwaysApply: true` and `.cursorrules` are merged into the `team-conventions` skill |
+| Kiro steering | `.kiro/steering/*.md` | skills; `inclusion: always` goes into `team-conventions`, `fileMatch` keeps its pattern, `manual` becomes a manual-only skill |
+| Copilot instructions | `.github/copilot-instructions.md` | an `## Imported from copilot-instructions.md` section in AGENTS.md |
+
+Names are normalised to kebab-case and a clash gets a suffix (`style-guide-2`). Pin `team-conventions` on characters to keep the always-on rules in context (`aiagent characters add-skill <id> team-conventions --pinned`). After importing, `skills doctor` runs and its result is shown. Source files are never changed or deleted. Imported skills carry an `imported-from` line and imported AGENTS.md sections an HTML comment marker, so running the import again reports "already imported" and changes nothing.
+
 ## Flows: characters working together
 
 A **flow** is a pipeline whose stages are connected by arrows. Each character starts as soon as the

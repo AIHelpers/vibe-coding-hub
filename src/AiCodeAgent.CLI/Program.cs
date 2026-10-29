@@ -630,6 +630,7 @@ FileViewCommands.AddCommands(rootCommand);
 
 SkillCharacterCommands.AddCommands(rootCommand);
 PackCommands.AddCommands(rootCommand);
+ImportCommands.AddCommands(rootCommand);
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);

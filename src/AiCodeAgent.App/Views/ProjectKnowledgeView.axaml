@@ -17,6 +17,8 @@
                     <Button Content="Packs" Command="{Binding ShowPacksTabCommand}" FontSize="11" Padding="10,4"/>
                     <Button Content="＋ Add pack" Command="{Binding BeginAddPackCommand}" FontSize="11" Padding="10,4"
                             IsVisible="{Binding IsPacksAvailable}"/>
+                    <Button Content="Import…" Command="{Binding BeginImportCommand}" FontSize="11" Padding="10,4"
+                            ToolTip.Tip="Bring skills and rules over from Claude Code, Cursor, Kiro and Copilot"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="✕" Width="24" Height="24" Padding="0" FontSize="11"
                         Command="{Binding CloseCommand}"/>
@@ -56,6 +58,11 @@
                     <Button Content="🗑 Delete" Command="{Binding Characters.RequestDeleteCommand}"
                             IsEnabled="{Binding Characters.CanEditSelected}" FontSize="11" Padding="8,3"/>
                     <TextBlock Text="{Binding Characters.StatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+                <!-- Import toolbar -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsImportTabActive}">
+                    <Button Content="🔄 Scan again" Command="{Binding ScanForImportCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="⬇ Import selected" Command="{Binding RunImportCommand}" IsEnabled="{Binding !IsImportBusy}" FontSize="11" Padding="8,3"/>
                 </StackPanel>
                 <!-- Packs toolbar -->
                 <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsPacksTabActive}">
@@ -431,6 +438,32 @@
                                     <Button Grid.Column="1" Content="Remove" FontSize="11" Padding="8,3" VerticalAlignment="Top"
                                             Command="{Binding DataContext.RemovePackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Import tab body -->
+        <ScrollViewer Grid.Row="2" IsVisible="{Binding IsImportTabActive}">
+            <StackPanel Spacing="8" Margin="10">
+                <TextBlock Text="{Binding ImportStatusText}" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                <ItemsControl ItemsSource="{Binding ImportItems}" IsVisible="{Binding HasImportItems}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:ImportListItem">
+                            <Border Background="{DynamicResource AppSubBrush}" CornerRadius="4" Padding="8" Margin="0,0,0,4">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <CheckBox IsChecked="{Binding IsSelected}" IsEnabled="{Binding CanSelect}" VerticalAlignment="Top"/>
+                                    <StackPanel Grid.Column="1" Spacing="1">
+                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Label}"/>
+                                        <TextBlock FontSize="11" Text="{Binding Target, StringFormat='→ {0}'}"/>
+                                        <TextBlock FontSize="10" TextWrapping="Wrap" Text="{Binding Group}" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                        <TextBlock FontSize="10" TextWrapping="Wrap" Text="{Binding Note}" IsVisible="{Binding HasNote}"
+                                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>
