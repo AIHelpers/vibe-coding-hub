@@ -2,6 +2,7 @@ using System.Text.Json;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Context;
+using AiCodeAgent.Core.Flows;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -49,7 +50,11 @@ public class ExamplesTests
     {
         var (skills, characters, _) = Load();
         var custom = (await characters.ListAsync()).Where(c => !c.IsBuiltIn).ToList();
-        Assert.Equal(new[] { "alex-architect", "dana-dotnet", "mia-ml", "quinn-qa", "sam-developer", "software-developer" }, custom.Select(c => c.Id));
+        Assert.Equal(new[]
+        {
+            "alex-architect", "dana-dotnet", "drew-docs", "felix-frontend", "maya-migration", "mia-ml", "pat-performance",
+            "quinn-qa", "rex-release", "sam-developer", "sasha-security", "software-developer", "stella-style"
+        }, custom.Select(c => c.Id));
         Assert.All(custom, c =>
         {
             Assert.True(c.IsValid, string.Join(" ", c.ValidationErrors));
@@ -132,5 +137,177 @@ public class ExamplesTests
         Assert.Equal("dana-dotnet", result.Nodes.Single(n => n.NodeId == "backend").CharacterId);
         Assert.Equal(2, orchestrator.MaxConcurrent);
         Assert.Contains(orchestrator.Calls, c => c.Node == "release-notes");
+    }
+
+    private static readonly string[] TemplateNames = { "bug-fix", "feature-team", "fullstack-feature", "pr-review", "release", "migration" };
+
+    [Fact]
+    public async Task EveryExamplePipeline_Validates_AndReferencesExistingExampleCharacters()
+    {
+        var (_, characters, _) = Load();
+        var library = ExampleLibrary.FromDirectory(ExamplesDir());
+        Assert.Contains("team-sdlc", library.FlowNames);
+        Assert.Superset(new HashSet<string>(TemplateNames), new HashSet<string>(library.FlowNames));
+        var exampleCharacters = (await characters.ListAsync()).Where(c => !c.IsBuiltIn).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var name in library.FlowNames)
+        {
+            var flow = library.GetFlow(name);
+            Assert.NotNull(flow);
+            Assert.Equal(name, flow!.Name);
+            Assert.False(string.IsNullOrWhiteSpace(flow.Description), $"{name}: description");
+            foreach (var stage in flow.Stages.Where(s => !string.IsNullOrEmpty(s.Character)))
+                Assert.True(exampleCharacters.Contains(stage.Character!), $"{name}: '{stage.Name}' uses unknown character '{stage.Character}'");
+
+            var graph = AiCodeAgent.Core.Flows.FlowGraph.Build(flow, id => characters.GetAsync(id).GetAwaiter().GetResult());
+            Assert.True(graph.IsValid, $"{name}: " + string.Join("\n", graph.Problems));
+            Assert.Empty(graph.Problems);
+        }
+    }
+
+    [Fact]
+    public void Gallery_ListsTheSixTemplates_WithSampleTasks()
+    {
+        var templates = ExampleLibrary.FromDirectory(ExamplesDir()).Templates();
+
+        Assert.Equal(TemplateNames.OrderBy(n => n), templates.Select(t => t.Id).OrderBy(n => n));
+        Assert.All(templates, t =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(t.Title));
+            Assert.False(string.IsNullOrWhiteSpace(t.SampleTask));
+            Assert.False(string.IsNullOrWhiteSpace(t.Description));
+            Assert.NotEmpty(t.Characters);
+        });
+        var bugFix = templates.Single(t => t.Id == "bug-fix");
+        Assert.Equal(new[] { "quinn-qa", "sam-developer", "stella-style" }, bugFix.Characters);
+        var review = bugFix.Flow.Stages.Single(s => s.Id == "review");
+        Assert.Equal(new[] { "approved", "rejected" }, review.Outcomes);
+        Assert.Contains(bugFix.Flow.Edges!, e => e.From == "review" && e.To == "fix" && e.When == "rejected" && e.MaxLoops == 2);
+        Assert.Equal(new[] { "ok", "changes-requested" }, templates.Single(t => t.Id == "pr-review").Flow.Stages.Single(s => s.Id == "summary").Outcomes);
+        Assert.True(templates.Single(t => t.Id == "release").Flow.Stages.Any(s => s.RequireConfirmation));
+    }
+
+    [Fact]
+    public void EmbeddedExamples_AreTheFilesInTheRepository()
+    {
+        var folder = ExampleLibrary.FromDirectory(ExamplesDir());
+        var embedded = ExampleLibrary.FromEmbedded();
+
+        Assert.Equal(folder.Paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase), embedded.Paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
+        foreach (var path in folder.Paths)
+            Assert.Equal(folder.ReadFile(path)!.Replace("\r\n", "\n"), embedded.ReadFile(path)!.Replace("\r\n", "\n"));
+        Assert.Equal(TemplateNames.OrderBy(n => n), embedded.Templates().Select(t => t.Id).OrderBy(n => n));
+    }
+
+    [Fact]
+    public async Task UsingATemplate_InABareProject_CreatesTheMissingCharacters_AndTheFlowValidates()
+    {
+        var library = ExampleLibrary.FromEmbedded();
+        foreach (var template in library.Templates())
+        {
+            var root = Path.Combine(Path.GetTempPath(), "gallery-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var presets = new RolePresetLoader(NullLogger<RolePresetLoader>.Instance);
+                var charactersDir = Path.Combine(root, "characters");
+                var skillsDir = Path.Combine(root, "skills");
+                var characters = new CharacterRegistry(presets, NullLogger<CharacterRegistry>.Instance, charactersDir);
+                var skills = new SkillRegistry(NullLogger<SkillRegistry>.Instance, skillsDir);
+
+                var existing = (await characters.ListAsync()).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var existingSkills = (await skills.ListAllAsync()).Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var plan = library.Plan(template, existing, existingSkills);
+
+                Assert.Empty(plan.Unavailable);
+                Assert.Equal(template.Characters.Where(c => !existing.Contains(c)).OrderBy(c => c), plan.CharactersToCreate.Where(c => template.Characters.Contains(c)).OrderBy(c => c));
+                // A template a character extends comes before the character.
+                var order = plan.CharactersToCreate.ToList();
+                var parentAt = order.IndexOf("software-developer");
+                if (parentAt >= 0)
+                    foreach (var child in new[] { "dana-dotnet", "sam-developer", "felix-frontend", "maya-migration", "drew-docs" })
+                        if (order.IndexOf(child) is var at and >= 0)
+                            Assert.True(parentAt < at, $"{template.Id}: software-developer must be created before {child}");
+
+                var written = library.Install(plan, charactersDir, skillsDir);
+                Assert.NotEmpty(written);
+                characters.Refresh();
+                skills.Refresh();
+
+                var graph = AiCodeAgent.Core.Flows.FlowGraph.Build(template.Flow, id => characters.GetAsync(id).GetAwaiter().GetResult());
+                Assert.True(graph.IsValid, $"{template.Id}: " + string.Join("\n", graph.Problems));
+                foreach (var id in template.Characters)
+                    Assert.True((await characters.GetAsync(id))!.IsValid, $"{template.Id}: {id}");
+                Assert.Empty(await new SkillMaintenance(skills, characters).FindDanglingReferencesAsync());
+
+                // Nothing is missing any more, and a second install writes nothing.
+                var again = library.Plan(template, (await characters.ListAsync()).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    (await skills.ListAllAsync()).Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
+                Assert.True(again.NothingToCreate, $"{template.Id}: {string.Join(",", again.CharactersToCreate)} {string.Join(",", again.SkillsToCreate)}");
+                Assert.Empty(library.Install(plan, charactersDir, skillsDir));
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task EveryTemplate_RunsToTheEnd_OnceItsCharactersAreInstalled()
+    {
+        var library = ExampleLibrary.FromEmbedded();
+        foreach (var template in library.Templates())
+        {
+            var root = Path.Combine(Path.GetTempPath(), "gallery-run-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var presets = new RolePresetLoader(NullLogger<RolePresetLoader>.Instance);
+                var charactersDir = Path.Combine(root, "characters");
+                var skillsDir = Path.Combine(root, "skills");
+                var characters = new CharacterRegistry(presets, NullLogger<CharacterRegistry>.Instance, charactersDir);
+                var skills = new SkillRegistry(NullLogger<SkillRegistry>.Instance, skillsDir);
+                var plan = library.Plan(template, (await characters.ListAsync()).Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                    (await skills.ListAllAsync()).Select(s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase));
+                library.Install(plan, charactersDir, skillsDir);
+                characters.Refresh();
+
+                // Every step answers; a step with outcomes picks its first one (approved, ok, ...).
+                var outcomes = template.Flow.Stages.Where(s => s.Outcomes is { Count: > 0 }).ToDictionary(s => s.Id!, s => s.Outcomes![0]);
+                var orchestrator = new AiCodeAgent.Core.Tests.Flows.ScriptedOrchestrator((node, _, _) =>
+                    outcomes.TryGetValue(node, out var outcome) ? $"Done.\nOUTCOME: {outcome}" : null);
+                var coordinator = new AgentSessionCoordinator(NullLogger<AgentSessionCoordinator>.Instance, presetLoader: presets, characters: characters);
+                var runner = new SdlcPipelineRunner(coordinator, presets, orchestrator, NullLogger<SdlcPipelineRunner>.Instance, characters);
+                AiCodeAgent.Core.Flows.FlowRunResult? result = null;
+                await foreach (var e in runner.RunAsync(template.Flow, template.SampleTask, "s", Path.GetTempPath()))
+                {
+                    if (e is AgentTaggedEvent { Inner: ApprovalRequestEvent approval }) approval.Approval.TrySetResult(true); // the "ask me" gate
+                    if (e is AiCodeAgent.Core.Flows.FlowFinishedEvent f) result = f.Result;
+                }
+
+                Assert.NotNull(result);
+                Assert.True(result!.Succeeded, $"{template.Id}: {result.Message}");
+                Assert.Equal(template.Flow.Stages.Count, result.Nodes.Count(n => n.Runs > 0));
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { /* ignore */ }
+            }
+        }
+    }
+
+    [Fact]
+    public void Diagram_DrawsEveryStep_ArrowsAndLoops()
+    {
+        var library = ExampleLibrary.FromEmbedded();
+        var bugFix = AiCodeAgent.Core.Flows.FlowDiagram.Build(library.GetFlow("bug-fix")!);
+
+        Assert.Equal(4, bugFix.Nodes.Split('M', StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.NotEmpty(bugFix.Edges);
+        Assert.NotEmpty(bugFix.Loops); // review -> fix (rejected)
+        Assert.True(bugFix.Width > 100 && bugFix.Height > 40);
+
+        var prReview = AiCodeAgent.Core.Flows.FlowDiagram.Build(library.GetFlow("pr-review")!);
+        Assert.Equal(string.Empty, prReview.Loops);
+        Assert.Equal(4, prReview.Nodes.Split('M', StringSplitOptions.RemoveEmptyEntries).Length);
     }
 }

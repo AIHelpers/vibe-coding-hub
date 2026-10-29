@@ -1,0 +1,60 @@
+{
+  "name": "release",
+  "description": "Changelog from the commits, version bump, release notes, your approval, then the tag.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "changelog",
+      "name": "Changelog",
+      "character": "sam-developer",
+      "promptTemplate": "Release: {task}\n\nRead the commits since the last tag (git log) and write a changelog grouped into features, fixes and breaking changes."
+    },
+    {
+      "id": "version",
+      "name": "Version bump",
+      "character": "sam-developer",
+      "promptTemplate": "Decide the next version from the changelog (breaking = major, feature = minor, fix = patch), update the version files, and explain the choice.\n\n{input:changelog}"
+    },
+    {
+      "id": "notes",
+      "name": "Release notes",
+      "character": "sam-developer",
+      "promptTemplate": "Write release notes for users for: {task}\n\n{input:changelog}"
+    },
+    {
+      "id": "approve",
+      "name": "Ask me",
+      "character": "rex-release",
+      "promptTemplate": "State the version to release on the first line. Then summarize the changelog and the release notes, and what the tag will do. Wait for the user's approval.\n\n{input:version}",
+      "requireConfirmation": true
+    },
+    {
+      "id": "tag",
+      "name": "Tag",
+      "character": "rex-release",
+      "promptTemplate": "Create the git tag for the version approved in the step before you and report the commands you ran. Do not push unless the user asked for it."
+    }
+  ],
+  "edges": [
+    {
+      "from": "changelog",
+      "to": "version"
+    },
+    {
+      "from": "changelog",
+      "to": "notes"
+    },
+    {
+      "from": "version",
+      "to": "approve"
+    },
+    {
+      "from": "notes",
+      "to": "approve"
+    },
+    {
+      "from": "approve",
+      "to": "tag"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "templates": [
+    {
+      "flow": "bug-fix",
+      "title": "Bug fix",
+      "icon": "🐞",
+      "sampleTask": "Users see a 500 error when the search box contains an apostrophe"
+    },
+    {
+      "flow": "feature-team",
+      "title": "Feature team",
+      "icon": "👥",
+      "sampleTask": "Add churn prediction to the customer API"
+    },
+    {
+      "flow": "fullstack-feature",
+      "title": "Full-stack feature",
+      "icon": "🧩",
+      "sampleTask": "Let users export their order history as CSV from the account page"
+    },
+    {
+      "flow": "pr-review",
+      "title": "Pull request review",
+      "icon": "🔎",
+      "sampleTask": "Review the changes on the current branch against main"
+    },
+    {
+      "flow": "release",
+      "title": "Release",
+      "icon": "🚀",
+      "sampleTask": "Release version 1.4.0"
+    },
+    {
+      "flow": "migration",
+      "title": "Migration",
+      "icon": "🔧",
+      "sampleTask": "Replace the deprecated HttpClientFactory helper with the new typed clients everywhere"
+    }
+  ]
+}

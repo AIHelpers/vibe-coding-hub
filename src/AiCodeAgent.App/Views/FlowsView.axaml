@@ -51,6 +51,7 @@
         <Style Selector="Path.arrow.taken"><Setter Property="Fill" Value="{DynamicResource ThemeSuccessBrush}"/></Style>
         <Style Selector="Path.arrow.error"><Setter Property="Fill" Value="{DynamicResource ThemeDangerBrush}"/></Style>
         <Style Selector="Path.arrow.selected"><Setter Property="Fill" Value="{DynamicResource ThemeAccentBrush}"/></Style>
+        <Style Selector="TextBlock.missing"><Setter Property="Foreground" Value="{DynamicResource ThemeWarningBrush}"/></Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -80,7 +81,7 @@
                     </Border>
                     <TextBlock x:Name="OverridesLabel" Text="{Binding OverridesText}" IsVisible="{Binding HasOverridesText}" FontSize="10"
                                Foreground="{DynamicResource ThemeWarningBrush}" VerticalAlignment="Center"/>
-                    <Button Content="＋ New" Command="{Binding NewFlowCommand}" FontSize="11" Padding="8,3"/>
+                    <Button x:Name="NewFlowButton" Content="＋ New" Command="{Binding OpenGalleryCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Start from a template or a blank flow"/>
                     <Button Content="💾 Save" Command="{Binding SaveCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Save this flow. A new flow asks where: project (shared via git) or global (only you)"/>
                     <Button Content="🗑" Command="{Binding RequestDeleteCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Delete this flow"/>
                     <Border Width="1" Background="#40888888" Margin="0,2,10,5"/>
@@ -362,6 +363,84 @@
                     </Grid>
                     <views:MarkdownOutputView Grid.Row="1" Markdown="{Binding SelectedOutput}" MinHeight="60"/>
                 </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Template gallery (＋ New): covers the flow bar and the canvas -->
+        <Border x:Name="TemplateGallery" Grid.Row="1" Grid.RowSpan="2" IsVisible="{Binding IsGalleryOpen}" Background="{DynamicResource AppDeepBrush}" Padding="12">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Text="Start from a template" FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"
+                                   Text="Using a template copies the flow into your project (.aiagent/pipelines) so you can adapt it. ✓ marks characters the project already has."/>
+                    </StackPanel>
+                    <Button x:Name="BlankFlowButton" Grid.Column="1" Content="Blank flow" Command="{Binding StartBlankFlowCommand}" FontSize="11" Padding="10,4" Margin="0,0,6,0" VerticalAlignment="Top"/>
+                    <Button Grid.Column="2" Content="✕" Command="{Binding CloseGalleryCommand}" Width="24" Height="24" Padding="0" FontSize="11" VerticalAlignment="Top"/>
+                </Grid>
+                <ScrollViewer Grid.Row="1">
+                    <ItemsControl ItemsSource="{Binding Templates}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:FlowTemplateCardViewModel">
+                                <Border Classes="templateCard" Width="330" Margin="0,0,10,10" Padding="10" CornerRadius="6"
+                                        Background="{DynamicResource AppSubBrush}" BorderBrush="#33888888" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Description}" FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                        <Border Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="6" Height="120">
+                                            <Viewbox Stretch="Uniform">
+                                                <Grid Width="{Binding DiagramWidth}" Height="{Binding DiagramHeight}">
+                                                    <Path Data="{Binding NodesPath, Converter={x:Static conv:PathDataConverter.Instance}}" Stroke="{DynamicResource ThemeTextMutedBrush}" StrokeThickness="1.5" Fill="{DynamicResource ThemeSurfaceRaisedBrush}"/>
+                                                    <Path Data="{Binding EdgesPath, Converter={x:Static conv:PathDataConverter.Instance}}" Stroke="{DynamicResource ThemeTextMutedBrush}" StrokeThickness="1.5" Fill="{DynamicResource ThemeTextMutedBrush}"/>
+                                                    <Path Data="{Binding LoopsPath, Converter={x:Static conv:PathDataConverter.Instance}}" Stroke="{DynamicResource ThemeSyntaxKeywordBrush}" StrokeThickness="1.5" Fill="{DynamicResource ThemeSyntaxKeywordBrush}" StrokeDashArray="4,3"/>
+                                                </Grid>
+                                            </Viewbox>
+                                        </Border>
+                                        <TextBlock Text="{Binding Steps}" FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                        <ItemsControl ItemsSource="{Binding Characters}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="vm:TemplateCharacterItem">
+                                                    <TextBlock Classes.missing="{Binding Missing}" FontSize="10" Margin="0,0,10,0">
+                                                        <Run Text="{Binding Mark}"/><Run Text=" "/><Run Text="{Binding Id}"/>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding UnavailableText}" IsVisible="{Binding HasUnavailable}" FontSize="10" Classes="missing"/>
+                                        <TextBlock FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}">
+                                            <Run Text="Sample task: "/><Run Text="{Binding SampleTask}"/>
+                                        </TextBlock>
+                                        <Border IsVisible="{Binding IsConfirming}" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8">
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="{Binding ConfirmText}" FontSize="11" TextWrapping="Wrap"/>
+                                                <WrapPanel>
+                                                    <Button Content="Create and use" Margin="0,0,6,4" FontSize="11" Padding="10,3"
+                                                            Command="{Binding DataContext.CreateAndUseTemplateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <Button Content="Use without creating" Margin="0,0,6,4" FontSize="11" Padding="10,3"
+                                                            Command="{Binding DataContext.UseTemplateAnywayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                    <Button Content="Cancel" Margin="0,0,0,4" FontSize="11" Padding="10,3"
+                                                            Command="{Binding DataContext.CancelTemplateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+                                        <Button Content="Use template" HorizontalAlignment="Left" FontSize="11" Padding="12,4"
+                                                Command="{Binding DataContext.UseTemplateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </Grid>
         </Border>
     </Grid>

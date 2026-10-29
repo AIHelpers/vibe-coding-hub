@@ -55,5 +55,37 @@ aiagent pipeline show feature-team
 aiagent pipeline run "Add churn prediction to the customer API" --pipeline feature-team
 ```
 
+### Flow templates
+
+Six ready-made flows live in `pipelines/` and are listed in `pipelines/templates.json` (title, icon, sample task):
+
+| Template | Flow |
+|---|---|
+| `bug-fix` | reproduce (failing test) → fix → verify → review (`approved`/`rejected`, loops back to the fix up to 2 times) |
+| `feature-team` | design → backend ∥ model → review & test → release notes |
+| `fullstack-feature` | design → backend ∥ frontend → integration test → review → docs |
+| `pr-review` | security ∥ performance ∥ style → summary (`ok` / `changes-requested`) |
+| `release` | changelog → version bump + release notes → **ask me** gate → tag |
+| `migration` | plan → 3 parallel batches → build & test → review |
+
+In the desktop app, **＋ New** in the Flows panel opens a gallery of these templates. Each card shows a mini diagram, the
+characters the flow needs (✓ the project has it, ✗ it does not) and a sample task. **Use template** copies the flow into
+the project; if characters are missing it offers to create them (and the skills they use) from `examples/characters` and
+`examples/skills` first. The examples are built into the app, so no files need to be copied by hand.
+
+From the command line:
+
+```bash
+aiagent pipeline templates                                           # the six templates, with ✓/✗ per character
+aiagent pipeline copy bug-fix --to project --with-characters         # copy it, and create the missing characters + skills
+aiagent pipeline validate bug-fix
+```
+
+Every example flow must validate and use only characters from `examples/characters` (`ExamplesTests`):
+
+```bash
+aiagent pipeline validate bug-fix
+```
+
 In the **Flows** panel the pipeline list shows each flow's scope, and **Save** asks whether the flow is
 *Project (shared via git)* or *Global (only me)*; Project is the default when the working directory is a git repository.

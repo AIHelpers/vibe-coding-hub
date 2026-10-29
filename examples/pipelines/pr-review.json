@@ -1,0 +1,49 @@
+{
+  "name": "pr-review",
+  "description": "Three reviewers look at the same change in parallel (security, performance, readability) and a summary decides: ok or changes-requested.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "security",
+      "name": "Security",
+      "character": "sasha-security",
+      "promptTemplate": "Review the change for security problems. Task: {task}"
+    },
+    {
+      "id": "performance",
+      "name": "Performance",
+      "character": "pat-performance",
+      "promptTemplate": "Review the change for performance problems. Task: {task}"
+    },
+    {
+      "id": "style",
+      "name": "Style & readability",
+      "character": "stella-style",
+      "promptTemplate": "Review the change for readability and style. Task: {task}"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "character": "quinn-qa",
+      "promptTemplate": "Summarize the three reviews for: {task}\n\nList what must change before merging. Answer with an outcome: ok when nothing blocks the merge, changes-requested otherwise.",
+      "outcomes": [
+        "ok",
+        "changes-requested"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "security",
+      "to": "summary"
+    },
+    {
+      "from": "performance",
+      "to": "summary"
+    },
+    {
+      "from": "style",
+      "to": "summary"
+    }
+  ]
+}

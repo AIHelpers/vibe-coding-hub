@@ -17,6 +17,12 @@
     <EmbeddedResource Include="..\AiCodeAgent.Providers\models.json" LogicalName="AiCodeAgent.Providers.models.json" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The example flows, characters and skills ship with the app: the Flows template gallery installs from them (ExampleLibrary). -->
+    <EmbeddedResource Include="..\..\examples\pipelines\*.json" LogicalName="examples/pipelines/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\examples\characters\*.md" LogicalName="examples/characters/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\examples\skills\*\SKILL.md" LogicalName="examples/skills/%(RecursiveDir)SKILL.md" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="AiCodeAgent.Core.Tests" />
   </ItemGroup>
 </Project>

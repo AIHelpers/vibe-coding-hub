@@ -370,6 +370,11 @@ aiagent pipeline run "Add churn prediction" --pipeline feature-team --max-parall
 
 In the desktop app, open **🔀 Flows** (or "Flows" / "New Flow" in the command palette):
 
+- **Start from a template:** **＋ New** opens a gallery of six ready-made flows (`bug-fix`, `feature-team`,
+  `fullstack-feature`, `pr-review`, `release`, `migration`). A card shows a mini diagram, the characters the flow needs
+  (✓ present in the project, ✗ missing) and a sample task. **Use template** copies the flow into the project and, after
+  you confirm, creates the missing characters and the skills they use from the bundled `examples/`.
+  **Blank flow** starts empty.
 - **Draw:** drag characters from the left onto the canvas (or click **＋** to add one after the selected
   step), then drag from a step's right handle to another step. Select a step to set its character, prompt,
   outcomes and confirmation; select an arrow to set its condition and loop limit. Delete removes the

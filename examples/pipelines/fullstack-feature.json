@@ -1,0 +1,69 @@
+{
+  "name": "fullstack-feature",
+  "description": "Design, then backend and frontend in parallel, integration tests, review, and documentation.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "design",
+      "name": "Design",
+      "character": "alex-architect",
+      "promptTemplate": "Task: {task}\n\nProduce a plan with two independent parts, the backend and the frontend, and define the API contract between them."
+    },
+    {
+      "id": "backend",
+      "name": "Backend",
+      "character": "dana-dotnet",
+      "promptTemplate": "Implement the backend part of the plan for: {task}\n\n{input:design}"
+    },
+    {
+      "id": "frontend",
+      "name": "Frontend",
+      "character": "felix-frontend",
+      "promptTemplate": "Implement the frontend part of the plan for: {task}\n\n{input:design}"
+    },
+    {
+      "id": "integration-test",
+      "name": "Integration test",
+      "character": "quinn-qa",
+      "promptTemplate": "Write and run integration tests that exercise the frontend against the backend for: {task}\n\nReport what passed and failed."
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "character": "stella-style",
+      "promptTemplate": "Review the whole change for: {task}\n\nList must-fix problems first, then suggestions."
+    },
+    {
+      "id": "docs",
+      "name": "Docs",
+      "character": "drew-docs",
+      "promptTemplate": "Update the documentation for: {task}\n\nUse the review findings if they change what users see.\n\n{input:review}"
+    }
+  ],
+  "edges": [
+    {
+      "from": "design",
+      "to": "backend"
+    },
+    {
+      "from": "design",
+      "to": "frontend"
+    },
+    {
+      "from": "backend",
+      "to": "integration-test"
+    },
+    {
+      "from": "frontend",
+      "to": "integration-test"
+    },
+    {
+      "from": "integration-test",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "to": "docs"
+    }
+  ]
+}
