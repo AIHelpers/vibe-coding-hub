@@ -68,6 +68,10 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     [ObservableProperty] private string? _runOutcome;
     [ObservableProperty] private string? _runDetail;
     [ObservableProperty] private bool _isAwaitingApproval;
+    /// <summary>Tokens and cost of this step over all its rounds: "1.2k tok · $0.004". Empty until the step has used the model.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUsage))]
+    private string _usageText = string.Empty;
     private readonly StringBuilder _output = new();
 
     /// <summary>Live text the character produced in the current/last run.</summary>
@@ -87,6 +91,7 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     public bool IsSkipped => RunState == FlowNodeState.Skipped;
     public bool IsWaiting => RunState == FlowNodeState.Pending;
     public bool HasRunState => RunState != null;
+    public bool HasUsage => UsageText.Length > 0;
 
     /// <summary>Badge shown on the card: ⏳ waiting, ▶ running, ✓ done, ✕ failed, – skipped.</summary>
     public string StateGlyph => RunState switch
@@ -205,6 +210,7 @@ public sealed partial class FlowNodeViewModel : ObservableObject
         RunOutcome = null;
         RunDetail = null;
         IsAwaitingApproval = false;
+        UsageText = string.Empty;
         SetOutput(string.Empty);
     }
 }

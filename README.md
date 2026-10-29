@@ -366,6 +366,15 @@ parallel**, each in its own git worktree that is merged back when it finishes.
   provider but no model uses that provider's configured default model. Both fields are optional: flows without
   them run exactly as before. In the editor, the inspector has a **Model** combo (*Inherit (character/session)*,
   the tiers, then the catalog's models) and a **Provider** combo; the node shows it (`Sam — Developer · fast`).
+- **Cost and budget:** every step run (loop rounds included) records its tokens, cost (the existing pricing
+  tables, `~/.aiagent/pricing.json` overrides them) and duration. Each node shows a badge (`1.2k tok · $0.004`)
+  and the header shows the run total. When a flow ends, the table of step runs (step, round, model, tokens in/out,
+  cost, time) is listed under the canvas. `"maxBudgetUsd": 1.50` in the flow, or the **budget $** field next to
+  **▶ Run**, caps one run: once the finished steps cost that much, no new step starts, a step that is running stops
+  after the model call that crosses its share of the cap, and the flow ends as `budget_exceeded` with a message that
+  says what was spent. Parallel steps each get what was left when they started, so a run can overshoot by one call
+  per running step. A model without a known price counts as `$0` and is marked *unpriced* (a step without a `model`
+  runs on its provider's configured default, whose price the flow cannot see, so set `model` on steps you want costed).
 - **Failures** skip only the steps after the failed one; other branches finish.
 - Pipelines **without `edges`** keep the old behavior: stages in order, one shared history.
 
@@ -374,6 +383,8 @@ aiagent pipeline validate feature-team          # problems, exit code 1 on error
 aiagent pipeline show feature-team              # 1: design · 2: backend ∥ model · 3: review · 4: notes
 aiagent pipeline show feature-team --mermaid    # diagram for docs and PRs
 aiagent pipeline run "Add churn prediction" --pipeline feature-team --max-parallel 2
+aiagent pipeline run "Add churn prediction" --pipeline feature-team --max-budget 1.50   # stop at $1.50
+aiagent pipeline run "Add churn prediction" --pipeline feature-team --json              # result + usage as JSON on stdout
 ```
 
 In the desktop app, open **🔀 Flows** (or "Flows" / "New Flow" in the command palette):

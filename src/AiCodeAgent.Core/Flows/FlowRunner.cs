@@ -21,6 +21,12 @@ public sealed record FlowRunOptions
     public int MaxTotalRuns { get; init; } = FlowRunner.DefaultMaxTotalRuns;
     /// <summary>How long a confirmation gate waits before it counts as declined.</summary>
     public TimeSpan ConfirmationTimeout { get; init; } = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// Spend cap in USD for the run (null or 0 = none). Checked whenever a step is about to start; each step also
+    /// gets the remaining budget as its own cap, so a running step stops after the model call that crosses it.
+    /// Parallel steps start with the same remaining amount, so a run can overshoot by the cost of one call per running step.
+    /// </summary>
+    public decimal? MaxBudgetUsd { get; init; }
 }
 
 /// <summary>
@@ -70,7 +76,47 @@ public sealed class FlowRunner
         public List<FlowNodeOutput> Feedback { get; } = new();
         public TimeSpan Duration { get; set; }
         public string? CharacterId { get; set; }
+        /// <summary>Usage of every finished run of this node, loop rounds included.</summary>
+        public List<FlowStepRunUsage> Usage { get; } = new();
+        /// <summary>Usage collector of the run in progress.</summary>
+        public StepUsage? Current { get; set; }
+        /// <summary>The last run was stopped by its budget cap.</summary>
+        public bool BudgetStopped { get; set; }
     }
+
+    /// <summary>Collects the usage of one step run; filled on the node's task, read after the task completed.</summary>
+    private sealed class StepUsage
+    {
+        private readonly object _gate = new();
+        private TokenUsage _total = new();
+        public string? Model { get; init; }
+        public string? Provider { get; init; }
+        public bool BudgetStopped { get; private set; }
+
+        public void Add(AgentResponse response)
+        {
+            lock (_gate)
+            {
+                var u = response.TotalUsage;
+                _total = new TokenUsage
+                {
+                    PromptTokens = _total.PromptTokens + u.PromptTokens,
+                    CompletionTokens = _total.CompletionTokens + u.CompletionTokens,
+                    CacheReadTokens = _total.CacheReadTokens + u.CacheReadTokens,
+                    CacheCreationTokens = _total.CacheCreationTokens + u.CacheCreationTokens
+                };
+                if (response.StopReason == "budget_exceeded") BudgetStopped = true;
+            }
+        }
+
+        public TokenUsage Total { get { lock (_gate) return _total; } }
+    }
+
+    private static decimal SpentOf(Dictionary<string, NodeRun> runs) =>
+        runs.Values.Sum(r => r.Usage.Sum(u => u.CostUsd));
+
+    private static FlowUsageTotals TotalsOf(Dictionary<string, NodeRun> runs) =>
+        FlowUsageTotals.Sum(runs.Values.SelectMany(r => r.Usage));
 
     private sealed record NodeResult(string Text, string? Failure, bool Cancelled, bool Declined, string? Outcome, TimeSpan Duration);
 
@@ -107,6 +153,9 @@ public sealed class FlowRunner
         var running = new Dictionary<string, Task<NodeResult>>(StringComparer.OrdinalIgnoreCase);
         var totalRuns = 0;
         string? stopReason = null;
+        var budgetHit = false;
+        var budget = options.MaxBudgetUsd is > 0 ? options.MaxBudgetUsd : null;
+        var finishOrder = new List<FlowStepRunUsage>();
 
         _logger.LogInformation("Starting flow {Flow} ({Nodes} nodes, max {Parallel} in parallel): {Waves}",
             pipeline.Name, graph.Nodes.Count, maxParallel, graph.DescribeWaves());
@@ -141,6 +190,13 @@ public sealed class FlowRunner
                         yield return Status(r);
                         continue;
                     }
+                    if (budget is { } cap && SpentOf(runs) >= cap)
+                    {
+                        budgetHit = true;
+                        stopReason = $"Budget exceeded: {FlowUsageFormat.Cost(SpentOf(runs))} spent of the {FlowUsageFormat.Cost(cap)} cap. " +
+                                     "Running steps finished their current call and no new step was started.";
+                        break;
+                    }
                     if (totalRuns >= options.MaxTotalRuns)
                     {
                         stopReason = $"Run limit reached ({options.MaxTotalRuns} node runs).";
@@ -158,7 +214,7 @@ public sealed class FlowRunner
                     var feedback = r.Feedback.ToList();
                     r.Feedback.Clear();
                     running[r.Node.Id] = StartNode(r, inputs, feedback, task, sessionId, workingDirectory, options,
-                        isolated.Contains(r.Node.Id), channel.Writer, runCts.Token);
+                        isolated.Contains(r.Node.Id), channel.Writer, runCts.Token, budget == null ? null : budget.Value - SpentOf(runs));
                 }
 
                 if (running.Count == 0)
@@ -184,8 +240,16 @@ public sealed class FlowRunner
 
                 var result = await running[finished].ConfigureAwait(false);
                 running.Remove(finished);
-                foreach (var evt in Complete(graph, runs, runs[finished], result, loopCounts, cancellationToken.IsCancellationRequested))
+                var before = runs[finished].Usage.Count;
+                foreach (var evt in Complete(graph, runs, runs[finished], result, loopCounts, cancellationToken.IsCancellationRequested, budget))
                     yield return evt;
+                finishOrder.AddRange(runs[finished].Usage.Skip(before));
+                if (runs[finished].BudgetStopped && !budgetHit)
+                {
+                    budgetHit = true;
+                    stopReason ??= $"Budget exceeded: '{finished}' hit the {FlowUsageFormat.Cost(budget ?? 0)} cap ({FlowUsageFormat.Cost(SpentOf(runs))} spent). " +
+                                   "No new step was started.";
+                }
             }
         }
         finally
@@ -203,7 +267,7 @@ public sealed class FlowRunner
         foreach (var r in runs.Values.Where(r => r.State == FlowNodeState.Pending))
         {
             r.State = FlowNodeState.Skipped;
-            r.Detail = cancelled ? "cancelled" : stopReason ?? "not reached";
+            r.Detail = cancelled ? "cancelled" : budgetHit ? "budget exceeded" : stopReason ?? "not reached";
             yield return Status(r);
         }
 
@@ -217,6 +281,8 @@ public sealed class FlowRunner
         FlowRunResult final;
         if (cancelled)
             final = new FlowRunResult(FlowRunStatus.Cancelled, "The flow was cancelled.", summaries);
+        else if (budgetHit)
+            final = new FlowRunResult(FlowRunStatus.BudgetExceeded, stopReason ?? "Budget exceeded.", summaries);
         else if (failedNodes.Count > 0)
             final = new FlowRunResult(FlowRunStatus.Failed, $"Failed: {string.Join(", ", failedNodes)}.", summaries);
         else if (stopReason != null)
@@ -231,7 +297,8 @@ public sealed class FlowRunner
         else
             final = new FlowRunResult(FlowRunStatus.Succeeded, $"Done: {summaries.Count(s => s.State == FlowNodeState.Done)} of {summaries.Count} steps ran.", summaries);
 
-        _logger.LogInformation("Flow {Flow} finished: {Status} — {Message}", pipeline.Name, final.Status, final.Message);
+        final = final with { StepRuns = finishOrder, BudgetUsd = budget };
+        _logger.LogInformation("Flow {Flow} finished: {Status} — {Message} ({Cost} spent)", pipeline.Name, final.Status, final.Message, FlowUsageFormat.Cost(final.Usage.CostUsd));
         yield return new FlowFinishedEvent(final);
     }
 
@@ -301,9 +368,12 @@ public sealed class FlowRunner
             .ToList();
 
     /// <summary>Record a finished node and apply its loop edges.</summary>
-    private IEnumerable<AgentEvent> Complete(FlowGraph graph, Dictionary<string, NodeRun> runs, NodeRun r, NodeResult result, Dictionary<int, int> loopCounts, bool flowCancelled)
+    private IEnumerable<AgentEvent> Complete(FlowGraph graph, Dictionary<string, NodeRun> runs, NodeRun r, NodeResult result, Dictionary<int, int> loopCounts, bool flowCancelled, decimal? budget)
     {
         r.Duration += result.Duration;
+        r.BudgetStopped = r.Current?.BudgetStopped ?? false;
+        if (RecordUsage(r, result.Duration) is { } stepUsage)
+            yield return new FlowUsageEvent(r.Node.Id, stepUsage, FlowUsageTotals.Sum(r.Usage), TotalsOf(runs), budget);
         if (result.Declined)
         {
             r.State = FlowNodeState.Skipped;
@@ -377,6 +447,21 @@ public sealed class FlowRunner
         }
     }
 
+    /// <summary>Turns the usage a finished run collected into a row (null when the model was never called).</summary>
+    private static FlowStepRunUsage? RecordUsage(NodeRun r, TimeSpan duration)
+    {
+        var current = r.Current;
+        r.Current = null;
+        if (current == null) return null;
+        var u = current.Total;
+        if (u.PromptTokens + u.CompletionTokens + u.CacheReadTokens + u.CacheCreationTokens == 0) return null;
+        var row = new FlowStepRunUsage(r.Node.Id, r.Runs, current.Model, current.Provider,
+            u.PromptTokens, u.CompletionTokens, u.CacheReadTokens, u.CacheCreationTokens,
+            AiCodeAgent.Core.Usage.ModelPricing.Cost(current.Model, u), AiCodeAgent.Core.Usage.ModelPricing.Lookup(current.Model) is null, duration);
+        r.Usage.Add(row);
+        return row;
+    }
+
     // ---------------------------------------------------------------- running one node
 
     private Task<NodeResult> StartNode(
@@ -389,7 +474,8 @@ public sealed class FlowRunner
         FlowRunOptions options,
         bool isolate,
         ChannelWriter<AgentEvent> events,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        decimal? remainingBudget = null)
     {
         var node = r.Node;
         var iteration = r.Runs;
@@ -406,6 +492,14 @@ public sealed class FlowRunner
             _logger.LogError(ex, "Flow node {Node} could not start", node.Id);
             return Task.FromResult(new NodeResult(string.Empty, ex.Message, false, false, null, TimeSpan.Zero));
         }
+        // The step may spend at most what is left of the flow's budget: the orchestrator stops it after the call that crosses it.
+        if (remainingBudget is { } left)
+        {
+            var own = step.Options.MaxBudgetUsd is > 0 ? step.Options.MaxBudgetUsd.Value : left;
+            step = step with { Options = step.Options with { MaxBudgetUsd = Math.Min(own, left) } };
+        }
+        var usage = new StepUsage { Model = step.Options.Model, Provider = step.Options.Provider };
+        r.Current = usage;
         var nodeSession = $"{sessionId}/{node.Id}#{iteration}";
 
         return Task.Run(async () =>
@@ -435,7 +529,9 @@ public sealed class FlowRunner
                     {
                         text = fin.Response.Content;
                         finishedOnce = true;
-                        stoppedByAgent |= fin.Response.WasCancelled;
+                        usage.Add(fin.Response);
+                        if (fin.Response.StopReason == "budget_exceeded") failure ??= "budget exceeded";
+                        else stoppedByAgent |= fin.Response.WasCancelled;
                     }
                     // The step's changes could not be merged back: the steps after it would work without them.
                     else if (inner is StatusUpdateEvent { Status: AgentSessionCoordinator.WorktreeNeedsAttention } merge)
@@ -466,7 +562,10 @@ public sealed class FlowRunner
                         {
                             await events.WriteAsync(evt, CancellationToken.None).ConfigureAwait(false);
                             if ((evt is AgentTaggedEvent t ? t.Inner : evt) is AgentFinishedEvent fin)
+                            {
+                                usage.Add(fin.Response);
                                 outcome = FlowPrompt.ParseOutcome(fin.Response.Content, node.Outcomes);
+                            }
                         }
                         if (cancellationToken.IsCancellationRequested)
                             return new NodeResult(text, null, true, false, null, clock.Elapsed);

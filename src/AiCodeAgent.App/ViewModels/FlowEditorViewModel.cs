@@ -100,6 +100,12 @@ public partial class FlowEditorViewModel : ObservableObject
     [ObservableProperty] private string _flowName = "new-flow";
     [ObservableProperty] private string _description = string.Empty;
     [ObservableProperty] private int _maxParallel = FlowRunner.DefaultMaxParallel;
+    /// <summary>Spend cap in USD as typed next to ▶ Run ("" = none).</summary>
+    [ObservableProperty] private string _budgetText = string.Empty;
+    /// <summary>Header text with the run total so far: "Run: 5.4k tok · $0.021 of $1.00".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRunUsage))]
+    private string _runUsageText = string.Empty;
     [ObservableProperty] private string? _selectedPipeline;
     [ObservableProperty] private FlowNodeViewModel? _selectedNode;
     [ObservableProperty] private FlowEdgeViewModel? _selectedEdge;
@@ -252,6 +258,18 @@ public partial class FlowEditorViewModel : ObservableObject
     partial void OnFlowNameChanged(string value) => MarkDirtyFromHeader();
     partial void OnDescriptionChanged(string value) => MarkDirtyFromHeader();
     partial void OnMaxParallelChanged(int value) => MarkDirtyFromHeader();
+    partial void OnBudgetTextChanged(string value) => MarkDirtyFromHeader();
+
+    public bool HasRunUsage => RunUsageText.Length > 0;
+    public bool HasUsageRows => UsageRows.Count > 0;
+
+    /// <summary>The step runs of the last finished flow run (step, round, model, tokens, cost, time) and a total line.</summary>
+    public ObservableCollection<FlowUsageRowViewModel> UsageRows { get; } = new();
+
+    /// <summary>The budget cap typed next to ▶ Run; null when empty, zero or not a number.</summary>
+    public decimal? BudgetUsd =>
+        decimal.TryParse((BudgetText ?? string.Empty).Trim().TrimStart('$').Replace(',', '.'), System.Globalization.NumberStyles.Number,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) && v > 0 ? v : null;
 
     private void MarkDirtyFromHeader()
     {
@@ -540,6 +558,7 @@ public partial class FlowEditorViewModel : ObservableObject
             FlowName = UniqueName("new-flow");
             Description = string.Empty;
             MaxParallel = FlowRunner.DefaultMaxParallel;
+            BudgetText = string.Empty;
             Nodes.Clear();
             Edges.Clear();
             SelectedNode = null;
@@ -619,6 +638,7 @@ public partial class FlowEditorViewModel : ObservableObject
             FlowName = pipeline.Name;
             Description = pipeline.Description ?? string.Empty;
             MaxParallel = pipeline.MaxParallel ?? FlowRunner.DefaultMaxParallel;
+            BudgetText = pipeline.MaxBudgetUsd is > 0 ? pipeline.MaxBudgetUsd.Value.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
             WasLinear = !pipeline.IsFlow;
 
             foreach (var node in graph.Nodes)
@@ -685,6 +705,7 @@ public partial class FlowEditorViewModel : ObservableObject
         Name = FlowName.Trim(),
         Description = string.IsNullOrWhiteSpace(Description) ? null : Description.Trim(),
         MaxParallel = MaxParallel == FlowRunner.DefaultMaxParallel ? null : MaxParallel,
+        MaxBudgetUsd = BudgetUsd,
         Stages = Nodes.Select(n => new SdlcStageDefinition
         {
             Id = n.Id,
@@ -1215,7 +1236,7 @@ public partial class FlowEditorViewModel : ObservableObject
         try
         {
             await foreach (var evt in _runner.RunAsync(definition, RunTask.Trim(), Guid.NewGuid().ToString(), WorkingDirectory,
-                               cancellationToken: _runCts.Token, maxParallel: MaxParallel))
+                               cancellationToken: _runCts.Token, maxParallel: MaxParallel, maxBudgetUsd: BudgetUsd))
             {
                 ApplyRunEvent(evt);
             }
@@ -1269,6 +1290,9 @@ public partial class FlowEditorViewModel : ObservableObject
             e.IsTaken = false;
             e.LoopsTaken = 0;
         }
+        RunUsageText = string.Empty;
+        UsageRows.Clear();
+        OnPropertyChanged(nameof(HasUsageRows));
         OnPropertyChanged(nameof(SelectedOutput));
     }
 
@@ -1352,8 +1376,19 @@ public partial class FlowEditorViewModel : ObservableObject
                 }
                 break;
 
+            case FlowUsageEvent usage when FindNode(usage.NodeId) is { } usedNode:
+                usedNode.UsageText = FlowUsageFormat.Badge(usage.Node);
+                RunUsageText = FlowUsageFormat.Header(usage.Run, usage.BudgetUsd);
+                break;
+
             case FlowFinishedEvent finishedFlow:
-                StatusText = $"Flow {finishedFlow.Result.Status.ToString().ToLowerInvariant()}: {finishedFlow.Result.Message}";
+                StatusText = $"Flow {FlowUsageFormat.StatusName(finishedFlow.Result.Status)}: {finishedFlow.Result.Message}";
+                UsageRows.Clear();
+                foreach (var stepRun in finishedFlow.Result.StepRuns) UsageRows.Add(FlowUsageRowViewModel.From(stepRun));
+                if (UsageRows.Count > 0) UsageRows.Add(FlowUsageRowViewModel.Total(finishedFlow.Result));
+                OnPropertyChanged(nameof(HasUsageRows));
+                if (finishedFlow.Result.StepRuns.Count > 0)
+                    RunUsageText = FlowUsageFormat.Header(finishedFlow.Result.Usage, finishedFlow.Result.BudgetUsd);
                 break;
 
             case StatusUpdateEvent { Status: "Flow invalid" } invalid:

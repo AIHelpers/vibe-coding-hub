@@ -94,6 +94,11 @@ public record SdlcPipelineDefinition
     public List<FlowEdge>? Edges { get; init; }
     /// <summary>Most stages a flow runs at the same time (default 3).</summary>
     public int? MaxParallel { get; init; }
+    /// <summary>
+    /// Spend cap in USD for one run of the flow. When the steps that have finished cost this much, running steps
+    /// finish their current call, no new step starts and the flow ends as <c>budget_exceeded</c>. Null = no cap.
+    /// </summary>
+    public decimal? MaxBudgetUsd { get; init; }
 
     /// <summary>True when this pipeline is a flow (has edges).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -732,7 +737,8 @@ public class SdlcPipelineRunner
         int maxIterationsPerStage = 30,
         CancellationToken cancellationToken = default,
         IReadOnlyDictionary<string, string>? cast = null,
-        int? maxParallel = null)
+        int? maxParallel = null,
+        decimal? maxBudgetUsd = null)
     {
         if (pipeline.IsFlow)
         {
@@ -742,7 +748,8 @@ public class SdlcPipelineRunner
                 Model = model,
                 MaxIterationsPerNode = maxIterationsPerStage,
                 Cast = cast,
-                MaxParallel = maxParallel ?? pipeline.MaxParallel
+                MaxParallel = maxParallel ?? pipeline.MaxParallel,
+                MaxBudgetUsd = maxBudgetUsd ?? pipeline.MaxBudgetUsd
             }, cancellationToken);
         }
         var plan = BuildPlan(pipeline, task, sessionId, workingDirectory, model, maxIterationsPerStage, cast);
