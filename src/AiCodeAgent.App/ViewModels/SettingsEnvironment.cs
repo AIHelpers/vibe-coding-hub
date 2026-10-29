@@ -34,6 +34,9 @@ public sealed class SettingsEnvironment
     /// <summary>The MCP servers from <c>~/.aiagent/mcp.json</c> and the project's <c>.aiagent/mcp.json</c>.</summary>
     public Func<IReadOnlyList<McpServerConfig>> LoadMcpServers { get; init; } = () => McpConfigLoader.Load(Directory.GetCurrentDirectory());
 
+    /// <summary>Builds the MCP server manager (E6-S3). Null = the page shows the read-only list.</summary>
+    public Func<McpStatusViewModel>? CreateMcpManager { get; init; }
+
     /// <summary>Opens a folder in the platform file manager.</summary>
     public Action<string> OpenFolder { get; init; } = DefaultOpenFolder;
 

@@ -187,7 +187,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         if (options.DisabledTools.Count > 0)
         {
-            tools = tools.Where(t => !options.DisabledTools.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            tools = tools.Where(t => !ToolPatterns.MatchesAny(options.DisabledTools, t.Name)).ToList();
         }
         tools = await ApplySkillToolAsync(tools, options).ConfigureAwait(false);
 

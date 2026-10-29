@@ -35,9 +35,10 @@ public class StdioMcpClient : IMcpClient
         if (string.IsNullOrWhiteSpace(_config.Command))
             throw new InvalidOperationException($"MCP server '{_config.Name}' has no command (use Url for remote servers).");
 
+        var (fileName, launchArgs) = ResolveLaunch(_config.Command);
         var psi = new ProcessStartInfo
         {
-            FileName = _config.Command,
+            FileName = fileName,
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -45,6 +46,8 @@ public class StdioMcpClient : IMcpClient
             CreateNoWindow = true
         };
 
+        foreach (var arg in launchArgs)
+            psi.ArgumentList.Add(arg);
         foreach (var arg in _config.Args)
             psi.ArgumentList.Add(arg);
 
@@ -75,6 +78,31 @@ public class StdioMcpClient : IMcpClient
         await SendNotificationAsync("notifications/initialized", new { }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("MCP stdio server '{Name}' connected", _config.Name);
+    }
+
+    /// <summary>
+    /// On Windows, <c>npx</c>, <c>npm</c> and <c>uvx</c> are .cmd scripts that <c>Process.Start</c> cannot launch by bare name: find
+    /// the file on PATH and start .cmd/.bat files through <c>cmd.exe /c</c>. Elsewhere the command is used as written.
+    /// </summary>
+    internal static (string FileName, IReadOnlyList<string> LeadingArgs) ResolveLaunch(string command, string? path = null, bool? windows = null)
+    {
+        if (!(windows ?? OperatingSystem.IsWindows()) || command.IndexOfAny(new[] { '/', '\\' }) >= 0 ||
+            command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return (command, Array.Empty<string>());
+
+        var dirs = (path ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var names = Path.HasExtension(command) ? new[] { command } : new[] { command + ".exe", command + ".cmd", command + ".bat" };
+        foreach (var dir in dirs)
+            foreach (var name in names)
+            {
+                var candidate = Path.Combine(dir.Trim('"'), name);
+                if (!File.Exists(candidate)) continue;
+                var ext = Path.GetExtension(candidate);
+                return ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase) || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase)
+                    ? ("cmd.exe", new[] { "/c", candidate })
+                    : (candidate, Array.Empty<string>());
+            }
+        return (command, Array.Empty<string>());
     }
 
     public async Task DisconnectAsync()

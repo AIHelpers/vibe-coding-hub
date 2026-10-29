@@ -31,4 +31,12 @@ public record McpServerConfig
 
     [JsonIgnore]
     public bool IsRemote => !string.IsNullOrEmpty(Url);
+
+    /// <summary>Which file the entry came from (set by the loader and the config store, never written to the file).</summary>
+    [JsonIgnore]
+    public McpScope Scope { get; init; } = McpScope.Global;
+
+    /// <summary>Environment variables referenced as <c>${env:NAME}</c> that were unset when the entry was expanded.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> MissingEnv { get; init; } = Array.Empty<string>();
 }

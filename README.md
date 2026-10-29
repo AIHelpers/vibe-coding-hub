@@ -111,7 +111,7 @@ Settings groups every option into sections: **Model · Agent · Safety · Cost �
 | Safety | hooks (list, trust status, trust button) | `settings.json` hooks, trust file in `~/.aiagent` |
 | Cost | budget per task (USD) | `config.json` (`Agent.MaxBudgetUsd`) |
 | Cost | price table | `~/.aiagent/pricing.json` |
-| Integrations | MCP servers (list), browser path | `mcp.json`, `config.json` (`Agent.BrowserPath`) |
+| Integrations | MCP servers (manager: status, test, add, edit, tools), browser path | `mcp.json`, `config.json` (`Agent.BrowserPath`) |
 | Advanced | log folder, config folder, reset settings | n/a |
 
 Environment variables still override the page, and the page says so, for example "Overridden by AIAGENT_SANDBOX": `AIAGENT_SANDBOX`, `AIAGENT_SANDBOX_IMAGE`, `AIAGENT_SANDBOX_NETWORK`, `AIAGENT_SANDBOX_MEMORY`, `AIAGENT_SANDBOX_CPUS` and `AIAGENT_BROWSER`.
@@ -581,3 +581,11 @@ make publish-all
 # or
 ./install.sh
 ```
+
+### MCP server manager
+
+**Settings → Integrations → MCP servers** lists the global (`~/.aiagent/mcp.json`) and project (`.aiagent/mcp.json`) servers. Each row shows a status dot (connected / error / disabled), the tool count and buttons: **Test** (starts the server, lists its tools, stops it), **Enable/Disable**, **Tools**, **Edit** and **Remove**. Changes are applied right away: the app reconnects the servers and the agent sees the new tools.
+
+- **＋ Add server** offers presets (GitHub, filesystem, Postgres, Playwright, Fetch) or a custom server (stdio command, or URL plus a token variable). The presets that use `npx` need Node.js; Fetch uses `uvx`.
+- **Secrets are never written as plain text.** Write `${env:GITHUB_TOKEN}` in env values, arguments, the URL or the token; the value is read from the environment when the server starts. The app refuses to save a token, password or key in either file. If a variable is not set, the row shows which one, and Test does not start the server.
+- **Tool browser.** *Tools* shows the server's tools with descriptions and the pattern for each (`mcp:github/create_issue`). Characters can be given the whole server with `tools: { add: [mcp:github/*] }`; the tool browser has a switch per character that edits this line. Built-in and pack characters are read-only. The same `mcp:server/*` patterns work in `disabled-tools` lists.

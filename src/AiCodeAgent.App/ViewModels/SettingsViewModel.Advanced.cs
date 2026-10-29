@@ -105,6 +105,11 @@ public partial class SettingsViewModel
 
     public string McpConfigPath => _env.McpConfigPath;
 
+    /// <summary>The MCP server manager (status, test, add, edit, tools); null when the host did not provide one.</summary>
+    public McpStatusViewModel? Mcp { get; private set; }
+    public bool HasMcpManager => Mcp != null;
+    public bool HasNoMcpManager => Mcp == null;
+
     /// <summary>Chrome, Edge or Chromium for the browser check. Empty = look in the usual places.</summary>
     [ObservableProperty]
     private string _browserPath = string.Empty;
@@ -204,6 +209,19 @@ public partial class SettingsViewModel
 
     private void RefreshMcpServers()
     {
+        if (_env.CreateMcpManager != null)
+        {
+            if (Mcp == null)
+            {
+                Mcp = _env.CreateMcpManager();
+                OnPropertyChanged(nameof(Mcp));
+                OnPropertyChanged(nameof(HasMcpManager));
+                OnPropertyChanged(nameof(HasNoMcpManager));
+            }
+            _ = Mcp.RefreshAsync();
+            return;
+        }
+
         McpServerRows.Clear();
         try
         {
@@ -218,7 +236,7 @@ public partial class SettingsViewModel
 
         McpSummary = McpServerRows.Count == 0
             ? "No MCP servers are configured."
-            : $"{McpServerRows.Count} server(s) configured. Edit mcp.json to add or change them; the full manager arrives with E6-S3.";
+            : $"{McpServerRows.Count} server(s) configured. Edit mcp.json to add or change them.";
     }
 
     // ---- Save ----------------------------------------------------------------------------------------------------
