@@ -152,6 +152,8 @@ public partial class FlowEditorViewModel : ObservableObject
     [ObservableProperty] private double _pendingEdgeY;
 
     private readonly Dictionary<string, TaskCompletionSource<bool>> _approvals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ApprovalFeedback> _gateFeedback = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TaskCompletionSource<FlowHumanChoice>> _humanChoices = new(StringComparer.OrdinalIgnoreCase);
 
     public FlowEditorViewModel(
         SdlcPipelineLoader? loader = null,
@@ -464,10 +466,22 @@ public partial class FlowEditorViewModel : ObservableObject
         }
     }
 
+    /// <summary>Palette id of the "Human decision" entry (it is not a character).</summary>
+    public const string HumanItemId = "@human";
+
     private void RebuildPalette()
     {
         Palette.Clear();
         var filter = PaletteFilter.Trim();
+        if (filter.Length == 0 || "human decision approval".Contains(filter, StringComparison.OrdinalIgnoreCase))
+            Palette.Add(new FlowPaletteItem
+            {
+                CharacterId = HumanItemId,
+                Label = "Human decision",
+                Description = "Runs no agent: asks you to choose an outcome (and leave a note)",
+                BaseRole = null,
+                Avatar = "🧑"
+            });
         foreach (var c in _characterById.Values.Where(c => !c.IsTemplate && c.IsValid).OrderBy(c => c.IsBuiltIn).ThenBy(c => c.Id, StringComparer.OrdinalIgnoreCase))
         {
             if (filter.Length > 0 && !c.Id.Contains(filter, StringComparison.OrdinalIgnoreCase) &&
@@ -666,6 +680,7 @@ public partial class FlowEditorViewModel : ObservableObject
                 {
                     Id = node.Id,
                     Name = string.IsNullOrWhiteSpace(s.Name) ? node.Id : s.Name,
+                    Kind = s.IsHuman ? "human" : string.Empty,
                     CharacterId = s.Character,
                     Role = s.Role,
                     Model = s.Model?.Trim() ?? string.Empty,
@@ -702,7 +717,12 @@ public partial class FlowEditorViewModel : ObservableObject
 
     private void ApplyCharacterLabel(FlowNodeViewModel vm)
     {
-        if (vm.CharacterId != null && _characterById.TryGetValue(vm.CharacterId, out var c))
+        if (vm.IsHuman)
+        {
+            vm.CharacterLabel = "You decide";
+            vm.Avatar = "🧑";
+        }
+        else if (vm.CharacterId != null && _characterById.TryGetValue(vm.CharacterId, out var c))
         {
             vm.CharacterLabel = c.DisplayName; // the node shows the avatar next to it
             vm.Avatar = string.IsNullOrEmpty(c.Avatar) ? "🤖" : c.Avatar;
@@ -727,7 +747,8 @@ public partial class FlowEditorViewModel : ObservableObject
         {
             Id = n.Id,
             Name = n.Name,
-            Character = string.IsNullOrWhiteSpace(n.CharacterId) ? null : n.CharacterId,
+            Kind = n.IsHuman ? "human" : null,
+            Character = n.IsHuman || string.IsNullOrWhiteSpace(n.CharacterId) ? null : n.CharacterId,
             Role = n.Role ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(n.Model) ? null : n.Model.Trim(),
             Provider = string.IsNullOrWhiteSpace(n.Provider) ? null : n.Provider.Trim(),
@@ -849,6 +870,7 @@ public partial class FlowEditorViewModel : ObservableObject
             case nameof(FlowNodeViewModel.OutcomesText):
             case nameof(FlowNodeViewModel.RequireConfirmation):
             case nameof(FlowNodeViewModel.Enabled):
+            case nameof(FlowNodeViewModel.Kind):
             case nameof(FlowNodeViewModel.Role):
             case nameof(FlowNodeViewModel.CharacterId):
             case nameof(FlowNodeViewModel.Model):
@@ -877,18 +899,23 @@ public partial class FlowEditorViewModel : ObservableObject
     public FlowNodeViewModel AddNode(string characterId, double x, double y)
     {
         Snapshot();
-        var c = _characterById.TryGetValue(characterId, out var info) ? info : null;
-        var baseId = LocalFileStore.ToKebab(characterId);
+        var human = characterId == HumanItemId;
+        var c = !human && _characterById.TryGetValue(characterId, out var info) ? info : null;
+        var baseId = human ? "human" : LocalFileStore.ToKebab(characterId);
         if (string.IsNullOrEmpty(baseId)) baseId = "step";
         var id = baseId;
         for (var i = 2; Nodes.Any(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase)); i++) id = $"{baseId}-{i}";
         var node = new FlowNodeViewModel
         {
             Id = id,
-            Name = c?.DisplayName ?? characterId,
-            CharacterId = characterId,
+            Name = human ? "Human decision" : c?.DisplayName ?? characterId,
+            CharacterId = human ? null : characterId,
             Role = string.Empty,
-            PromptTemplate = "Task: {task}\n\nDescribe what this step must do.",
+            Kind = human ? "human" : string.Empty,
+            OutcomesText = human ? "approved, rejected" : string.Empty,
+            PromptTemplate = human
+                ? "Review the result above and choose how the flow continues."
+                : "Task: {task}\n\nDescribe what this step must do.",
             X = Snap(Math.Max(0, x)),
             Y = Snap(Math.Max(0, y))
         };
@@ -1473,6 +1500,11 @@ public partial class FlowEditorViewModel : ObservableObject
             IsRunning = false;
             foreach (var tcs in _approvals.Values) tcs.TrySetResult(false);
             _approvals.Clear();
+            _gateFeedback.Clear();
+            foreach (var choice in _humanChoices.Values) choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
+            _humanChoices.Clear();
+            IsEnteringGateNote = false;
+            GateNote = string.Empty;
             _runCts?.Dispose();
             _runCts = null;
             RefreshHistory();
@@ -1484,6 +1516,7 @@ public partial class FlowEditorViewModel : ObservableObject
     {
         _runCts?.Cancel();
         foreach (var tcs in _approvals.Values) tcs.TrySetResult(false);
+        foreach (var choice in _humanChoices.Values) choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
         StatusText = "Stopping…";
     }
 
@@ -1498,7 +1531,63 @@ public partial class FlowEditorViewModel : ObservableObject
     {
         if (node == null || !_approvals.Remove(node.Id, out var tcs)) return;
         node.IsAwaitingApproval = false;
+        node.IsAwaitingGate = false;
+        _gateFeedback.Remove(node.Id);
+        IsEnteringGateNote = false;
+        GateNote = string.Empty;
         tcs.TrySetResult(approved);
+    }
+
+    /// <summary>The note typed for "Approve with note" (also used as the note of a human step).</summary>
+    [ObservableProperty] private string _gateNote = string.Empty;
+
+    /// <summary>The note box of the gate is open.</summary>
+    [ObservableProperty] private bool _isEnteringGateNote;
+
+    /// <summary>Gate: "Approve with note…" opens the note box.</summary>
+    [RelayCommand]
+    public void BeginGateNote() => IsEnteringGateNote = true;
+
+    /// <summary>Gate: approve; the note (if any) is added to the step's prompt as a reviewer note.</summary>
+    [RelayCommand]
+    public void ApproveWithNote(FlowNodeViewModel? node)
+    {
+        node ??= SelectedNode;
+        if (node != null && _gateFeedback.TryGetValue(node.Id, out var feedback) && !string.IsNullOrWhiteSpace(GateNote))
+            feedback.Text = GateNote.Trim();
+        AnswerGate(node, true);
+    }
+
+    /// <summary>Gate: do not run this step, carry on with the rest of the flow.</summary>
+    [RelayCommand]
+    public void SkipStep(FlowNodeViewModel? node)
+    {
+        node ??= SelectedNode;
+        if (node != null && _gateFeedback.TryGetValue(node.Id, out var feedback)) feedback.Skip = true;
+        AnswerGate(node, false);
+    }
+
+    /// <summary>Gate: stop the whole flow here.</summary>
+    [RelayCommand]
+    public void StopAtGate(FlowNodeViewModel? node) => AnswerGate(node ?? SelectedNode, false);
+
+    /// <summary>Human step: choose an outcome (null = a step without outcomes just continues). The note box is sent along.</summary>
+    [RelayCommand]
+    public void Choose(string? outcome) => AnswerHuman(SelectedNode, new FlowHumanChoice(outcome, string.IsNullOrWhiteSpace(GateNote) ? null : GateNote.Trim()));
+
+    /// <summary>Human step: stop the whole flow.</summary>
+    [RelayCommand]
+    public void StopHuman() => AnswerHuman(SelectedNode, new FlowHumanChoice(null, null, Stop: true));
+
+    private void AnswerHuman(FlowNodeViewModel? node, FlowHumanChoice choice)
+    {
+        if (node == null || !_humanChoices.Remove(node.Id, out var tcs)) return;
+        node.IsAwaitingChoice = false;
+        GateNote = string.Empty;
+        if (!choice.Stop)
+            node.AppendOutput($"\n\n**You chose:** {choice.Outcome ?? "continue"}" + (choice.Note != null ? $" — {choice.Note}" : "") + "\n");
+        tcs.TrySetResult(choice);
+        if (ReferenceEquals(node, SelectedNode)) OnPropertyChanged(nameof(SelectedOutput));
     }
 
     public void ResetRunState()
@@ -1579,9 +1668,13 @@ public partial class FlowEditorViewModel : ObservableObject
             case AgentTaggedEvent { Inner: ApprovalRequestEvent approval } tagged when FindNode(tagged.AgentId) is { } node:
                 if (approval.Call.Name == "pipeline_stage")
                 {
-                    // Confirmation gate of a step: answered on the node card.
+                    // Confirmation gate of a step: answered in the inspector (Approve / with note / Skip / Stop).
                     _approvals[node.Id] = approval.Approval;
+                    _gateFeedback[node.Id] = approval.Feedback;
                     node.IsAwaitingApproval = true;
+                    node.IsAwaitingGate = true;
+                    IsEnteringGateNote = false;
+                    GateNote = string.Empty;
                     SelectedNode = node;
                     StatusText = $"'{node.Name}' is waiting for your approval to start.";
                 }
@@ -1593,6 +1686,17 @@ public partial class FlowEditorViewModel : ObservableObject
                     node.AppendOutput(AgentOutputText.ApprovalNote(approval.Call.Name));
                     StatusText = $"'{node.Name}' asks to run {approval.Call.Name}.";
                 }
+                break;
+
+            case AgentTaggedEvent { Inner: FlowHumanRequestEvent human } when FindNode(human.NodeId) is { } humanNode:
+                // A human step: it runs no agent, it waits here for a choice.
+                _humanChoices[humanNode.Id] = human.Choice;
+                humanNode.IsAwaitingChoice = true;
+                humanNode.AppendOutput($"**Waiting for your decision**\n\n{human.Prompt}\n");
+                GateNote = string.Empty;
+                SelectedNode = humanNode;
+                OnPropertyChanged(nameof(SelectedOutput));
+                StatusText = $"'{humanNode.Name}' is waiting for your decision.";
                 break;
 
             case FlowUsageEvent usage when FindNode(usage.NodeId) is { } usedNode:

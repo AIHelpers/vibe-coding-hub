@@ -35,5 +35,11 @@ public sealed class ApprovalFeedback
 {
     public string? Text { get; set; }
 
+    /// <summary>
+    /// Flow gates only: when the answer is "no", skip this step and carry on with the rest of the flow instead of
+    /// stopping the whole flow.
+    /// </summary>
+    public bool Skip { get; set; }
+
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
 }

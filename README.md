@@ -386,6 +386,17 @@ parallel**, each in its own git worktree that is merged back when it finishes.
   re-run from it instead. Branches that were not taken stay skipped. The last 50 runs per flow are kept
   (`agent.flowRunHistoryLimit` in `~/.aiagent/config.json`). `aiagent pipeline run` prints `Run saved: <id>`.
   Linear pipelines (no `edges`) are not recorded.
+- **Gates and human steps:** `"requireConfirmation": true` makes a step wait for you before it starts. At the gate
+  the step offers **Approve**, **Approve with note…**, **Skip step** and **Stop flow**. A note is appended to the
+  step's prompt as `<reviewer_note>…</reviewer_note>` (and is saved with the run, so replay shows it). *Skip step*
+  leaves that step out and the rest of the flow carries on (steps that only depended on it are skipped too); *Stop
+  flow* ends the flow there, steps already running finish. A gate nobody answers within 10 minutes counts as *Stop flow*.
+  In the CLI the same choices are `a` / `n` / `s` / `t`. A step with `"kind": "human"` runs no agent: it shows its
+  prompt (with the results of the steps before it) and asks you to choose one of its `outcomes`, optionally with a
+  note; the arrows route on the choice exactly as they do for an agent's `OUTCOME:` line, so manual approval
+  branches and review loops work (`approved` → continue, `rejected` → back to the author with your note as
+  feedback). The note travels in the step's output to the steps after it. A human step has no character, model or
+  provider and costs nothing; one without `outcomes` is simply a pause. Add one from the palette (**Human decision**).
 - **Failures** skip only the steps after the failed one; other branches finish.
 - Pipelines **without `edges`** keep the old behavior: stages in order, one shared history.
 

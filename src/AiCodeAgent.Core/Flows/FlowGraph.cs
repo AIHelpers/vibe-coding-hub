@@ -239,10 +239,19 @@ public sealed class FlowGraph
             if (!stage.Enabled && Edges.Any(e => !e.IsLoop && e.IsConditional && Same(e.From, node.Id)))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error,
                     $"'{node.Name}' is disabled but arrows out of it have conditions; enable it or remove those conditions.", node.Id));
-            if (characterId == null && string.IsNullOrWhiteSpace(stage.Role))
+            if (!string.IsNullOrWhiteSpace(stage.Kind) && !stage.IsHuman && !string.Equals(stage.Kind, "agent", StringComparison.OrdinalIgnoreCase))
+                _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': unknown kind '{stage.Kind}' (use agent or human).", node.Id));
+            if (stage.IsHuman)
+            {
+                if (stage.RequireConfirmation)
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a human step; it already asks the user, so \"ask me before this step\" is ignored.", node.Id));
+                if (!string.IsNullOrWhiteSpace(stage.Character) || !string.IsNullOrWhiteSpace(stage.Model) || !string.IsNullOrWhiteSpace(stage.Provider))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a human step; its character, model and provider are ignored.", node.Id));
+            }
+            else if (characterId == null && string.IsNullOrWhiteSpace(stage.Role))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}' has no character or role.", node.Id));
 
-            if (characterId != null && characterLookup != null)
+            if (characterId != null && characterLookup != null && !stage.IsHuman)
             {
                 var c = characterLookup(characterId);
                 if (c == null)
@@ -254,7 +263,9 @@ public sealed class FlowGraph
             }
 
             if (string.IsNullOrWhiteSpace(stage.PromptTemplate))
-                _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' has no prompt; it only gets the task and its inputs.", node.Id));
+                _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, stage.IsHuman
+                    ? $"'{node.Name}' has no prompt; the reviewer only sees the task and the step's inputs."
+                    : $"'{node.Name}' has no prompt; it only gets the task and its inputs.", node.Id));
 
             var outcomes = node.Outcomes;
             if (outcomes.Any(o => string.IsNullOrWhiteSpace(o) || o.Any(char.IsWhiteSpace)))

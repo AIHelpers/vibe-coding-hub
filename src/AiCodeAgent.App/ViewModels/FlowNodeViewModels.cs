@@ -48,6 +48,14 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     /// <summary>Outcomes as typed in the inspector: "approved, rejected".</summary>
     [ObservableProperty] private string _outcomesText = string.Empty;
     [ObservableProperty] private bool _requireConfirmation;
+    /// <summary>"human" for a step that asks you to choose an outcome instead of running an agent; empty = an agent step.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsHuman), nameof(IsAgent))]
+    private string _kind = string.Empty;
+    public bool IsHuman => string.Equals(Kind, "human", StringComparison.OrdinalIgnoreCase);
+    public bool IsAgent => !IsHuman;
+    public bool HasOutcomes => Outcomes.Count > 0;
+    public bool HasNoOutcomes => Outcomes.Count == 0;
     [ObservableProperty] private bool _enabled = true;
     [ObservableProperty] private double _x;
     [ObservableProperty] private double _y;
@@ -68,6 +76,12 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     [ObservableProperty] private string? _runOutcome;
     [ObservableProperty] private string? _runDetail;
     [ObservableProperty] private bool _isAwaitingApproval;
+    /// <summary>The confirmation gate in front of the step (Approve / with note / Skip / Stop), as opposed to a tool approval inside it.</summary>
+    [ObservableProperty] private bool _isAwaitingGate;
+    /// <summary>A human step is waiting for your choice.</summary>
+    [ObservableProperty] private bool _isAwaitingChoice;
+    /// <summary>The card is waiting for you (a gate, a tool approval or a human step).</summary>
+    public bool NeedsAnswer => IsAwaitingApproval || IsAwaitingChoice;
     /// <summary>Tokens and cost of this step over all its rounds: "1.2k tok · $0.004". Empty until the step has used the model.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasUsage))]
@@ -112,7 +126,7 @@ public sealed partial class FlowNodeViewModel : ObservableObject
             var text = RunState switch
             {
                 FlowNodeState.Pending => IsAwaitingApproval ? "waiting for approval" : "waiting",
-                FlowNodeState.Running => IsAwaitingApproval ? "waiting for approval" : "running",
+                FlowNodeState.Running => IsAwaitingChoice ? "waiting for your decision" : IsAwaitingApproval ? "waiting for approval" : "running",
                 FlowNodeState.Done => RunDetail == "reused" ? "reused" : RunOutcome != null ? $"done → {RunOutcome}" : "done",
                 FlowNodeState.Failed => "failed",
                 FlowNodeState.Skipped => "skipped",
@@ -175,11 +189,18 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     partial void OnRunOutcomeChanged(string? value) => RaiseRunProperties();
     partial void OnRunDetailChanged(string? value) => RaiseRunProperties();
     partial void OnIsAwaitingApprovalChanged(bool value) => RaiseRunProperties();
+    partial void OnIsAwaitingChoiceChanged(bool value) => RaiseRunProperties();
     partial void OnCharacterLabelChanged(string value) => OnPropertyChanged(nameof(Subtitle));
-    partial void OnOutcomesTextChanged(string value) => OnPropertyChanged(nameof(Outcomes));
+    partial void OnOutcomesTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(Outcomes));
+        OnPropertyChanged(nameof(HasOutcomes));
+        OnPropertyChanged(nameof(HasNoOutcomes));
+    }
 
     private void RaiseRunProperties()
     {
+        OnPropertyChanged(nameof(NeedsAnswer));
         OnPropertyChanged(nameof(StateGlyph));
         OnPropertyChanged(nameof(StateText));
         OnPropertyChanged(nameof(Subtitle));
@@ -211,6 +232,8 @@ public sealed partial class FlowNodeViewModel : ObservableObject
         RunOutcome = null;
         RunDetail = null;
         IsAwaitingApproval = false;
+        IsAwaitingGate = false;
+        IsAwaitingChoice = false;
         UsageText = string.Empty;
         SetOutput(string.Empty);
     }

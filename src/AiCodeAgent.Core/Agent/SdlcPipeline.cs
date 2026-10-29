@@ -38,6 +38,15 @@ public record SdlcStageDefinition
     /// <summary>Ask the user to confirm before this stage starts. Built-in "Deploy" stages set this.</summary>
     public bool RequireConfirmation { get; init; }
     /// <summary>
+    /// <c>"agent"</c> (default) or <c>"human"</c>. A human step runs no agent: it shows its prompt and asks the user to
+    /// choose one of its <see cref="Outcomes"/> (with an optional note), and the edges route on the choice exactly as
+    /// they do for an agent step.
+    /// </summary>
+    public string? Kind { get; init; }
+    /// <summary>True for a step that asks the user instead of running an agent.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsHuman => string.Equals(Kind, "human", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
     /// Verdicts this stage must choose from in a flow (e.g. ["approved", "rejected"]). The agent
     /// ends its answer with <c>OUTCOME: &lt;one of them&gt;</c> and edges route on it.
     /// </summary>

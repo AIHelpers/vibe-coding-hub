@@ -128,7 +128,11 @@ public sealed class FlowRunner
     private static FlowUsageTotals TotalsOf(Dictionary<string, NodeRun> runs) =>
         FlowUsageTotals.Sum(runs.Values.SelectMany(r => r.Usage));
 
-    private sealed record NodeResult(string Text, string? Failure, bool Cancelled, bool Declined, string? Outcome, TimeSpan Duration);
+    /// <param name="Skipped">The reviewer skipped the step at its gate: it did not run and does not block what follows.</param>
+    private sealed record NodeResult(string Text, string? Failure, bool Cancelled, bool Declined, string? Outcome, TimeSpan Duration, bool Skipped = false);
+
+    private enum GateChoice { Approve, Skip, Stop }
+    private sealed record GateAnswer(GateChoice Choice, string? Note = null);
 
     public async IAsyncEnumerable<AgentEvent> RunAsync(
         SdlcPipelineDefinition pipeline,
@@ -299,6 +303,9 @@ public sealed class FlowRunner
                 foreach (var evt in Complete(graph, runs, runs[finished], result, loopCounts, cancellationToken.IsCancellationRequested, budget))
                     yield return evt;
                 finishOrder.AddRange(runs[finished].Usage.Skip(before));
+                // "Stop flow" at a gate (or a gate nobody answered): nothing new starts; steps already running finish.
+                if (result.Declined && !cancellationToken.IsCancellationRequested)
+                    stopReason ??= $"Not confirmed: {finished}. The flow was stopped at its gate.";
                 if (recorder != null && trace != null)
                     recorder.AddStep(StepRecord(runs[finished], trace, result, round, runs[finished].Usage.Skip(before).FirstOrDefault()), result.Text);
                 if (runs[finished].BudgetStopped && !budgetHit)
@@ -441,6 +448,15 @@ public sealed class FlowRunner
             yield return Status(r);
             yield break;
         }
+        if (result.Skipped)
+        {
+            // Skipped on purpose: not a failure, so steps that have another way in still run.
+            r.State = FlowNodeState.Skipped;
+            r.Detail = "skipped by reviewer";
+            r.BlockedByFailure = false;
+            yield return Status(r);
+            yield break;
+        }
         if (result.Cancelled)
         {
             r.State = FlowNodeState.Skipped;
@@ -513,9 +529,9 @@ public sealed class FlowRunner
         CharacterId = r.CharacterId,
         Model = trace.Model,
         Provider = trace.Provider,
-        State = result.Declined || result.Cancelled ? FlowNodeState.Skipped : result.Failure != null ? FlowNodeState.Failed : FlowNodeState.Done,
+        State = result.Declined || result.Cancelled || result.Skipped ? FlowNodeState.Skipped : result.Failure != null ? FlowNodeState.Failed : FlowNodeState.Done,
         Outcome = result.Outcome,
-        Detail = result.Declined ? "not confirmed" : result.Cancelled ? "cancelled" : result.Failure,
+        Detail = result.Declined ? "not confirmed" : result.Skipped ? "skipped by reviewer" : result.Cancelled ? "cancelled" : result.Failure,
         Prompt = trace.Prompt,
         InputFrom = trace.InputFrom,
         ToolCalls = trace.ToolCalls,
@@ -556,6 +572,8 @@ public sealed class FlowRunner
     {
         var node = r.Node;
         var iteration = r.Runs;
+        if (node.Stage.IsHuman)
+            return StartHumanNode(r, inputs, feedback, task, options, events, cancellationToken);
         // Build the step (character resolution, agent registration) here on the scheduler, not inside
         // the task: several nodes start at once and registration must not race.
         SessionStep step;
@@ -596,9 +614,17 @@ public sealed class FlowRunner
 
                 if (node.Stage.RequireConfirmation)
                 {
-                    var confirmed = await ConfirmAsync(step, events, options.ConfirmationTimeout, cancellationToken).ConfigureAwait(false);
-                    if (!confirmed)
+                    var gate = await ConfirmAsync(step, events, options.ConfirmationTimeout, cancellationToken).ConfigureAwait(false);
+                    if (gate.Choice == GateChoice.Stop)
                         return new NodeResult(string.Empty, null, cancellationToken.IsCancellationRequested, Declined: !cancellationToken.IsCancellationRequested, null, clock.Elapsed);
+                    if (gate.Choice == GateChoice.Skip)
+                        return new NodeResult(string.Empty, null, false, false, null, clock.Elapsed, Skipped: true);
+                    if (FlowReviewerNote.Block(gate.Note) != null)
+                    {
+                        // "Approve with note": the note goes to the agent with the prompt (and into the saved run).
+                        step = step with { Prompt = FlowReviewerNote.Append(step.Prompt, gate.Note) };
+                        usage.Prompt = step.Prompt;
+                    }
                 }
 
                 var finishedOnce = false;
@@ -685,9 +711,15 @@ public sealed class FlowRunner
         return first.Length > 80 ? first[..80] + "…" : first;
     }
 
-    private static async Task<bool> ConfirmAsync(SessionStep step, ChannelWriter<AgentEvent> events, TimeSpan timeout, CancellationToken cancellationToken)
+    /// <summary>
+    /// Asks the user whether the step may start. Answered through <see cref="ApprovalRequestEvent.Approval"/>:
+    /// true = approve (the optional note is <c>Feedback.Text</c>), false = stop the flow, false with
+    /// <c>Feedback.Skip</c> = skip this step only. No answer in time counts as stop.
+    /// </summary>
+    private static async Task<GateAnswer> ConfirmAsync(SessionStep step, ChannelWriter<AgentEvent> events, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var confirmation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var feedback = new ApprovalFeedback();
         var gateCall = new ToolCall
         {
             Id = Guid.NewGuid().ToString("N")[..12],
@@ -699,11 +731,63 @@ public sealed class FlowRunner
                 ["prompt"] = step.Prompt.Length > 300 ? step.Prompt[..300] + "…" : step.Prompt
             }
         };
-        await events.WriteAsync(new AgentTaggedEvent(new ApprovalRequestEvent(gateCall, confirmation, RiskLevel.Execute), step.AgentId, step.Role), CancellationToken.None).ConfigureAwait(false);
+        await events.WriteAsync(new AgentTaggedEvent(new ApprovalRequestEvent(gateCall, confirmation, RiskLevel.Execute) { Feedback = feedback }, step.AgentId, step.Role), CancellationToken.None).ConfigureAwait(false);
         using var gateCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         gateCts.CancelAfter(timeout);
         await Task.WhenAny(confirmation.Task, Task.Delay(Timeout.InfiniteTimeSpan, gateCts.Token))
             .ContinueWith(_ => { }, TaskScheduler.Default).ConfigureAwait(false);
-        return confirmation.Task.IsCompletedSuccessfully && confirmation.Task.Result;
+        if (!confirmation.Task.IsCompletedSuccessfully) return new GateAnswer(GateChoice.Stop);
+        if (confirmation.Task.Result) return new GateAnswer(GateChoice.Approve, feedback.Text);
+        return new GateAnswer(feedback.Skip ? GateChoice.Skip : GateChoice.Stop);
+    }
+
+    /// <summary>
+    /// A human step: no agent runs. The user gets the step's prompt and picks one of its outcomes (with an optional note);
+    /// the choice routes the edges like an agent's OUTCOME line, and the note travels in the step's output.
+    /// </summary>
+    private Task<NodeResult> StartHumanNode(
+        NodeRun r, IReadOnlyList<FlowNodeOutput> inputs, IReadOnlyList<FlowNodeOutput> feedback, string task,
+        FlowRunOptions options, ChannelWriter<AgentEvent> events, CancellationToken cancellationToken)
+    {
+        var node = r.Node;
+        var prompt = FlowPrompt.Build(node.Stage.PromptTemplate, task, inputs, feedback, Array.Empty<string>());
+        r.Current = new StepUsage
+        {
+            Prompt = prompt,
+            InputFrom = inputs.Select(i => i.NodeId).Concat(feedback.Select(f => f.NodeId)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        };
+        return Task.Run(async () =>
+        {
+            var clock = Stopwatch.StartNew();
+            try
+            {
+                var choice = new TaskCompletionSource<FlowHumanChoice>(TaskCreationOptions.RunContinuationsAsynchronously);
+                await events.WriteAsync(new AgentTaggedEvent(new FlowHumanRequestEvent(node.Id, prompt, node.Outcomes, choice), node.Id, "human"), CancellationToken.None).ConfigureAwait(false);
+                using var gateCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                gateCts.CancelAfter(options.ConfirmationTimeout);
+                await Task.WhenAny(choice.Task, Task.Delay(Timeout.InfiniteTimeSpan, gateCts.Token))
+                    .ContinueWith(_ => { }, TaskScheduler.Default).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested)
+                    return new NodeResult(string.Empty, null, true, false, null, clock.Elapsed);
+                if (!choice.Task.IsCompletedSuccessfully || choice.Task.Result.Stop)
+                    return new NodeResult(string.Empty, null, false, Declined: true, null, clock.Elapsed);
+
+                var picked = choice.Task.Result;
+                string? outcome = null;
+                if (node.Outcomes.Count > 0)
+                {
+                    outcome = node.Outcomes.FirstOrDefault(o => string.Equals(o, picked.Outcome?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (outcome == null)
+                        return new NodeResult(string.Empty, $"'{picked.Outcome}' is not one of the outcomes ({string.Join(" | ", node.Outcomes)})", false, false, null, clock.Elapsed);
+                }
+                var text = outcome == null ? "The reviewer continued the flow." : $"The reviewer chose '{outcome}'.";
+                if (!string.IsNullOrWhiteSpace(picked.Note)) text += $"\nReviewer note: {picked.Note.Trim()}";
+                return new NodeResult(text, null, false, false, outcome, clock.Elapsed);
+            }
+            catch (OperationCanceledException)
+            {
+                return new NodeResult(string.Empty, null, true, false, null, clock.Elapsed);
+            }
+        }, CancellationToken.None);
     }
 }
