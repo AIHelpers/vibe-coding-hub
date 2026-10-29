@@ -291,6 +291,12 @@ public partial class App : Application
         // Built-in -> ~/.aiagent/pipelines -> <working directory>/.aiagent/pipelines; MainViewModel re-points the project layer when the folder changes.
         services.AddSingleton(sp => new SdlcPipelineLoader(
             sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, Directory.GetCurrentDirectory()));
+        // E5-S5: every flow run is saved under ~/.aiagent/runs/flows/<flow>/<runId>/; the last N per flow are kept (config.json: agent.flowRunHistoryLimit).
+        services.AddSingleton(sp =>
+        {
+            var configSvc = sp.GetRequiredService<ConfigurationService>();
+            return new AiCodeAgent.Core.Flows.FlowRunStore(null, () => configSvc.Config.Agent.FlowRunHistoryLimit);
+        });
         services.AddSingleton<SdlcPipelineRunner>();
 
         // Multi-agent session registry (Feature 5) - shared by SessionDashboardViewModel

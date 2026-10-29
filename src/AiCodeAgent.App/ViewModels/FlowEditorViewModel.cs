@@ -33,6 +33,7 @@ public partial class FlowEditorViewModel : ObservableObject
     private readonly SdlcPipelineRunner? _runner;
     private readonly ICharacterRegistry? _characters;
     private readonly ILogger<FlowEditorViewModel>? _logger;
+    private readonly FlowRunStore? _runStore;
     private readonly ISkillRegistry? _skills;
     private readonly Stack<string> _undo = new();
     private readonly Stack<string> _redo = new();
@@ -157,8 +158,10 @@ public partial class FlowEditorViewModel : ObservableObject
         SdlcPipelineRunner? runner = null,
         ICharacterRegistry? characters = null,
         ILogger<FlowEditorViewModel>? logger = null,
-        ISkillRegistry? skills = null)
+        ISkillRegistry? skills = null,
+        FlowRunStore? runStore = null)
     {
+        _runStore = runStore;
         _skills = skills;
         _loader = loader;
         _runner = runner;
@@ -169,6 +172,9 @@ public partial class FlowEditorViewModel : ObservableObject
     }
 
     public bool HasSelection => SelectedNode != null || SelectedEdge != null;
+
+    /// <summary>The canvas cannot be edited: a run is in progress, or a past run is open for replay.</summary>
+    public bool IsLocked => IsRunning || IsReplay;
 
     /// <summary><c>builtin</c>, <c>global</c> or <c>project</c> for the open flow; <c>new</c> before it is saved.</summary>
     public string ScopeBadge => LoadedScope?.Label() ?? "new";
@@ -195,7 +201,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public bool IsDrawingEdge => PendingEdgeSource != null;
 
     /// <summary>The selected node's live output, or the last finished run's summary.</summary>
-    public string SelectedOutput => SelectedNode?.OutputText ?? string.Empty;
+    public string SelectedOutput => IsReplay && SelectedNode != null ? ReplayMarkdown(SelectedNode.Id) : SelectedNode?.OutputText ?? string.Empty;
 
     /// <summary>Raised by "Open in chat": (title, Markdown). The host shows it in the chat.</summary>
     public event Action<string, string>? OpenInChatRequested;
@@ -252,7 +258,12 @@ public partial class FlowEditorViewModel : ObservableObject
 
     partial void OnPendingEdgeXChanged(double value) => OnPropertyChanged(nameof(PendingEdgePath));
     partial void OnPendingEdgeYChanged(double value) => OnPropertyChanged(nameof(PendingEdgePath));
-    partial void OnIsRunningChanged(bool value) => OnPropertyChanged(nameof(CanRun));
+    partial void OnIsRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanRun));
+        OnPropertyChanged(nameof(IsLocked));
+        RerunFromHereCommand.NotifyCanExecuteChanged();
+    }
     partial void OnIsValidChanged(bool value) => OnPropertyChanged(nameof(CanRun));
     partial void OnPaletteFilterChanged(string value) => RebuildPalette();
     partial void OnFlowNameChanged(string value) => MarkDirtyFromHeader();
@@ -306,6 +317,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public async Task OpenGalleryAsync()
     {
         if (IsRunning) return;
+        LeaveReplay(restore: true);
         await RefreshCharactersAsync();
         await RebuildTemplatesAsync();
         IsGalleryOpen = true;
@@ -348,6 +360,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public async Task UseTemplateAsync(FlowTemplateCardViewModel? card)
     {
         if (card == null || IsRunning) return;
+        LeaveReplay(restore: true);
         if (card.HasMissing && _characters != null)
         {
             foreach (var other in Templates) other.IsConfirming = false;
@@ -380,6 +393,7 @@ public partial class FlowEditorViewModel : ObservableObject
     private async Task ApplyTemplateAsync(FlowTemplateCardViewModel card, bool createMissing)
     {
         if (IsRunning) return;
+        LeaveReplay(restore: false);
         card.IsConfirming = false;
         try
         {
@@ -552,6 +566,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public void NewFlow()
     {
         if (IsRunning) return;
+        LeaveReplay(restore: false);
         _restoring = true;
         try
         {
@@ -595,6 +610,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public void Load(string name)
     {
         if (IsRunning) return;
+        LeaveReplay(restore: false);
         var pipeline = _loader?.GetPipeline(name);
         if (pipeline == null)
         {
@@ -606,6 +622,7 @@ public partial class FlowEditorViewModel : ObservableObject
         _redo.Clear();
         RaiseUndo();
         IsDirty = false;
+        RefreshHistory();
         _restoring = true;
         SelectedPipeline = pipeline.Name;
         SelectedPipelineItem = PipelineItems.FirstOrDefault(i => string.Equals(i.Name, pipeline.Name, StringComparison.OrdinalIgnoreCase));
@@ -890,6 +907,7 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public void AddFromPalette(FlowPaletteItem? item)
     {
+        if (IsLocked) return;
         if (item == null) return;
         var anchor = SelectedNode ?? Nodes.OrderByDescending(n => n.X).FirstOrDefault();
         var x = anchor == null ? 40 : anchor.X + FlowLayout.DefaultColumnWidth;
@@ -908,6 +926,7 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>Start dragging a node (one undo step per drag).</summary>
     public void BeginMove(FlowNodeViewModel node)
     {
+        if (IsLocked) { SelectedNode = node; return; }
         Snapshot();
         _moving = true;
         SelectedNode = node;
@@ -915,6 +934,7 @@ public partial class FlowEditorViewModel : ObservableObject
 
     public void MoveNode(FlowNodeViewModel node, double x, double y)
     {
+        if (IsLocked) return;
         _restoring = true;
         node.X = Snap(Math.Max(0, x));
         node.Y = Snap(Math.Max(0, y));
@@ -939,6 +959,7 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>Connect two nodes. Returns null (with a status message) when the edge is not allowed.</summary>
     public FlowEdgeViewModel? Connect(FlowNodeViewModel from, FlowNodeViewModel to, bool snapshot = true)
     {
+        if (IsLocked) return null;
         if (Edges.Any(e => ReferenceEquals(e.From, from) && ReferenceEquals(e.To, to) && e.When == null))
         {
             StatusText = $"{from.Id} → {to.Id} already exists.";
@@ -970,6 +991,7 @@ public partial class FlowEditorViewModel : ObservableObject
 
     public void BeginEdge(FlowNodeViewModel from, double x, double y)
     {
+        if (IsLocked) return;
         PendingEdgeSource = from;
         PendingEdgeX = x;
         PendingEdgeY = y;
@@ -997,7 +1019,7 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public void DeleteSelected()
     {
-        if (IsRunning) return;
+        if (IsLocked) return;
         if (SelectedEdge != null)
         {
             Snapshot();
@@ -1024,7 +1046,7 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>Change the selected edge's loop limit (0 = not a loop).</summary>
     public void SetMaxLoops(int value)
     {
-        if (SelectedEdge == null || SelectedEdge.MaxLoops == value) return;
+        if (SelectedEdge == null || SelectedEdge.MaxLoops == value || IsLocked) return;
         Snapshot();
         SelectedEdge.MaxLoops = Math.Max(0, value);
         Changed();
@@ -1040,6 +1062,7 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public void AutoLayout()
     {
+        if (IsLocked) return;
         var graph = FlowGraph.Build(ToDefinition());
         var positions = FlowLayout.Compute(graph);
         Snapshot();
@@ -1060,7 +1083,7 @@ public partial class FlowEditorViewModel : ObservableObject
 
     private void Restore(Stack<string> from, Stack<string> to, string message)
     {
-        if (from.Count == 0 || IsRunning) return;
+        if (from.Count == 0 || IsLocked) return;
         to.Push(JsonSerializer.Serialize(ToDefinition(), SdlcPipelineLoader.FileJsonOptions));
         var json = from.Pop();
         var selectedId = SelectedNode?.Id;
@@ -1085,7 +1108,7 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public async Task SaveAsync()
     {
-        if (_loader == null) return;
+        if (_loader == null || IsReplay) return;
         var name = FlowName.Trim();
         if (!LocalFileStore.IsValidName(name))
         {
@@ -1125,7 +1148,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public async Task SaveToScopeAsync(PipelineScope scope)
     {
         IsChoosingSaveScope = false;
-        if (_loader == null) return;
+        if (_loader == null || IsReplay) return;
         var name = FlowName.Trim();
         if (!LocalFileStore.IsValidName(name))
         {
@@ -1164,7 +1187,7 @@ public partial class FlowEditorViewModel : ObservableObject
     [RelayCommand]
     public void RequestDelete()
     {
-        if (_loader == null) return;
+        if (_loader == null || IsReplay) return;
         var entry = _loader.GetEntry(FlowName);
         if (entry?.FilePath is not { } path || !System.IO.File.Exists(path)) return;
         IsChoosingSaveScope = false;
@@ -1209,13 +1232,208 @@ public partial class FlowEditorViewModel : ObservableObject
             : $"{errors} problem(s): {string.Join(" ", Problems.Where(p => p.IsError).Take(3).Select(p => p.Message))}";
     }
 
+    // ============================================================ history and replay
+
+    /// <summary>Saved runs of the open flow, newest first.</summary>
+    public ObservableCollection<FlowRunListItem> History { get; } = new();
+    public bool HasHistory => History.Count > 0;
+
+    /// <summary>The run picked in the History dropdown; picking one opens it in replay mode.</summary>
+    [ObservableProperty] private FlowRunListItem? _selectedRun;
+
+    /// <summary>A past run is open: the canvas is read-only and shows how that run ended.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLocked))]
+    [NotifyPropertyChangedFor(nameof(SelectedOutput))]
+    private bool _isReplay;
+
+    /// <summary>"Replay · 29 Oct 18:02 · succeeded" while a past run is open.</summary>
+    [ObservableProperty] private string _replayTitle = string.Empty;
+
+    private FlowRunRecord? _replayRecord;
+    private readonly Dictionary<string, string> _replayMarkdown = new(StringComparer.OrdinalIgnoreCase);
+    private string? _beforeReplay;
+    private bool _dirtyBeforeReplay;
+    private bool _suppressRunSelection;
+
+    partial void OnIsReplayChanged(bool value) => RerunFromHereCommand.NotifyCanExecuteChanged();
+
+    partial void OnSelectedRunChanged(FlowRunListItem? value)
+    {
+        if (_suppressRunSelection || value == null) return;
+        OpenRun(value.RunId);
+    }
+
+    private void SetSelectedRun(FlowRunListItem? item)
+    {
+        _suppressRunSelection = true;
+        try { SelectedRun = item; }
+        finally { _suppressRunSelection = false; }
+    }
+
+    /// <summary>Re-reads the saved runs of the open flow.</summary>
+    public void RefreshHistory()
+    {
+        try
+        {
+            History.Clear();
+            if (_runStore != null && !string.IsNullOrWhiteSpace(FlowName))
+                foreach (var run in _runStore.List(FlowName.Trim()))
+                    History.Add(new FlowRunListItem(run));
+            SetSelectedRun(IsReplay && _replayRecord != null ? History.FirstOrDefault(h => h.RunId == _replayRecord.Id) : null);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Could not list the run history of {Flow}", FlowName);
+        }
+        OnPropertyChanged(nameof(HasHistory));
+    }
+
+    /// <summary>Opens a saved run of the open flow: the canvas shows the flow as it was, coloured by how each step ended.</summary>
+    public void OpenRun(string runId)
+    {
+        if (_runStore == null || IsRunning) return;
+        var flowName = IsReplay && _replayRecord != null ? _replayRecord.FlowName : FlowName.Trim();
+        var record = _runStore.Load(flowName, runId);
+        if (record == null)
+        {
+            StatusText = "That run could not be read (its files may have been deleted).";
+            RefreshHistory();
+            return;
+        }
+
+        if (!IsReplay)
+        {
+            _beforeReplay = JsonSerializer.Serialize(ToDefinition(), SdlcPipelineLoader.FileJsonOptions);
+            _dirtyBeforeReplay = IsDirty;
+        }
+        _replayRecord = record;
+        _replayMarkdown.Clear();
+        LoadDefinition(record.Definition);
+        IsReplay = true;
+        ApplyReplayState(record);
+        ReplayTitle = $"Replay · {record.StartedAt.ToLocalTime():d MMM HH:mm} · {FlowUsageFormat.StatusName(record.Status)}";
+        StatusText = $"Replay of the run from {record.StartedAt.ToLocalTime():d MMM HH:mm}: {FlowUsageFormat.StatusName(record.Status)} — {record.Message}";
+        SelectedNode = Nodes.FirstOrDefault();
+        OnPropertyChanged(nameof(SelectedOutput));
+        SetSelectedRun(History.FirstOrDefault(h => h.RunId == runId));
+        RerunFromHereCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ApplyReplayState(FlowRunRecord record)
+    {
+        ResetRunState();
+        foreach (var node in Nodes)
+        {
+            var steps = record.Steps.Where(s => s.NodeId.Equals(node.Id, StringComparison.OrdinalIgnoreCase)).OrderBy(s => s.Round).ToList();
+            if (steps.Count == 0)
+            {
+                node.RunState = FlowNodeState.Skipped;
+                node.RunDetail = "not run";
+                continue;
+            }
+            var last = steps[^1];
+            node.RunDetail = last.Reused ? "reused" : last.Detail;
+            node.RunCount = steps.Max(s => s.Round);
+            node.RunOutcome = last.Outcome;
+            node.RunState = last.State;
+            var usage = steps.Where(s => s.Usage != null).Select(s => s.Usage!).ToList();
+            if (usage.Count > 0) node.UsageText = FlowUsageFormat.Badge(FlowUsageTotals.Sum(usage));
+        }
+        foreach (var edge in Edges)
+        {
+            edge.IsTaken = !edge.IsLoop && edge.From.RunState == FlowNodeState.Done
+                           && edge.To.RunState is FlowNodeState.Done or FlowNodeState.Failed
+                           && (edge.When == null || string.Equals(edge.When, edge.From.RunOutcome, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var usages = record.Steps.Where(s => s.Usage != null).Select(s => s.Usage!).ToList();
+        var result = new FlowRunResult(record.Status, record.Message, Array.Empty<FlowNodeRunSummary>()) { StepRuns = usages, BudgetUsd = record.BudgetUsd };
+        UsageRows.Clear();
+        foreach (var u in usages) UsageRows.Add(FlowUsageRowViewModel.From(u));
+        if (UsageRows.Count > 0) UsageRows.Add(FlowUsageRowViewModel.Total(result));
+        RunUsageText = usages.Count > 0 ? FlowUsageFormat.Header(result.Usage, record.BudgetUsd) : string.Empty;
+        OnPropertyChanged(nameof(HasUsageRows));
+        RunTask = record.Task;
+    }
+
+    private string ReplayMarkdown(string nodeId)
+    {
+        if (_replayRecord == null) return string.Empty;
+        if (_replayMarkdown.TryGetValue(nodeId, out var cached)) return cached;
+        var record = _replayRecord;
+        var text = FlowRunMarkdown.Step(record, nodeId, step => _runStore?.LoadOutput(record.FlowName, record.Id, step));
+        _replayMarkdown[nodeId] = text;
+        return text;
+    }
+
+    /// <summary>Closes replay mode and brings back the flow that was open before.</summary>
+    [RelayCommand]
+    public void ExitReplay()
+    {
+        if (!IsReplay) return;
+        LeaveReplay(restore: true);
+        StatusText = "Back to the flow.";
+    }
+
+    private void LeaveReplay(bool restore)
+    {
+        if (!IsReplay) return;
+        IsReplay = false;
+        ReplayTitle = string.Empty;
+        _replayRecord = null;
+        _replayMarkdown.Clear();
+        ResetRunState();
+        if (restore && _beforeReplay != null)
+        {
+            var before = JsonSerializer.Deserialize<SdlcPipelineDefinition>(_beforeReplay, SdlcPipelineLoader.FileJsonOptions);
+            if (before != null) LoadDefinition(before);
+            IsDirty = _dirtyBeforeReplay;
+        }
+        _beforeReplay = null;
+        SetSelectedRun(null);
+        OnPropertyChanged(nameof(SelectedOutput));
+    }
+
+    private bool CanRerunFromHere => IsReplay && !IsRunning && SelectedNode != null && _runner != null;
+
+    /// <summary>
+    /// Starts a new run from the selected step of the open past run: the steps before it keep their recorded output
+    /// (shown as "reused") and the step and everything after it run again, on the flow as it was in that run.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRerunFromHere))]
+    public async Task RerunFromHereAsync()
+    {
+        if (_replayRecord is not { } record || _runStore == null || SelectedNode is not { } from) return;
+        var plan = _runStore.BuildReplay(record, from.Id, out var error);
+        if (plan == null)
+        {
+            StatusText = error ?? "This run cannot be re-run from here.";
+            return;
+        }
+
+        // The canvas already shows the flow of that run: leave replay mode without switching back to the other version.
+        var task = record.Task;
+        IsReplay = false;
+        ReplayTitle = string.Empty;
+        _replayRecord = null;
+        _replayMarkdown.Clear();
+        _beforeReplay = null;
+        SetSelectedRun(null);
+        IsDirty = true;
+        RunTask = task;
+        await RunCoreAsync(plan);
+    }
+
     // ============================================================ run
 
     [RelayCommand]
-    public async Task RunAsync()
+    public Task RunAsync() => RunCoreAsync(null);
+
+    private async Task RunCoreAsync(FlowReplayPlan? replay)
     {
         if (_runner == null) { StatusText = "Running flows is not available."; return; }
-        if (IsRunning) return;
+        if (IsRunning || IsReplay) return;
         Revalidate();
         if (!IsValid)
         {
@@ -1236,7 +1454,7 @@ public partial class FlowEditorViewModel : ObservableObject
         try
         {
             await foreach (var evt in _runner.RunAsync(definition, RunTask.Trim(), Guid.NewGuid().ToString(), WorkingDirectory,
-                               cancellationToken: _runCts.Token, maxParallel: MaxParallel, maxBudgetUsd: BudgetUsd))
+                               cancellationToken: _runCts.Token, maxParallel: MaxParallel, maxBudgetUsd: BudgetUsd, replay: replay))
             {
                 ApplyRunEvent(evt);
             }
@@ -1257,6 +1475,7 @@ public partial class FlowEditorViewModel : ObservableObject
             _approvals.Clear();
             _runCts?.Dispose();
             _runCts = null;
+            RefreshHistory();
         }
     }
 

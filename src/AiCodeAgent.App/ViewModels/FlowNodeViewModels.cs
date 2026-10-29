@@ -113,7 +113,7 @@ public sealed partial class FlowNodeViewModel : ObservableObject
             {
                 FlowNodeState.Pending => IsAwaitingApproval ? "waiting for approval" : "waiting",
                 FlowNodeState.Running => IsAwaitingApproval ? "waiting for approval" : "running",
-                FlowNodeState.Done => RunOutcome != null ? $"done → {RunOutcome}" : "done",
+                FlowNodeState.Done => RunDetail == "reused" ? "reused" : RunOutcome != null ? $"done → {RunOutcome}" : "done",
                 FlowNodeState.Failed => "failed",
                 FlowNodeState.Skipped => "skipped",
                 _ => string.Empty
@@ -173,6 +173,7 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     partial void OnRunStateChanged(FlowNodeState? value) => RaiseRunProperties();
     partial void OnRunCountChanged(int value) => RaiseRunProperties();
     partial void OnRunOutcomeChanged(string? value) => RaiseRunProperties();
+    partial void OnRunDetailChanged(string? value) => RaiseRunProperties();
     partial void OnIsAwaitingApprovalChanged(bool value) => RaiseRunProperties();
     partial void OnCharacterLabelChanged(string value) => OnPropertyChanged(nameof(Subtitle));
     partial void OnOutcomesTextChanged(string value) => OnPropertyChanged(nameof(Outcomes));

@@ -660,6 +660,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
     // Built-in -> ~/.aiagent/pipelines -> <dir>/.aiagent/pipelines (the project wins on a name clash).
     services.AddSingleton(sp => new SdlcPipelineLoader(
         sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, dir ?? Directory.GetCurrentDirectory()));
+    services.AddSingleton(new AiCodeAgent.Core.Flows.FlowRunStore(null, () => configSvc.Config.Agent.FlowRunHistoryLimit));
     services.AddSingleton<SdlcPipelineRunner>();
 
     // Session export/import services (Priority 5)

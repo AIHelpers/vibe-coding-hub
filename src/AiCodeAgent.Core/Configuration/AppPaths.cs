@@ -22,6 +22,8 @@ public static class AppPaths
     public static string Skills => Path.Combine(UserRoot, "skills");
     public static string Characters => Path.Combine(UserRoot, "characters");
     public static string Runs => Path.Combine(UserRoot, "runs");
+    /// <summary>Saved flow runs: <c>runs/flows/&lt;flow&gt;/&lt;runId&gt;/</c>.</summary>
+    public static string FlowRuns => Path.Combine(Runs, "flows");
     public static string Checkpoints => Path.Combine(UserRoot, "checkpoints");
     public static string Logs => Path.Combine(UserRoot, "logs");
     public static string Sessions => Path.Combine(UserRoot, "sessions");

@@ -135,6 +135,7 @@ public class PipelineRunMode
         if (result != null)
         {
             log.WriteLine(FlowConsoleFormatter.Summary(result));
+            if (result.RunId != null) log.WriteLine($"Run saved: {result.RunId}");
             if (json) Console.WriteLine(FlowUsageFormat.ToJson(pipeline.Name, result));
             if (!result.Succeeded) Environment.ExitCode = 1;
         }

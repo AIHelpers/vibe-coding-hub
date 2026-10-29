@@ -375,6 +375,17 @@ parallel**, each in its own git worktree that is merged back when it finishes.
   says what was spent. Parallel steps each get what was left when they started, so a run can overshoot by one call
   per running step. A model without a known price counts as `$0` and is marked *unpriced* (a step without a `model`
   runs on its provider's configured default, whose price the flow cannot see, so set `model` on steps you want costed).
+- **Run history and replay:** every flow run is saved to `~/.aiagent/runs/flows/<flow>/<runId>/`: `run.json` holds
+  the flow as it was, the events and one record per step run (prompt, inputs, model, tokens, cost, tool calls,
+  the file changes it produced), and each step's answer is a Markdown file next to it. The editor's **History**
+  dropdown (next to the flow selector) lists the runs of the open flow with time, status, cost, duration and task;
+  picking one opens it in read-only *replay mode*: the canvas shows the flow of that run coloured by how each step
+  ended, and selecting a step shows its prompt, output, tool calls and changes. **↺ Re-run from here** starts a new
+  run from the selected step: the steps before it keep their recorded output (shown as *reused*, no model call, no
+  cost) and the step and everything after it run again. A step that failed in the original run cannot be reused, so
+  re-run from it instead. Branches that were not taken stay skipped. The last 50 runs per flow are kept
+  (`agent.flowRunHistoryLimit` in `~/.aiagent/config.json`). `aiagent pipeline run` prints `Run saved: <id>`.
+  Linear pipelines (no `edges`) are not recorded.
 - **Failures** skip only the steps after the failed one; other branches finish.
 - Pipelines **without `edges`** keep the old behavior: stages in order, one shared history.
 

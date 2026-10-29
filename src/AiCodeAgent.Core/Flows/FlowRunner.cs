@@ -27,6 +27,10 @@ public sealed record FlowRunOptions
     /// Parallel steps start with the same remaining amount, so a run can overshoot by the cost of one call per running step.
     /// </summary>
     public decimal? MaxBudgetUsd { get; init; }
+    /// <summary>Where to save the run (<c>run.json</c> and one Markdown file per step output). Null = the run is not recorded.</summary>
+    public FlowRunStore? Store { get; init; }
+    /// <summary>Re-run from a step: the steps before it keep their recorded output and do not run again.</summary>
+    public FlowReplayPlan? Replay { get; init; }
 }
 
 /// <summary>
@@ -84,6 +88,7 @@ public sealed class FlowRunner
         public bool BudgetStopped { get; set; }
     }
 
+
     /// <summary>Collects the usage of one step run; filled on the node's task, read after the task completed.</summary>
     private sealed class StepUsage
     {
@@ -92,6 +97,11 @@ public sealed class FlowRunner
         public string? Model { get; init; }
         public string? Provider { get; init; }
         public bool BudgetStopped { get; private set; }
+        /// <summary>The prompt the step received, and the steps whose output is in it.</summary>
+        public string Prompt { get; set; } = string.Empty;
+        public List<string> InputFrom { get; init; } = new();
+        public List<FlowToolCallRecord> ToolCalls { get; } = new();
+        public List<FlowDiffRecord> Diffs { get; } = new();
 
         public void Add(AgentResponse response)
         {
@@ -129,6 +139,23 @@ public sealed class FlowRunner
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         options ??= new FlowRunOptions();
+        var recorder = options.Store == null ? null : new FlowRunRecorder(options.Store, pipeline, task, options.Model, options.Replay, _logger);
+        await foreach (var evt in RunCoreAsync(pipeline, task, sessionId, workingDirectory, options, recorder, cancellationToken).ConfigureAwait(false))
+        {
+            recorder?.Observe(evt);
+            yield return evt;
+        }
+    }
+
+    private async IAsyncEnumerable<AgentEvent> RunCoreAsync(
+        SdlcPipelineDefinition pipeline,
+        string task,
+        string sessionId,
+        string workingDirectory,
+        FlowRunOptions options,
+        FlowRunRecorder? recorder,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         var graph = Validate(pipeline, options.Cast);
         if (!graph.IsValid)
         {
@@ -160,6 +187,32 @@ public sealed class FlowRunner
         _logger.LogInformation("Starting flow {Flow} ({Nodes} nodes, max {Parallel} in parallel): {Waves}",
             pipeline.Name, graph.Nodes.Count, maxParallel, graph.DescribeWaves());
         yield return new FlowStartedEvent(pipeline.Name, graph.Nodes.Select(n => n.Id).ToList(), graph.Waves);
+        var reusedCount = 0;
+        if (options.Replay is { } replay)
+        {
+            foreach (var r in runs.Values)
+            {
+                if (replay.Reused.TryGetValue(r.Node.Id, out var reused))
+                {
+                    r.State = FlowNodeState.Done;
+                    r.Runs = 1;
+                    r.Outcome = reused.Outcome;
+                    r.Detail = "reused";
+                    r.Output = new FlowNodeOutput(r.Node.Id, reused.CharacterId ?? r.CharacterId, reused.Text, reused.Outcome, 1);
+                    reusedCount++;
+                    recorder?.AddStep(new FlowStepRecord
+                    {
+                        NodeId = r.Node.Id, Round = 1, CharacterId = r.Output.CharacterId, State = FlowNodeState.Done,
+                        Outcome = reused.Outcome, Detail = "reused", Reused = true
+                    }, reused.Text);
+                }
+                else if (replay.NotRun.Contains(r.Node.Id, StringComparer.OrdinalIgnoreCase))
+                {
+                    r.State = FlowNodeState.Skipped;
+                    r.Detail = "not run in the original run";
+                }
+            }
+        }
         foreach (var r in runs.Values)
             yield return Status(r);
 
@@ -241,9 +294,13 @@ public sealed class FlowRunner
                 var result = await running[finished].ConfigureAwait(false);
                 running.Remove(finished);
                 var before = runs[finished].Usage.Count;
+                var trace = runs[finished].Current;
+                var round = runs[finished].Runs;
                 foreach (var evt in Complete(graph, runs, runs[finished], result, loopCounts, cancellationToken.IsCancellationRequested, budget))
                     yield return evt;
                 finishOrder.AddRange(runs[finished].Usage.Skip(before));
+                if (recorder != null && trace != null)
+                    recorder.AddStep(StepRecord(runs[finished], trace, result, round, runs[finished].Usage.Skip(before).FirstOrDefault()), result.Text);
                 if (runs[finished].BudgetStopped && !budgetHit)
                 {
                     budgetHit = true;
@@ -295,9 +352,11 @@ public sealed class FlowRunner
             final = new FlowRunResult(FlowRunStatus.Stopped,
                 $"Loop limit reached at {string.Join(", ", exhausted.Select(r => r.Node.Id))} (last outcome: {string.Join(", ", exhausted.Select(r => r.Outcome))}).", summaries);
         else
-            final = new FlowRunResult(FlowRunStatus.Succeeded, $"Done: {summaries.Count(s => s.State == FlowNodeState.Done)} of {summaries.Count} steps ran.", summaries);
+            final = new FlowRunResult(FlowRunStatus.Succeeded,
+                $"Done: {summaries.Count(s => s.State == FlowNodeState.Done)} of {summaries.Count} steps ran" + (reusedCount > 0 ? $" ({reusedCount} reused)." : "."), summaries);
 
         final = final with { StepRuns = finishOrder, BudgetUsd = budget };
+        if (recorder != null) final = final with { RunId = recorder.Save(final) };
         _logger.LogInformation("Flow {Flow} finished: {Status} — {Message} ({Cost} spent)", pipeline.Name, final.Status, final.Message, FlowUsageFormat.Cost(final.Usage.CostUsd));
         yield return new FlowFinishedEvent(final);
     }
@@ -447,6 +506,24 @@ public sealed class FlowRunner
         }
     }
 
+    private static FlowStepRecord StepRecord(NodeRun r, StepUsage trace, NodeResult result, int round, FlowStepRunUsage? usage) => new()
+    {
+        NodeId = r.Node.Id,
+        Round = round,
+        CharacterId = r.CharacterId,
+        Model = trace.Model,
+        Provider = trace.Provider,
+        State = result.Declined || result.Cancelled ? FlowNodeState.Skipped : result.Failure != null ? FlowNodeState.Failed : FlowNodeState.Done,
+        Outcome = result.Outcome,
+        Detail = result.Declined ? "not confirmed" : result.Cancelled ? "cancelled" : result.Failure,
+        Prompt = trace.Prompt,
+        InputFrom = trace.InputFrom,
+        ToolCalls = trace.ToolCalls,
+        Diffs = trace.Diffs,
+        Usage = usage,
+        Duration = result.Duration
+    };
+
     /// <summary>Turns the usage a finished run collected into a row (null when the model was never called).</summary>
     private static FlowStepRunUsage? RecordUsage(NodeRun r, TimeSpan duration)
     {
@@ -482,9 +559,10 @@ public sealed class FlowRunner
         // Build the step (character resolution, agent registration) here on the scheduler, not inside
         // the task: several nodes start at once and registration must not race.
         SessionStep step;
+        var prompt = string.Empty;
         try
         {
-            var prompt = FlowPrompt.Build(node.Stage.PromptTemplate, task, inputs, feedback, node.Outcomes);
+            prompt = FlowPrompt.Build(node.Stage.PromptTemplate, task, inputs, feedback, node.Outcomes);
             step = _stageBuilder.BuildStageStep(node.Stage, prompt, workingDirectory, options.Model, options.MaxIterationsPerNode, options.Cast, agentId: node.Id);
         }
         catch (Exception ex)
@@ -498,7 +576,13 @@ public sealed class FlowRunner
             var own = step.Options.MaxBudgetUsd is > 0 ? step.Options.MaxBudgetUsd.Value : left;
             step = step with { Options = step.Options with { MaxBudgetUsd = Math.Min(own, left) } };
         }
-        var usage = new StepUsage { Model = step.Options.Model, Provider = step.Options.Provider };
+        var usage = new StepUsage
+        {
+            Model = step.Options.Model,
+            Provider = step.Options.Provider,
+            Prompt = prompt,
+            InputFrom = inputs.Select(i => i.NodeId).Concat(feedback.Select(f => f.NodeId)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        };
         r.Current = usage;
         var nodeSession = $"{sessionId}/{node.Id}#{iteration}";
 
@@ -525,6 +609,10 @@ public sealed class FlowRunner
                     await events.WriteAsync(evt, CancellationToken.None).ConfigureAwait(false);
                     failure ??= AgentSessionCoordinator.DetectStepFailure(evt);
                     var inner = evt is AgentTaggedEvent t ? t.Inner : evt;
+                    if (inner is ToolCallEndEvent toolEnd)
+                        usage.ToolCalls.Add(new FlowToolCallRecord(toolEnd.Call.Name, ToolSummary(toolEnd.Call), toolEnd.Result.IsError, toolEnd.Duration.TotalMilliseconds));
+                    else if (inner is DiffProducedEvent produced)
+                        usage.Diffs.Add(new FlowDiffRecord(produced.Diff.FilePath, produced.Diff.DiffText));
                     if (inner is AgentFinishedEvent fin)
                     {
                         text = fin.Response.Content;
@@ -586,6 +674,15 @@ public sealed class FlowRunner
                 return new NodeResult(text, ex.Message, false, false, null, clock.Elapsed);
             }
         }, CancellationToken.None);
+    }
+
+    /// <summary>The first argument of a tool call, shortened ("src/Program.cs"), for the history view.</summary>
+    private static string? ToolSummary(ToolCall call)
+    {
+        var first = call.Arguments?.Values.OfType<string>().FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+        if (first == null) return null;
+        first = first.ReplaceLineEndings(" ").Trim();
+        return first.Length > 80 ? first[..80] + "…" : first;
     }
 
     private static async Task<bool> ConfirmAsync(SessionStep step, ChannelWriter<AgentEvent> events, TimeSpan timeout, CancellationToken cancellationToken)
