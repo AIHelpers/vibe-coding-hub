@@ -26,6 +26,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
     private readonly string _globalDir;
     private readonly string? _projectDir;
     private readonly Func<IEnumerable<AgentRolePreset>> _presets;
+    private readonly Func<IReadOnlyList<Packs.PackSource>>? _packSources;
     private readonly object _gate = new();
     private Dictionary<string, CharacterInfo> _effective = new(StringComparer.OrdinalIgnoreCase);
     private List<CharacterInfo> _userFiles = new();
@@ -36,9 +37,11 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
         ILogger<CharacterRegistry>? logger = null,
         string? globalCharactersDir = null,
         string? projectCharactersDir = null,
-        Func<IEnumerable<AgentRolePreset>>? presets = null)
+        Func<IEnumerable<AgentRolePreset>>? presets = null,
+        Func<IReadOnlyList<Packs.PackSource>>? packSources = null)
     {
         _logger = logger;
+        _packSources = packSources;
         _globalDir = globalCharactersDir ?? GetDefaultGlobalCharactersDir();
         _projectDir = projectCharactersDir;
         _presets = presets ?? (() => Array.Empty<AgentRolePreset>());
@@ -49,8 +52,9 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
         RolePresetLoader presetLoader,
         ILogger<CharacterRegistry>? logger = null,
         string? globalCharactersDir = null,
-        string? projectCharactersDir = null)
-        : this(logger, globalCharactersDir, projectCharactersDir, presetLoader.GetAllPresets)
+        string? projectCharactersDir = null,
+        Func<IReadOnlyList<Packs.PackSource>>? packSources = null)
+        : this(logger, globalCharactersDir, projectCharactersDir, presetLoader.GetAllPresets, packSources)
     {
     }
 
@@ -153,6 +157,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
 
     public async Task<CharacterInfo> UpdateAsync(string id, string content, SkillScope? scope = null, CancellationToken cancellationToken = default)
     {
+        ThrowIfPack(id, scope);
         var existing = FindUserFile(id, scope)
             ?? throw new SkillValidationException(Snapshot().TryGetValue(id, out var c) && c.IsBuiltIn
                 ? $"'{id}' is a built-in character; assign skills or create a character file with that id to customize it."
@@ -178,6 +183,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
 
     public Task<bool> DeleteAsync(string id, SkillScope? scope = null, CancellationToken cancellationToken = default)
     {
+        ThrowIfPack(id, scope);
         var existing = FindUserFile(id, scope);
         if (existing?.FilePath == null || !File.Exists(existing.FilePath)) return Task.FromResult(false);
         File.Delete(existing.FilePath);
@@ -289,6 +295,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
     /// </summary>
     private async Task<CharacterInfo> EnsureEditableAsync(string id, CancellationToken cancellationToken)
     {
+        ThrowIfPack(id, null);
         var user = FindUserFile(id, null);
         if (user != null) return user;
         if (!Snapshot().TryGetValue(id, out var builtIn) || !builtIn.IsBuiltIn)
@@ -420,6 +427,14 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
         return false;
     }
 
+    /// <summary>A character from a pack is read-only: copy it into the project or global characters to change it, or remove the pack.</summary>
+    private void ThrowIfPack(string id, SkillScope? scope)
+    {
+        if (scope is { } s && s != SkillScope.Pack) return;
+        if (Snapshot().TryGetValue(id, out var c) && c.IsFromPack)
+            throw new SkillValidationException($"Character '{id}' comes from the pack '{c.PackName}' and is read-only. Copy it to your project or global characters to change it, or remove the pack.");
+    }
+
     /// <summary>The user file for <paramref name="id"/> in <paramref name="scope"/> (or the effective user file when null).</summary>
     private CharacterInfo? FindUserFile(string id, SkillScope? scope)
     {
@@ -428,7 +443,7 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
         {
             if (scope is { } s)
                 return _userFiles.FirstOrDefault(c => c.Scope == s && Same(c.Id, id));
-            return effective.TryGetValue(id, out var c) && !c.IsBuiltIn ? c : null;
+            return effective.TryGetValue(id, out var c) && !c.IsBuiltIn && !c.IsFromPack ? c : null;
         }
     }
 
@@ -447,8 +462,12 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
                 declared[preset.Role] = FromPreset(preset);
 
             var files = new List<CharacterInfo>();
+            var packFiles = new List<CharacterInfo>();
             try
             {
+                // Packs first (sorted by name; on a clash the later pack wins), so global and project characters can replace them.
+                foreach (var pack in _packSources?.Invoke() ?? Array.Empty<Packs.PackSource>())
+                    packFiles.AddRange(ScanDirectory(pack.CharactersDirectory, SkillScope.Pack, presets).Select(c => c with { PackName = pack.Name }));
                 files.AddRange(ScanDirectory(_globalDir, SkillScope.Global, presets));
                 if (!string.IsNullOrEmpty(_projectDir))
                     files.AddRange(ScanDirectory(_projectDir, SkillScope.Project, presets));
@@ -457,7 +476,8 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
             {
                 _logger?.LogWarning(ex, "Failed to scan character directories");
             }
-            foreach (var c in files)
+            // Precedence: project over global over pack over built-in. Pack files are not "user files": they are never edited or rewritten.
+            foreach (var c in packFiles.Concat(files))
                 declared[c.Id] = declared.ContainsKey(c.Id) ? c with { Overrides = true } : c;
 
             // 2. Resolve templates into effective characters.

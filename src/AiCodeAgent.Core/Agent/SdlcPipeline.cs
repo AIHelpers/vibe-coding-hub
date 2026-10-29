@@ -1,4 +1,5 @@
 using AiCodeAgent.Core.Configuration;
+using AiCodeAgent.Core.Packs;
 using System.Text.Json;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Interfaces;
@@ -114,14 +115,16 @@ public record SdlcPipelineDefinition
     public bool IsFlow => Edges is { Count: > 0 };
 }
 
-/// <summary>Where a pipeline comes from. Precedence on a name clash: project over global over built-in.</summary>
+/// <summary>Where a pipeline comes from. Precedence on a name clash: project over global over pack over built-in.</summary>
 public enum PipelineScope
 {
-    BuiltIn,
+    BuiltIn = 0,
+    /// <summary>A file in an installed pack's <c>pipelines</c> folder: read-only, copy it to change it.</summary>
+    Pack = 1,
     /// <summary>A file in <c>~/.aiagent/pipelines</c>: only this user.</summary>
-    Global,
+    Global = 2,
     /// <summary>A file in <c>&lt;repo&gt;/.aiagent/pipelines</c>: shared with the team through git.</summary>
-    Project
+    Project = 3
 }
 
 public static class PipelineScopeExtensions
@@ -130,6 +133,7 @@ public static class PipelineScopeExtensions
     public static string Label(this PipelineScope scope) => scope switch
     {
         PipelineScope.BuiltIn => "builtin",
+        PipelineScope.Pack => "pack",
         PipelineScope.Global => "global",
         _ => "project"
     };
@@ -156,8 +160,11 @@ public sealed record PipelineEntry(SdlcPipelineDefinition Pipeline, PipelineScop
 {
     public string Name => Pipeline.Name;
 
-    /// <summary><c>builtin</c>, <c>global</c> or <c>project</c>.</summary>
-    public string ScopeLabel => Scope.Label();
+    /// <summary>The pack a <see cref="PipelineScope.Pack"/> flow comes from.</summary>
+    public string? PackName { get; init; }
+
+    /// <summary><c>builtin</c>, <c>global</c>, <c>project</c> or <c>pack:&lt;name&gt;</c>.</summary>
+    public string ScopeLabel => Scope == PipelineScope.Pack && PackName != null ? "pack:" + PackName : Scope.Label();
 
     /// <summary>"overrides global" or "overrides built-in" when this definition hides another one; otherwise null.</summary>
     public string? OverridesText => Overrides is { } hidden
@@ -182,6 +189,8 @@ public class SdlcPipelineLoader
     private string? _projectRoot;
     private Dictionary<string, PipelineEntry> _global = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, PipelineEntry> _project = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, PipelineEntry> _pack = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Func<IReadOnlyList<PackSource>>? _packSources;
     private Dictionary<string, SdlcPipelineDefinition> _pipelines = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The pipelines in force, by name: project over global over built-in.</summary>
@@ -198,9 +207,12 @@ public class SdlcPipelineLoader
 
     /// <param name="pipelinesDirectory">Folder with the user's global pipelines; defaults to <c>~/.aiagent/pipelines</c>.</param>
     /// <param name="projectDirectory">The project folder (the working directory); its <c>.aiagent/pipelines</c> is loaded too. Null = no project.</param>
-    public SdlcPipelineLoader(ILogger<SdlcPipelineLoader> logger, string? pipelinesDirectory = null, string? projectDirectory = null)
+    /// <param name="packSources">Installed packs whose <c>pipelines</c> folders are read (read-only); null = none.</param>
+    public SdlcPipelineLoader(ILogger<SdlcPipelineLoader> logger, string? pipelinesDirectory = null, string? projectDirectory = null,
+        Func<IReadOnlyList<PackSource>>? packSources = null)
     {
         _logger = logger;
+        _packSources = packSources;
         _pipelinesDirectory = pipelinesDirectory ?? AppPaths.Pipelines;
         Directory.CreateDirectory(_pipelinesDirectory);
         _projectRoot = NormalizeProject(projectDirectory);
@@ -289,7 +301,7 @@ public class SdlcPipelineLoader
         PipelineScope.Global => _pipelinesDirectory,
         PipelineScope.Project => ProjectPipelinesDirectory
             ?? throw new InvalidOperationException("There is no project folder to save a project pipeline into."),
-        _ => throw new ArgumentException("Built-in pipelines have no folder; choose the project or global scope.", nameof(scope))
+        _ => throw new ArgumentException("Built-in and pack pipelines are read-only; choose the project or global scope.", nameof(scope))
     };
 
     /// <summary>Re-read the global and project pipeline folders (after files changed on disk).</summary>
@@ -302,6 +314,8 @@ public class SdlcPipelineLoader
     public bool DeletePipeline(string name, PipelineScope? scope = null)
     {
         var entry = scope is { } s ? GetEntry(name, s) : GetEntry(name);
+        if (entry?.Scope == PipelineScope.Pack)
+            throw new InvalidOperationException($"'{name}' comes from the pack '{entry.PackName}' and is read-only. Copy it to your project or global flows to change it, or remove the pack.");
         if (entry?.FilePath is not { } path || !File.Exists(path)) return false;
         File.Delete(path);
         Rescan();
@@ -316,22 +330,27 @@ public class SdlcPipelineLoader
 
     /// <summary>The pipeline in force for <paramref name="name"/> with its scope, file and what it overrides.</summary>
     public PipelineEntry? GetEntry(string name) =>
-        GetEntry(name, PipelineScope.Project) ?? GetEntry(name, PipelineScope.Global) ?? GetEntry(name, PipelineScope.BuiltIn);
+        GetEntry(name, PipelineScope.Project) ?? GetEntry(name, PipelineScope.Global) ?? GetEntry(name, PipelineScope.Pack) ?? GetEntry(name, PipelineScope.BuiltIn);
 
     /// <summary>The definition stored in one scope, even when a higher scope hides it. Its <c>Overrides</c> names the lower scope it hides.</summary>
     public PipelineEntry? GetEntry(string name, PipelineScope scope)
     {
         var project = _project;
         var global = _global;
+        var pack = _pack;
         switch (scope)
         {
             case PipelineScope.Project:
                 return project.TryGetValue(name, out var p)
-                    ? p with { Overrides = global.ContainsKey(name) ? PipelineScope.Global : _builtIns.ContainsKey(name) ? PipelineScope.BuiltIn : null }
+                    ? p with { Overrides = global.ContainsKey(name) ? PipelineScope.Global : pack.ContainsKey(name) ? PipelineScope.Pack : _builtIns.ContainsKey(name) ? PipelineScope.BuiltIn : null }
                     : null;
             case PipelineScope.Global:
                 return global.TryGetValue(name, out var g)
-                    ? g with { Overrides = _builtIns.ContainsKey(name) ? PipelineScope.BuiltIn : null }
+                    ? g with { Overrides = pack.ContainsKey(name) ? PipelineScope.Pack : _builtIns.ContainsKey(name) ? PipelineScope.BuiltIn : null }
+                    : null;
+            case PipelineScope.Pack:
+                return pack.TryGetValue(name, out var k)
+                    ? k with { Overrides = _builtIns.ContainsKey(name) ? PipelineScope.BuiltIn : null }
                     : null;
             default:
                 return _builtIns.TryGetValue(name, out var b) ? new PipelineEntry(b, PipelineScope.BuiltIn, null, null) : null;
@@ -344,17 +363,23 @@ public class SdlcPipelineLoader
 
     private void Rescan()
     {
+        var packs = new Dictionary<string, PipelineEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in _packSources?.Invoke() ?? Array.Empty<PackSource>())
+            foreach (var (name, entry) in ReadDirectory(source.PipelinesDirectory, PipelineScope.Pack))
+                packs[name] = entry with { PackName = source.Name };
         var global = ReadDirectory(_pipelinesDirectory, PipelineScope.Global);
         var project = ProjectPipelinesDirectory is { } dir
             ? ReadDirectory(dir, PipelineScope.Project)
             : new Dictionary<string, PipelineEntry>(StringComparer.OrdinalIgnoreCase);
 
-        // Built-in -> global -> project: a later layer replaces an earlier one with the same name.
+        // Built-in -> pack -> global -> project: a later layer replaces an earlier one with the same name.
         var effective = new Dictionary<string, SdlcPipelineDefinition>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, pipeline) in _builtIns) effective[name] = pipeline;
+        foreach (var (name, entry) in packs) effective[name] = entry.Pipeline;
         foreach (var (name, entry) in global) effective[name] = entry.Pipeline;
         foreach (var (name, entry) in project) effective[name] = entry.Pipeline;
 
+        _pack = packs;
         _global = global;
         _project = project;
         _pipelines = effective;
@@ -423,7 +448,7 @@ public class SdlcPipelineLoader
             throw new ArgumentException("A pipeline can only be copied to the project or global scope.", nameof(target));
 
         PipelineEntry? source = null;
-        foreach (var scope in new[] { PipelineScope.Project, PipelineScope.Global, PipelineScope.BuiltIn })
+        foreach (var scope in new[] { PipelineScope.Project, PipelineScope.Global, PipelineScope.Pack, PipelineScope.BuiltIn })
         {
             if (scope == target) continue;
             if (GetEntry(name, scope) is { } found) { source = found; break; }

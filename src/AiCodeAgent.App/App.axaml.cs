@@ -289,8 +289,19 @@ public partial class App : Application
         services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
         services.AddSingleton<AgentSessionCoordinator>();
         // Built-in -> ~/.aiagent/pipelines -> <working directory>/.aiagent/pipelines; MainViewModel re-points the project layer when the folder changes.
-        services.AddSingleton(sp => new SdlcPipelineLoader(
-            sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, Directory.GetCurrentDirectory()));
+        // E6-S1: installed packs sit between built-in and global (read-only).
+        services.AddSingleton<AiCodeAgent.Core.Packs.PackStore>();
+        services.AddSingleton(sp => new AiCodeAgent.Core.Packs.PackInstaller(
+            sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>(), null, AiCodeAgent.App.Services.AppInfo.CurrentVersion));
+        services.AddSingleton(sp =>
+        {
+            var packs = sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>();
+            SdlcPipelineLoader? self = null;
+            self = new SdlcPipelineLoader(
+                sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, Directory.GetCurrentDirectory(),
+                () => packs.Sources(self?.ProjectDirectory));
+            return self;
+        });
         // E5-S5: every flow run is saved under ~/.aiagent/runs/flows/<flow>/<runId>/; the last N per flow are kept (config.json: agent.flowRunHistoryLimit).
         services.AddSingleton(sp =>
         {
@@ -319,7 +330,8 @@ public partial class App : Application
             var registry = new SkillRegistry(
                 sp.GetService<ILogger<SkillRegistry>>(),
                 projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
-                overrides: agentCfg.SkillOverrides);
+                overrides: agentCfg.SkillOverrides,
+                packSources: () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(workdir));
             // The desktop app stays open while files are edited elsewhere: pick changes up live.
             registry.EnableWatching();
             return registry;
@@ -331,7 +343,8 @@ public partial class App : Application
             var registry = new AiCodeAgent.Core.Characters.CharacterRegistry(
                 sp.GetRequiredService<RolePresetLoader>(),
                 sp.GetService<ILogger<AiCodeAgent.Core.Characters.CharacterRegistry>>(),
-                projectCharactersDir: AiCodeAgent.Core.Characters.CharacterRegistry.GetDefaultProjectCharactersDir(Directory.GetCurrentDirectory()));
+                projectCharactersDir: AiCodeAgent.Core.Characters.CharacterRegistry.GetDefaultProjectCharactersDir(Directory.GetCurrentDirectory()),
+                packSources: () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(Directory.GetCurrentDirectory()));
             registry.EnableWatching();
             return registry;
         });

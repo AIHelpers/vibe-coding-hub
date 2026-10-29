@@ -271,8 +271,9 @@ pipelineListCommand.SetHandler(async context =>
 // pipeline validate / show: check a flow and see what runs in parallel, without a provider.
 async Task<(SdlcPipelineDefinition? Pipeline, AiCodeAgent.Core.Flows.FlowGraph? Graph)> LoadGraphAsync(string name, string? cast, string? dir)
 {
+    var packStore = new AiCodeAgent.Core.Packs.PackStore();
     var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance,
-        null, dir ?? Directory.GetCurrentDirectory());
+        null, dir ?? Directory.GetCurrentDirectory(), () => packStore.Sources(dir ?? Directory.GetCurrentDirectory()));
     var pipeline = loader.GetPipeline(name);
     if (pipeline == null && AiCodeAgent.Core.Flows.ExampleLibrary.FromEmbedded().Templates()
             .FirstOrDefault(t => t.Id.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } bundled)
@@ -406,7 +407,8 @@ pipelineCopyCommand.SetHandler(async (name, to, force, withCharacters, dir) =>
         return;
     }
     var projectDir = dir ?? Directory.GetCurrentDirectory();
-    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance, null, projectDir);
+    var loader = new SdlcPipelineLoader(Microsoft.Extensions.Logging.Abstractions.NullLogger<SdlcPipelineLoader>.Instance, null, projectDir,
+        () => new AiCodeAgent.Core.Packs.PackStore().Sources(projectDir));
     if (target == PipelineScope.Project && loader.ProjectDirectory == null)
     {
         Console.Error.WriteLine($"'{projectDir}' cannot hold project pipelines (use --dir to pick the repository folder).");
@@ -627,6 +629,7 @@ TaskHistoryCommands.AddCommands(rootCommand);
 FileViewCommands.AddCommands(rootCommand);
 
 SkillCharacterCommands.AddCommands(rootCommand);
+PackCommands.AddCommands(rootCommand);
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);
@@ -718,8 +721,10 @@ static async Task<ServiceProvider> BuildServiceProvider(
     services.AddSingleton<AiCodeAgent.Core.Agent.IWorkspaceIsolation, AiCodeAgent.Tools.Git.GitWorktreeManager>();
     services.AddSingleton<AgentSessionCoordinator>();
     // Built-in -> ~/.aiagent/pipelines -> <dir>/.aiagent/pipelines (the project wins on a name clash).
+    services.AddSingleton<AiCodeAgent.Core.Packs.PackStore>();
     services.AddSingleton(sp => new SdlcPipelineLoader(
-        sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, dir ?? Directory.GetCurrentDirectory()));
+        sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, dir ?? Directory.GetCurrentDirectory(),
+        () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(dir ?? Directory.GetCurrentDirectory())));
     services.AddSingleton(new AiCodeAgent.Core.Flows.FlowRunStore(null, () => configSvc.Config.Agent.FlowRunHistoryLimit));
     services.AddSingleton<SdlcPipelineRunner>();
 
@@ -748,7 +753,8 @@ static async Task<ServiceProvider> BuildServiceProvider(
         return new SkillRegistry(
             sp.GetService<ILogger<SkillRegistry>>(),
             projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
-            overrides: agentCfg.SkillOverrides);
+            overrides: agentCfg.SkillOverrides,
+            packSources: () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(workdir));
     });
 
     // Characters: personas with their own skills that run workflows
@@ -757,6 +763,8 @@ static async Task<ServiceProvider> BuildServiceProvider(
             sp.GetRequiredService<RolePresetLoader>(),
             sp.GetService<ILogger<AiCodeAgent.Core.Characters.CharacterRegistry>>(),
             projectCharactersDir: AiCodeAgent.Core.Characters.CharacterRegistry.GetDefaultProjectCharactersDir(
+                sp.GetRequiredService<AgentOptions>().WorkingDirectory),
+            packSources: () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(
                 sp.GetRequiredService<AgentOptions>().WorkingDirectory)));
     services.AddSingleton<AiCodeAgent.Core.Characters.SkillMaintenance>();
 

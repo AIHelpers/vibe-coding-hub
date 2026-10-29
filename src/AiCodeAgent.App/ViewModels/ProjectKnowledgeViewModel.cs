@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
+using AiCodeAgent.Core.Packs;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.App.Services;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,10 @@ public sealed class SkillListItem
     public bool IsProjectSkill { get; init; }
     public bool DisableModelInvocation { get; init; }
     public bool ShadowsGlobal { get; init; }
+    /// <summary>E6-S1: the skill comes from an installed pack (read-only).</summary>
+    public bool IsPackSkill { get; init; }
+    public string? PackName { get; init; }
+    public bool ShadowsPack { get; init; }
     public bool IsValid { get; init; } = true;
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Problems { get; init; } = Array.Empty<string>();
@@ -31,9 +36,10 @@ public sealed class SkillListItem
 
     /// <summary>Human-readable scope for display — "Project" / "Global", plus manual-only / override / invalid / usage notes.</summary>
     public string ScopeLabel =>
-        (IsProjectSkill ? "Project" : "Global")
+        (IsPackSkill ? $"Pack: {PackName}" : IsProjectSkill ? "Project" : "Global")
         + (DisableModelInvocation ? " · manual only" : string.Empty)
         + (ShadowsGlobal ? " · overrides global" : string.Empty)
+        + (ShadowsPack ? " · overrides pack" : string.Empty)
         + (IsValid ? string.Empty : " · invalid")
         + (UsedBy.Count > 0 ? $" · used by {UsedBy.Count}" : string.Empty);
 
@@ -62,7 +68,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
     private bool _isVisible;
 
     [ObservableProperty]
-    private int _activeTabIndex; // 0 = Memory, 1 = Skills, 2 = Characters
+    private int _activeTabIndex; // 0 = Memory, 1 = Skills, 2 = Characters, 3 = Packs
 
     /// <summary>True when the Memory tab should be shown — avoids needing an XAML value converter for a plain two-tab switch.</summary>
     public bool IsMemoryTabActive => ActiveTabIndex == 0;
@@ -78,6 +84,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
         OnPropertyChanged(nameof(IsMemoryTabActive));
         OnPropertyChanged(nameof(IsSkillsTabActive));
         OnPropertyChanged(nameof(IsCharactersTabActive));
+        OnPropertyChanged(nameof(IsPacksTabActive));
     }
 
     [RelayCommand]
@@ -179,7 +186,17 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
 
     public bool HasSelectedSkill => SelectedSkill != null;
 
-    partial void OnSelectedSkillChanged(SkillListItem? value) => OnPropertyChanged(nameof(HasSelectedSkill));
+    /// <summary>A skill from a pack is read-only: the editor is locked and rename/delete are off.</summary>
+    public bool IsSelectedSkillReadOnly => SelectedSkill?.IsPackSkill == true;
+
+    public bool CanEditSelectedSkill => SelectedSkill != null && !IsSelectedSkillReadOnly;
+
+    partial void OnSelectedSkillChanged(SkillListItem? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedSkill));
+        OnPropertyChanged(nameof(IsSelectedSkillReadOnly));
+        OnPropertyChanged(nameof(CanEditSelectedSkill));
+    }
 
     private readonly ICharacterRegistry? _characterRegistry;
     private readonly SkillMaintenance? _maintenance;
@@ -192,8 +209,12 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
         ICharacterRegistry? characterRegistry = null,
         SkillMaintenance? maintenance = null,
         CharactersViewModel? characters = null,
-        RolePresetLoader? presets = null)
+        RolePresetLoader? presets = null,
+        PackInstaller? packs = null,
+        SdlcPipelineLoader? flows = null)
     {
+        _packs = packs;
+        _flows = flows;
         _memoryLoader = memoryLoader;
         _presets = presets;
         _skillRegistry = skillRegistry;
@@ -234,6 +255,7 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
     {
         WorkingDirectory = workingDirectory;
         IsVisible = true;
+        RefreshPacks();
         await RefreshMemoryAsync();
         await RefreshSkillsAsync();
         await Characters.RefreshAsync();
@@ -387,6 +409,9 @@ public partial class ProjectKnowledgeViewModel : ObservableObject
                     IsProjectSkill = s.Scope == SkillScope.Project,
                     DisableModelInvocation = s.DisableModelInvocation,
                     ShadowsGlobal = s.ShadowsGlobal,
+                    IsPackSkill = s.Scope == SkillScope.Pack,
+                    PackName = s.PackName,
+                    ShadowsPack = s.ShadowsPack,
                     IsValid = s.IsValid,
                     Tags = s.Tags,
                     Problems = s.ValidationErrors.Select(e => "Error: " + e).Concat(s.Warnings.Select(w => "Warning: " + w)).ToList(),

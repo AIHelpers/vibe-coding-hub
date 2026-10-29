@@ -1,5 +1,6 @@
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
+using AiCodeAgent.Core.Packs;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Core.Context;
@@ -28,6 +29,8 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
     private Dictionary<string, SkillInfo> _cache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, SkillInfo> _globalCache = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, SkillInfo> _projectCache = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, SkillInfo> _packCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Func<IReadOnlyList<PackSource>>? _packSources;
     private bool _scanned;
     private DebouncedDirectoryWatcher? _watcher;
 
@@ -35,9 +38,11 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
         ILogger<SkillRegistry>? logger = null,
         string? globalSkillsDir = null,
         string? projectSkillsDir = null,
-        Dictionary<string, string>? overrides = null)
+        Dictionary<string, string>? overrides = null,
+        Func<IReadOnlyList<PackSource>>? packSources = null)
     {
         _logger = logger;
+        _packSources = packSources;
         _globalSkillsDir = globalSkillsDir ?? GetDefaultGlobalSkillsDir();
         _projectSkillsDir = projectSkillsDir;
         _overrides = overrides ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -199,6 +204,7 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
     {
         var existing = Find(skillName, scope)
             ?? throw new SkillValidationException($"Skill '{skillName}' does not exist.");
+        ThrowIfPack(existing);
 
         var doc = Frontmatter.Parse(content);
         var errors = new List<string>();
@@ -219,6 +225,7 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
     {
         var existing = Find(oldName, scope)
             ?? throw new SkillValidationException($"Skill '{oldName}' does not exist.");
+        ThrowIfPack(existing);
         if (LocalFileStore.ValidateName(newName, "Skill name") is { } nameError)
             throw new SkillValidationException(nameError);
         if (string.Equals(existing.Name, newName, StringComparison.Ordinal))
@@ -253,6 +260,7 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
     public Task<bool> DeleteAsync(string skillName, SkillScope? scope = null, CancellationToken cancellationToken = default)
     {
         var existing = Find(skillName, scope);
+        if (existing != null) ThrowIfPack(existing);
         if (existing?.DirectoryPath == null || !Directory.Exists(existing.DirectoryPath))
             return Task.FromResult(false);
         Directory.Delete(existing.DirectoryPath, recursive: true);
@@ -280,6 +288,13 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
             : throw new InvalidOperationException($"Skill '{name}' was written but could not be read back.");
     }
 
+    /// <summary>A skill that comes from a pack is read-only: copy it into the project or global skills to change it.</summary>
+    private static void ThrowIfPack(SkillInfo skill)
+    {
+        if (skill.Scope == SkillScope.Pack)
+            throw new SkillValidationException($"Skill '{skill.Name}' comes from the pack '{skill.PackName}' and is read-only. Copy it to your project or global skills to change it, or remove the pack.");
+    }
+
     private string? RootFor(SkillScope scope) => scope switch
     {
         SkillScope.Global => _globalSkillsDir,
@@ -297,6 +312,7 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
             {
                 SkillScope.Global => _globalCache,
                 SkillScope.Project => _projectCache,
+                SkillScope.Pack => _packCache,
                 _ => _cache
             };
             return source.TryGetValue(name, out var info) ? info : null;
@@ -312,8 +328,16 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
             if (_scanned) return _cache;
             var global = new Dictionary<string, SkillInfo>(StringComparer.OrdinalIgnoreCase);
             var project = new Dictionary<string, SkillInfo>(StringComparer.OrdinalIgnoreCase);
+            var packs = new Dictionary<string, SkillInfo>(StringComparer.OrdinalIgnoreCase);
             try
             {
+                // Packs first (sorted by name; on a clash the later pack wins), so global and project skills can replace them.
+                foreach (var pack in _packSources?.Invoke() ?? Array.Empty<PackSource>())
+                {
+                    var fromPack = new Dictionary<string, SkillInfo>(StringComparer.OrdinalIgnoreCase);
+                    ScanDirectory(pack.SkillsDirectory, SkillScope.Pack, fromPack);
+                    foreach (var (name, info) in fromPack) packs[name] = info with { PackName = pack.Name };
+                }
                 ScanDirectory(_globalSkillsDir, SkillScope.Global, global);
                 if (!string.IsNullOrEmpty(_projectSkillsDir))
                     ScanDirectory(_projectSkillsDir, SkillScope.Project, project);
@@ -323,13 +347,20 @@ public sealed class SkillRegistry : ISkillRegistry, IDisposable
                 _logger?.LogWarning(ex, "Failed to scan skills directories");
             }
 
-            var merged = new Dictionary<string, SkillInfo>(global, StringComparer.OrdinalIgnoreCase);
-            // Project skills override global skills with the same name.
+            // Precedence: project over global over pack.
+            var merged = new Dictionary<string, SkillInfo>(packs, StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, info) in global)
+                merged[name] = packs.ContainsKey(name) ? info with { ShadowsPack = true } : info;
             foreach (var (name, info) in project)
-                merged[name] = global.ContainsKey(name) ? info with { ShadowsGlobal = true } : info;
+                merged[name] = info with
+                {
+                    ShadowsGlobal = global.ContainsKey(name),
+                    ShadowsPack = packs.ContainsKey(name)
+                };
 
             _globalCache = global;
             _projectCache = project;
+            _packCache = packs;
             _cache = merged;
             _scanned = true;
             return _cache;

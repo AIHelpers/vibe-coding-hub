@@ -83,7 +83,9 @@ public enum SkillScope
     /// <summary>Per repository: <c>&lt;workdir&gt;/.aiagent/...</c>. Overrides a global entry with the same name.</summary>
     Project = 1,
     /// <summary>Shipped with the app; read-only (used for built-in characters).</summary>
-    BuiltIn = 2
+    BuiltIn = 2,
+    /// <summary>Installed from a pack (<c>~/.aiagent/packs/&lt;name&gt;@&lt;ref&gt;</c>); read-only. Precedence: project, global, pack, built-in.</summary>
+    Pack = 3
 }
 
 /// <summary>Lightweight metadata about a skill.</summary>
@@ -109,6 +111,12 @@ public record SkillInfo
 
     /// <summary>True when a global skill with the same name is hidden by this project skill.</summary>
     public bool ShadowsGlobal { get; init; }
+
+    /// <summary>The pack this skill comes from when <see cref="Scope"/> is <see cref="SkillScope.Pack"/>; otherwise null.</summary>
+    public string? PackName { get; init; }
+
+    /// <summary>True when this skill hides a skill of the same name from an installed pack.</summary>
+    public bool ShadowsPack { get; init; }
 
     /// <summary>Free-form tags for filtering (frontmatter <c>tags</c>).</summary>
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
