@@ -9,6 +9,9 @@ public interface IToolRegistry
     ITool? GetTool(string name);
     List<ITool> GetTools(List<string> enabledNames);
     IReadOnlyList<ITool> GetAllTools();
+
+    /// <summary>Removes a tool by name (used when an MCP server is disabled or removed). Returns false when it was not registered.</summary>
+    bool Unregister(string name) => false;
 }
 
 public class ToolRegistry : IToolRegistry
@@ -23,8 +26,11 @@ public class ToolRegistry : IToolRegistry
     public List<ITool> GetTools(List<string> enabledNames)
     {
         if (enabledNames.Count == 0) return _tools.Values.ToList();
-        return _tools.Values.Where(t => enabledNames.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        // Entries are tool names or patterns such as mcp:github/* (see ToolPatterns).
+        return _tools.Values.Where(t => ToolPatterns.MatchesAny(enabledNames, t.Name)).ToList();
     }
+
+    public bool Unregister(string name) => _tools.Remove(name);
 
     public IReadOnlyList<ITool> GetAllTools() => _tools.Values.ToList();
 }

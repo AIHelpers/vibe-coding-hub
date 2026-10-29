@@ -590,7 +590,26 @@ public partial class App : Application
                 sp.GetRequiredService<ConfigurationService>(),
                 null,
                 sp.GetRequiredService<ILoggerFactory>(),
-                new SettingsEnvironment { Hooks = sp.GetService<AiCodeAgent.Core.Interfaces.IHookRegistry>() }));
+                new SettingsEnvironment
+                {
+                    Hooks = sp.GetService<AiCodeAgent.Core.Interfaces.IHookRegistry>(),
+                    CreateMcpManager = () =>
+                    {
+                        var live = sp.GetRequiredService<IMcpRegistry>();
+                        var connector = new McpLiveConnector(live, sp.GetRequiredService<IToolRegistry>(),
+                            sp.GetService<ILoggerFactory>(), () => Directory.GetCurrentDirectory());
+                        return new McpStatusViewModel(
+                            McpConfigStore.For(Directory.GetCurrentDirectory()),
+                            connector.CreateClient,
+                            new McpStatusOptions
+                            {
+                                Live = live,
+                                ApplyChanges = connector.ReloadAsync,
+                                Characters = sp.GetService<AiCodeAgent.Core.Characters.ICharacterRegistry>(),
+                                ProjectDirectory = Directory.GetCurrentDirectory()
+                            });
+                    }
+                }));
 
         // Services
         services.AddSingleton<AgentService>();

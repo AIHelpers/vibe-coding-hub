@@ -23,25 +23,29 @@ public static class McpConfigLoader
     /// <param name="projectRoot">The project root directory (where <c>.aiagent/mcp.json</c> lives). If null, only the user config is loaded.</param>
     /// <param name="logger">Optional logger.</param>
     /// <returns>A list of <see cref="McpServerConfig"/> entries; empty if no config file exists.</returns>
-    public static List<McpServerConfig> Load(string? projectRoot = null, ILogger? logger = null)
+    /// <param name="environment">Looks up the variables behind <c>${env:NAME}</c> references (default: the process environment).</param>
+    /// <param name="userConfigPath">The user-level file (default: <c>~/.aiagent/mcp.json</c>).</param>
+    public static List<McpServerConfig> Load(string? projectRoot = null, ILogger? logger = null,
+        Func<string, string?>? environment = null, string? userConfigPath = null)
     {
         var configs = new Dictionary<string, McpServerConfig>(StringComparer.OrdinalIgnoreCase);
+        var lookup = environment ?? Environment.GetEnvironmentVariable;
 
         // User-level config: ~/.aiagent/mcp.json
-        var userConfigPath = Path.Combine(AppPaths.UserRoot, "mcp.json");
-        LoadFile(userConfigPath, configs, logger);
+        userConfigPath ??= Path.Combine(AppPaths.UserRoot, "mcp.json");
+        LoadFile(userConfigPath, McpScope.Global, configs, lookup, logger);
 
         // Project-level config: <projectRoot>/.aiagent/mcp.json
         if (!string.IsNullOrEmpty(projectRoot))
         {
             var projectConfigPath = Path.Combine(projectRoot, ".aiagent", "mcp.json");
-            LoadFile(projectConfigPath, configs, logger);
+            LoadFile(projectConfigPath, McpScope.Project, configs, lookup, logger);
         }
 
         return configs.Values.ToList();
     }
 
-    private static void LoadFile(string path, Dictionary<string, McpServerConfig> configs, ILogger? logger)
+    private static void LoadFile(string path, McpScope scope, Dictionary<string, McpServerConfig> configs, Func<string, string?> lookup, ILogger? logger)
     {
         try
         {
@@ -59,8 +63,9 @@ public static class McpConfigLoader
                     continue;
 
                 // The config file may use "name" as the key or as a property; prefer the key.
-                var cfg = server with { Name = string.IsNullOrWhiteSpace(server.Name) ? name : server.Name };
-                configs[cfg.Name] = cfg;
+                var cfg = server with { Name = string.IsNullOrWhiteSpace(server.Name) ? name : server.Name, Scope = scope };
+                // ${env:NAME} references are replaced here, at start-up; the file keeps the reference.
+                configs[cfg.Name] = McpEnv.Expand(cfg, lookup);
             }
 
             logger?.LogInformation("Loaded {Count} MCP server(s) from {Path}", doc.Servers.Count, path);

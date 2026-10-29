@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                 xmlns:vm="using:AiCodeAgent.App.ViewModels"
+                xmlns:core="using:AiCodeAgent.Core.Mcp"
                 xmlns:cfg="using:AiCodeAgent.Core.Configuration"
                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -305,7 +306,7 @@
                 <!-- ============================== Integrations ============================== -->
                 <TextBlock Classes="section" Text="Integrations"/>
 
-                <StackPanel Spacing="4">
+                <StackPanel Spacing="4" IsVisible="{Binding HasNoMcpManager}">
                     <TextBlock Text="MCP servers" FontSize="13" FontWeight="SemiBold"/>
                     <TextBlock Classes="hint" Text="{Binding McpSummary}"/>
                     <ItemsControl Name="McpServersList" ItemsSource="{Binding McpServerRows}">
@@ -318,6 +319,112 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <TextBlock Classes="hint" Text="{Binding McpConfigPath}" Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <StackPanel Spacing="6" IsVisible="{Binding HasMcpManager}" x:DataType="vm:SettingsViewModel">
+                    <TextBlock Text="MCP servers" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Classes="hint" Text="{Binding Mcp.SummaryText}" TextWrapping="Wrap"/>
+                    <TextBlock Classes="hint" Text="{Binding Mcp.StatusText}" TextWrapping="Wrap"/>
+                    <ItemsControl Name="McpManagerList" ItemsSource="{Binding Mcp.Servers}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:McpServerItem">
+                                <StackPanel Spacing="2" Margin="0,6,0,0">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Grid Grid.Column="0" Width="12" Height="12" Margin="0,0,8,0" VerticalAlignment="Center">
+                                            <Ellipse Width="10" Height="10" Fill="{DynamicResource ThemeSuccessSolidBrush}" IsVisible="{Binding IsConnected}"/>
+                                            <Ellipse Width="10" Height="10" Fill="{DynamicResource ThemeDangerSolidBrush}" IsVisible="{Binding IsError}"/>
+                                            <Ellipse Width="10" Height="10" Fill="{DynamicResource ThemeTextMutedBrush}" IsVisible="{Binding IsDisabled}"/>
+                                            <Ellipse Width="10" Height="10" Stroke="{DynamicResource ThemeTextMutedBrush}" StrokeThickness="1" IsVisible="{Binding IsUnknown}"/>
+                                        </Grid>
+                                        <StackPanel Grid.Column="1" Spacing="1">
+                                            <TextBlock FontSize="13">
+                                                <Run Text="{Binding Name}"/>
+                                                <Run Text="{Binding ScopeLabel, StringFormat=' · {0}'}"/>
+                                                <Run Text="{Binding ToolCountText, StringFormat=' · {0}'}"/>
+                                            </TextBlock>
+                                            <TextBlock Classes="hint" Text="{Binding Target}" TextWrapping="Wrap"/>
+                                            <TextBlock Classes="hint" Text="{Binding StatusText}" TextWrapping="Wrap"/>
+                                            <TextBlock Classes="hint" Text="{Binding OverriddenText}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="20,0,0,0">
+                                        <Button Content="Test" Command="{Binding TestCommand}" IsEnabled="{Binding !IsBusy}"/>
+                                        <Button Content="{Binding ToggleText}" Command="{Binding ToggleCommand}"/>
+                                        <Button Content="Tools" Command="{Binding ToolsCommand}"/>
+                                        <Button Content="Edit" Command="{Binding EditCommand}"/>
+                                        <Button Content="Remove" Command="{Binding AskRemoveCommand}" IsVisible="{Binding !IsConfirmingRemove}"/>
+                                        <Button Content="Confirm remove" Command="{Binding ConfirmRemoveCommand}" IsVisible="{Binding IsConfirmingRemove}"/>
+                                        <Button Content="Cancel" Command="{Binding CancelRemoveCommand}" IsVisible="{Binding IsConfirmingRemove}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Name="AddMcpServerButton" Content="＋ Add server" Command="{Binding Mcp.BeginAddCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding Mcp.IsEditing}">
+                        <TextBlock Text="{Binding Mcp.EditorTitle}" FontSize="13" FontWeight="SemiBold"/>
+                        <TextBlock Classes="hint" Text="Presets"/>
+                        <ItemsControl ItemsSource="{Binding Mcp.Presets}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="core:McpPreset">
+                                    <Button Content="{Binding Title}" Margin="0,0,6,6"
+                                            Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).Mcp.ApplyPresetCommand}"
+                                            CommandParameter="{Binding}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBox Name="McpNameBox" Text="{Binding Mcp.EditorName}" Watermark="Name (letters, digits, - and _)"/>
+                        <CheckBox Content="Store in this project's .aiagent/mcp.json (no secrets allowed)" IsChecked="{Binding Mcp.EditorIsProject}" IsEnabled="{Binding Mcp.HasProject}"/>
+                        <CheckBox Content="Remote server (URL)" IsChecked="{Binding Mcp.EditorIsRemote}"/>
+                        <StackPanel Spacing="4" IsVisible="{Binding Mcp.EditorIsLocal}">
+                            <TextBox Name="McpCommandBox" Text="{Binding Mcp.EditorCommand}" Watermark="Command, for example npx"/>
+                            <TextBox Name="McpArgsBox" Text="{Binding Mcp.EditorArgs}" AcceptsReturn="True" MinHeight="60" Watermark="Arguments, one per line"/>
+                        </StackPanel>
+                        <StackPanel Spacing="4" IsVisible="{Binding Mcp.EditorIsRemote}">
+                            <TextBox Name="McpUrlBox" Text="{Binding Mcp.EditorUrl}" Watermark="https://…"/>
+                            <TextBox Name="McpTokenBox" Text="{Binding Mcp.EditorTokenVariable}" Watermark="Environment variable that holds the token, for example GITHUB_TOKEN"/>
+                        </StackPanel>
+                        <TextBox Name="McpEnvBox" Text="{Binding Mcp.EditorEnv}" AcceptsReturn="True" MinHeight="48" Watermark="Environment, one per line: NAME=${env:VARIABLE}"/>
+                        <TextBlock Classes="hint" Text="{Binding Mcp.EditorHint}" TextWrapping="Wrap"/>
+                        <TextBlock Name="McpEditorError" Text="{Binding Mcp.EditorError}" TextWrapping="Wrap" Foreground="{DynamicResource ThemeDangerSolidBrush}"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Name="McpSaveButton" Content="Save" Command="{Binding Mcp.SaveEditorCommand}"/>
+                            <Button Content="Cancel" Command="{Binding Mcp.CancelEditorCommand}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4" IsVisible="{Binding Mcp.IsBrowsingTools}">
+                        <TextBlock Text="{Binding Mcp.ToolsHeader}" FontSize="13" FontWeight="SemiBold"/>
+                        <ItemsControl ItemsSource="{Binding Mcp.ToolRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:McpToolRow">
+                                    <StackPanel Margin="0,2,0,0">
+                                        <TextBlock Text="{Binding Pattern}" FontSize="12"/>
+                                        <TextBlock Classes="hint" Text="{Binding Description}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="hint" Text="{Binding Mcp.ServerPattern, StringFormat='Characters that may use all tools of this server (adds {0} to tools.add):'}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        <ItemsControl ItemsSource="{Binding Mcp.CharacterRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:McpCharacterRow">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <CheckBox Content="{Binding Title}" IsChecked="{Binding Allowed, Mode=OneWay}" IsEnabled="{Binding CanEdit}" Command="{Binding ToggleCommand}"/>
+                                        <TextBlock Classes="hint" Text="{Binding Note}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="hint" Text="{Binding Mcp.CharacterStatus}" TextWrapping="Wrap"/>
+                        <Button Content="Close" Command="{Binding Mcp.CloseToolsCommand}" HorizontalAlignment="Left"/>
+                    </StackPanel>
                     <TextBlock Classes="hint" Text="{Binding McpConfigPath}" Margin="0,6,0,0"/>
                 </StackPanel>
 
