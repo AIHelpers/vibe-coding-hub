@@ -19,6 +19,11 @@ public sealed record FlowRunOptions
     public int? MaxParallel { get; init; }
     /// <summary>Safety cap on node runs across the whole flow, loops included.</summary>
     public int MaxTotalRuns { get; init; } = FlowRunner.DefaultMaxTotalRuns;
+    /// <summary>
+    /// Permission mode for every step, replacing the one its role or character asks for (headless runs: <c>--permission</c>).
+    /// Null = each step keeps its own.
+    /// </summary>
+    public PermissionMode? PermissionMode { get; init; }
     /// <summary>How long a confirmation gate waits before it counts as declined.</summary>
     public TimeSpan ConfirmationTimeout { get; init; } = TimeSpan.FromMinutes(10);
     /// <summary>
@@ -588,6 +593,8 @@ public sealed class FlowRunner
             _logger.LogError(ex, "Flow node {Node} could not start", node.Id);
             return Task.FromResult(new NodeResult(string.Empty, ex.Message, false, false, null, TimeSpan.Zero));
         }
+        if (options.PermissionMode is { } mode)
+            step = step with { Options = step.Options with { PermissionMode = mode } };
         // The step may spend at most what is left of the flow's budget: the orchestrator stops it after the call that crosses it.
         if (remainingBudget is { } left)
         {

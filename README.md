@@ -428,6 +428,29 @@ In the desktop app, open **🔀 Flows** (or "Flows" / "New Flow" in the command 
   outcome), ✕ failed or – skipped, plus the round number in loops; arrows light up as they are taken. Click a
   step to watch its output, and approve steps that ask for confirmation right on the step.
 
+### Run flows in CI (headless)
+
+```bash
+aiagent pipeline run --pipeline pr-review --task-file task.md --non-interactive \
+  --permission Plan --output markdown --output-file report.md --timeout 900
+```
+
+`--non-interactive` never waits for input: a tool call that needs approval is **denied** (the agent is told and carries on), and a step with `requireConfirmation` or a `human` step **fails the run** with a clear reason. `--permission` (`Plan`, `Ask`, `AutoEdit`, `FullAuto`) replaces the permission mode of every step; the default for CI should be `Plan` (read-only). `--timeout` stops the run after that many seconds. `--output json|markdown` with `--output-file` writes the report (without a file it goes to stdout); progress goes to stderr. `--max-budget` caps spend.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | a step failed, the flow was stopped at a gate / human step, or it timed out |
+| 2 | budget exceeded |
+| 3 | validation error (bad arguments, unknown or invalid flow, empty task, a linear pipeline) |
+| 4 | configuration error (unknown provider, missing key) |
+
+Provider settings can come from the environment instead of a config file: `AI_CODE_AGENT_<PROVIDER>_API_KEY`, `_BASE_URL` (any OpenAI-compatible server, for example a self-hosted model) and `_MODEL`; the legacy prefix `AIAGENT_` works too. They win over the config file.
+
+**GitHub Action.** `.github/actions/run-flow` installs the CLI from a release, writes the task from the PR title, description and diff, runs the flow and posts or updates **one** PR comment (found by a hidden `<!-- vibe-coding-hub:flow:<name> -->` marker). The sample `.github/workflows/flow-pr-review.yml` runs the project flow `.aiagent/pipelines/pr-review.json` by hand (`workflow_dispatch`, PR number as input); uncomment its `pull_request` trigger to run on every PR. Add `AIAGENT_OPENAI_API_KEY` (and optionally `AIAGENT_OPENAI_BASE_URL`) as repository secrets. The action needs `pull-requests: write`. The action folder can be mirrored to its own repository (`AIHelpers/vibe-coding-hub-action`) unchanged.
+
+A pull request is untrusted input. Keep the flow read-only (`Plan`), and do not give secrets to workflows triggered by forks. The Markdown report is plain for now; E5-S8 enriches it.
+
 ## Multi-Agent Coordination
 
 Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:

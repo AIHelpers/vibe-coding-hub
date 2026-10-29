@@ -1,0 +1,40 @@
+{
+  "name": "pr-review",
+  "description": "Three reviewers look at the same pull request in parallel (security, performance, readability) and a summary decides: ok or changes-requested. Read-only; runs unattended in CI.",
+  "maxParallel": 3,
+  "stages": [
+    {
+      "id": "security",
+      "name": "Security",
+      "role": "reviewer",
+      "promptTemplate": "Review the pull request below for security problems: injection, unsafe deserialization, secrets in code, missing authorization, unsafe file or network access. Quote the file and line for every finding; say so if you find nothing.\n\nTask: {task}"
+    },
+    {
+      "id": "performance",
+      "name": "Performance",
+      "role": "reviewer",
+      "promptTemplate": "Review the pull request below for performance problems: needless allocations, N+1 queries, blocking calls in async code, unbounded loops or collections. Quote the file and line for every finding; say so if you find nothing.\n\nTask: {task}"
+    },
+    {
+      "id": "style",
+      "name": "Style & readability",
+      "role": "reviewer",
+      "promptTemplate": "Review the pull request below for readability and maintainability: naming, structure, dead code, missing tests for new behaviour. Quote the file and line for every finding; say so if you find nothing.\n\nTask: {task}"
+    },
+    {
+      "id": "summary",
+      "name": "Summary",
+      "role": "reviewer",
+      "promptTemplate": "Write the review comment for this pull request from the three reviews above: a short verdict, then a checklist of what must change before merging (blocking) and what is only a suggestion. Keep it under 300 words.\n\nTask: {task}",
+      "outcomes": [
+        "ok",
+        "changes-requested"
+      ]
+    }
+  ],
+  "edges": [
+    { "from": "security", "to": "summary" },
+    { "from": "performance", "to": "summary" },
+    { "from": "style", "to": "summary" }
+  ]
+}

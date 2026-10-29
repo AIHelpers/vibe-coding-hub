@@ -1,0 +1,56 @@
+name: Flow - PR review
+
+# Sample: runs the pr-review flow (.aiagent/pipelines/pr-review.json) on a pull request with the aiagent CLI and
+# posts or updates one comment with the report.
+#
+# Disabled by default: it only runs when started by hand (Actions -> "Flow - PR review" -> Run workflow) and needs
+# the PR number. To run it on every pull request, replace the trigger with the commented-out block below.
+#
+# Setup:
+#   1. Add the provider key as a repository secret, for example AIAGENT_OPENAI_API_KEY.
+#      (Optional) AIAGENT_OPENAI_BASE_URL points at a self-hosted OpenAI-compatible server (vLLM, LM Studio, Ollama's /v1).
+#   2. Run the workflow with the number of an open pull request.
+#
+# Secrets are not available to pull requests from forks, so the automatic variant only reviews branches of this
+# repository. The flow runs read-only (permission Plan); anything that would need approval is denied.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Pull request number to review
+        required: true
+  # pull_request:
+  #   types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: flow-pr-review-${{ github.event.pull_request.number || inputs.pr-number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: pr-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the pull request's code so the reviewers can read the files around the diff.
+          ref: refs/pull/${{ github.event.pull_request.number || inputs.pr-number }}/head
+          fetch-depth: 0
+
+      - name: Run the flow
+        uses: ./.github/actions/run-flow
+        env:
+          AIAGENT_OPENAI_API_KEY: ${{ secrets.AIAGENT_OPENAI_API_KEY }}
+          AIAGENT_OPENAI_BASE_URL: ${{ secrets.AIAGENT_OPENAI_BASE_URL }}
+        with:
+          flow: pr-review
+          pr-number: ${{ github.event.pull_request.number || inputs.pr-number }}
+          provider: openai
+          permission: Plan
+          max-budget: '1.00'
