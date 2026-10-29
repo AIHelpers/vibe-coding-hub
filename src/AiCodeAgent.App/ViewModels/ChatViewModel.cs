@@ -406,7 +406,7 @@ public partial class ChatViewModel : ObservableObject
     {
         "/edit", "/search", "/explain", "/test", "/fix", "/refactor", "/plan", "/help",
         // Feature 6: In-Chat Branch / PR Workflow
-        "/branch", "/commit", "/pr",
+        "/branch", "/commit", "/pr", "/issue",
         "/rewind", "/fork", "/effort", "/requirements",
         // Characters & skills
         "/character", "/characters", "/skill", "/skills"
@@ -430,8 +430,10 @@ public partial class ChatViewModel : ObservableObject
         AiCodeAgent.Core.Characters.ICharacterRegistry? characterRegistry = null,
         RolePresetLoader? presetLoader = null,
         ISkillRegistry? skillRegistry = null,
-        SessionResumeService? sessionResume = null)
+        SessionResumeService? sessionResume = null,
+        AiCodeAgent.Core.GitHosting.IGitHostProvider? gitHost = null)
     {
+        _gitHost = gitHost;
         InitializeRewind(rewinder, rewindPrompt);
         InitializeResume(sessionResume);
         InitializeCharacters(characterRegistry, presetLoader, skillRegistry);
@@ -484,6 +486,7 @@ public partial class ChatViewModel : ObservableObject
                 : savedModel; // keep even if not in the static list (may be a provider model id)
         }
         // Initialize slash commands
+        SlashCommandItems.Add(new SlashCommandItem { Name = "/issue", Description = "List GitHub issues or start a task from one", Icon = "🐙" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/edit", Description = "Edit a specific file", Icon = "✏️" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/search", Description = "Search the codebase", Icon = "🔍" });
         SlashCommandItems.Add(new SlashCommandItem { Name = "/explain", Description = "Explain code logic", Icon = "💡" });
@@ -692,6 +695,9 @@ public partial class ChatViewModel : ObservableObject
             return;
         // Characters and skills: /character, /characters, /skill, /skills.
         if (await TryHandleCharacterCommandAsync(userMessage).ConfigureAwait(true))
+            return;
+        // E6-S4: /issue lists or picks a GitHub issue as the task.
+        if (await TryHandleIssueCommandAsync(userMessage).ConfigureAwait(true))
             return;
         // Feature 6: In-Chat Branch / PR Workflow — intercept git slash commands.
         if (await TryHandleGitCommandAsync(userMessage).ConfigureAwait(true))
