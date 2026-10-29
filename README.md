@@ -358,6 +358,14 @@ parallel**, each in its own git worktree that is merged back when it finishes.
 - **Loops:** an arrow back to an earlier step re-runs it (and the steps between) with the feedback, up to
   `maxLoops` times. After that, a `"when": "loop-exhausted"` arrow can route elsewhere; otherwise the flow
   stops. A flow also stops after 25 step runs in total.
+- **Models per step:** a step can set `"model"` and `"provider"`. `model` is a concrete id or a tier alias
+  (`fast` | `balanced` | `frontier`) that resolves through the model catalog for the step's provider, e.g.
+  `{ "id": "release-notes", "model": "fast" }` and `{ "id": "design", "model": "frontier" }`. Precedence:
+  **step > character `model:` > session default** (`--model` / the chat picker). `provider` (e.g. `"anthropic"`)
+  sends that step to another configured provider; parallel steps may use different providers. A step that names a
+  provider but no model uses that provider's configured default model. Both fields are optional: flows without
+  them run exactly as before. In the editor, the inspector has a **Model** combo (*Inherit (character/session)*,
+  the tiers, then the catalog's models) and a **Provider** combo; the node shows it (`Sam — Developer · fast`).
 - **Failures** skip only the steps after the failed one; other branches finish.
 - Pipelines **without `edges`** keep the old behavior: stages in order, one shared history.
 

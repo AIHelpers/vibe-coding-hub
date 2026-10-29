@@ -190,6 +190,11 @@ public record AgentExecutionContext
 public record AgentOptions
 {
     public string? Model { get; init; }
+    /// <summary>
+    /// Provider this run talks to (a configured provider name). Null = the orchestrator's own provider.
+    /// Set per flow step so parallel steps can use different providers.
+    /// </summary>
+    public string? Provider { get; init; }
     public string WorkingDirectory { get; init; } = Directory.GetCurrentDirectory();
     public int MaxIterations { get; init; } = 50;
     public int MaxTokens { get; init; } = 200_000;

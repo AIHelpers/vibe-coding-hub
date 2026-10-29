@@ -201,6 +201,33 @@ public sealed class ModelCatalog
         }
     }
 
+    /// <summary>
+    /// Parses a tier name as written in a flow: <c>fast</c>, <c>balanced</c>, <c>frontier</c> (case-insensitive),
+    /// and the picker's <c>auto</c> / <c>smart</c> aliases.
+    /// </summary>
+    public static bool TryTierOfName(string? name, out ModelTier tier)
+    {
+        switch (name?.Trim().ToLowerInvariant())
+        {
+            case "fast": tier = ModelTier.Fast; return true;
+            case "balanced": tier = ModelTier.Balanced; return true;
+            case "frontier": tier = ModelTier.Frontier; return true;
+            default: return TryTierOfAlias(name, out tier);
+        }
+    }
+
+    /// <summary>
+    /// The concrete model id for a flow step's <c>model</c> setting: a tier name resolves to that tier's model for
+    /// <paramref name="provider"/> (so "balanced" is explicit, unlike <see cref="ModelForRun"/>), a concrete id stays
+    /// as it is. Null when it is empty, a retired id, or a tier the provider has no model for.
+    /// </summary>
+    public string? ResolveModelSetting(string? setting, string provider, IEnumerable<string>? available = null)
+    {
+        if (string.IsNullOrWhiteSpace(setting)) return null;
+        if (TryTierOfName(setting, out var tier)) return ModelForTier(provider, tier, available);
+        return IsRetired(provider, setting) ? null : setting.Trim();
+    }
+
     /// <summary>The concrete model for Auto / Fast / Smart, or null when <paramref name="alias"/> is not one of them.</summary>
     public string? ResolveAlias(string? alias, string provider, IEnumerable<string>? available = null) =>
         TryTierOfAlias(alias, out var tier) ? ModelForTier(provider, tier, available) : null;

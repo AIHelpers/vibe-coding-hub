@@ -42,6 +42,16 @@ public record SdlcStageDefinition
     /// ends its answer with <c>OUTCOME: &lt;one of them&gt;</c> and edges route on it.
     /// </summary>
     public List<string>? Outcomes { get; init; }
+    /// <summary>
+    /// Model for this step: a concrete model id or a tier alias (<c>fast</c> | <c>balanced</c> | <c>frontier</c>)
+    /// resolved through the model catalog. Precedence: stage &gt; character &gt; session default. Null = inherit.
+    /// </summary>
+    public string? Model { get; init; }
+    /// <summary>
+    /// Provider for this step (a key of the configured providers, e.g. "anthropic"). Null = the session's provider.
+    /// Parallel steps may use different providers.
+    /// </summary>
+    public string? Provider { get; init; }
     /// <summary>Canvas position (left) in the Flows panel.</summary>
     public double? X { get; init; }
     /// <summary>Canvas position (top) in the Flows panel.</summary>
@@ -508,14 +518,20 @@ public class SdlcPipelineRunner
     private readonly IAgentOrchestrator _orchestrator;
     private readonly ILogger<SdlcPipelineRunner> _logger;
     private readonly ICharacterRegistry? _characters;
+    private readonly IAiProviderResolver? _providers;
+    private readonly ModelCatalog? _catalog;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
         RolePresetLoader presetLoader,
         IAgentOrchestrator orchestrator,
         ILogger<SdlcPipelineRunner> logger,
-        ICharacterRegistry? characters = null)
+        ICharacterRegistry? characters = null,
+        IAiProviderResolver? providers = null,
+        ModelCatalog? catalog = null)
     {
+        _providers = providers;
+        _catalog = catalog;
         _coordinator = coordinator;
         _presetLoader = presetLoader;
         _orchestrator = orchestrator;
@@ -659,6 +675,8 @@ public class SdlcPipelineRunner
             };
         }
 
+        options = ApplyStageModel(stage, options);
+
         return new SessionStep
         {
             AgentId = agentId,
@@ -668,6 +686,37 @@ public class SdlcPipelineRunner
             RequireConfirmation = stage.RequireConfirmation,
             Options = options
         };
+    }
+
+    /// <summary>
+    /// Applies the stage's own provider and model on top of what the character and the session gave
+    /// (stage &gt; character &gt; session default). A tier alias is resolved through the model catalog for the
+    /// step's provider. A different provider without a model uses that provider's configured default model,
+    /// because the inherited model id belongs to the session's provider.
+    /// </summary>
+    internal AgentOptions ApplyStageModel(SdlcStageDefinition stage, AgentOptions options)
+    {
+        var provider = string.IsNullOrWhiteSpace(stage.Provider) ? null : stage.Provider.Trim().ToLowerInvariant();
+        var model = string.IsNullOrWhiteSpace(stage.Model) ? null : stage.Model.Trim();
+        if (provider == null && model == null) return options;
+
+        var defaultProvider = _providers?.DefaultProviderName?.ToLowerInvariant();
+        var effectiveProvider = provider ?? defaultProvider;
+        var differs = provider != null && !string.Equals(provider, defaultProvider, StringComparison.OrdinalIgnoreCase);
+
+        if (provider != null) options = options with { Provider = differs ? provider : null };
+
+        if (model != null)
+        {
+            var catalog = _catalog ?? ModelCatalogLoader.Default;
+            var resolved = effectiveProvider == null ? (ModelCatalog.TryTierOfName(model, out _) ? null : model)
+                : catalog.ResolveModelSetting(model, effectiveProvider);
+            if (resolved != null) return options with { Model = resolved };
+            _logger.LogWarning("Stage '{Stage}': model '{Model}' could not be resolved for provider '{Provider}'; using the inherited model",
+                stage.Id ?? stage.Name, model, effectiveProvider ?? "(default)");
+        }
+        // Another provider cannot use the model chosen for the session's provider.
+        return differs ? options with { Model = null } : options;
     }
 
     /// <summary>

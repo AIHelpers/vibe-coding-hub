@@ -12,6 +12,7 @@ namespace AiCodeAgent.Core.Agent;
 public class AgentOrchestrator : IAgentOrchestrator
 {
     private readonly IAiProvider _provider;
+    private readonly IAiProviderResolver? _providerResolver;
     private readonly IContextManager _contextManager;
     private readonly IToolRegistry _toolRegistry;
     private readonly ILogger<AgentOrchestrator> _logger;
@@ -36,6 +37,19 @@ public class AgentOrchestrator : IAgentOrchestrator
         return cap is > 0 ? cap : null;
     }
 
+    /// <summary>
+    /// The provider for this run: the one named by <see cref="AgentOptions.Provider"/> (per-step routing) when a
+    /// resolver is available and knows it, otherwise the orchestrator's own. Stateless, so parallel runs are safe.
+    /// </summary>
+    private IAiProvider ProviderFor(AgentOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.Provider)) return _provider;
+        var resolved = _providerResolver?.Resolve(options.Provider);
+        if (resolved != null) return resolved;
+        _logger.LogWarning("Provider '{Provider}' is not configured; using the default provider", options.Provider);
+        return _provider;
+    }
+
     public AgentOrchestrator(
         IAiProvider provider,
         IContextManager contextManager,
@@ -50,9 +64,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         ISkillRegistry? skillRegistry = null,
         IHookRunner? hookRunner = null,
         IPermissionManager? permissionManager = null,
-        Usage.SessionCostTracker? costTracker = null)
+        Usage.SessionCostTracker? costTracker = null,
+        IAiProviderResolver? providerResolver = null)
     {
         _provider = provider;
+        _providerResolver = providerResolver;
         _contextManager = contextManager;
         _toolRegistry = toolRegistry;
         _config = config;
@@ -281,7 +297,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             // as they arrive (instead of buffering them until the stream completes).
             // C# forbids yield inside a try-catch, but allows it inside the
             // try-finally that 'await using' generates.
-            await using var streamEnumerator = _provider
+            await using var streamEnumerator = ProviderFor(options)
                 .StreamAsync(request, cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
 

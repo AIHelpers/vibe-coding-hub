@@ -295,6 +295,13 @@
                                 <TextBlock Text="Character" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox ItemsSource="{Binding CharacterOptions}" SelectedItem="{Binding SelectedNode.CharacterId, FallbackValue={x:Null}}"
                                           HorizontalAlignment="Stretch" FontSize="11"/>
+                                <TextBlock Text="Model (stage &gt; character &gt; session default)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <ComboBox x:Name="ModelCombo" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding SelectedNode.ModelSelection, FallbackValue={x:Null}}"
+                                          HorizontalAlignment="Stretch" FontSize="11"
+                                          ToolTip.Tip="fast | balanced | frontier resolve through the model catalog for the step's provider"/>
+                                <TextBlock Text="Provider" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <ComboBox x:Name="ProviderCombo" ItemsSource="{Binding ProviderOptions}" SelectedItem="{Binding SelectedNode.ProviderSelection, FallbackValue={x:Null}}"
+                                          HorizontalAlignment="Stretch" FontSize="11"/>
                                 <TextBlock Text="Prompt ({task} = the flow's task, {input:step-id} = that step's result)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}" TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding SelectedNode.PromptTemplate, FallbackValue=''}" AcceptsReturn="True" TextWrapping="Wrap"
                                          MinHeight="90" MaxHeight="220" FontSize="11"/>

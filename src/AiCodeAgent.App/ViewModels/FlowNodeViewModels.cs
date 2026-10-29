@@ -29,6 +29,21 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     [ObservableProperty] private string _name = string.Empty;
     [ObservableProperty] private string? _characterId;
     [ObservableProperty] private string _role = string.Empty;
+    /// <summary>Label of the "no override" entry in the Model combo.</summary>
+    public const string InheritModelLabel = "Inherit (character/session)";
+    /// <summary>Label of the "no override" entry in the Provider combo.</summary>
+    public const string InheritProviderLabel = "Session provider";
+
+    /// <summary>The step's model: a tier (fast | balanced | frontier) or a concrete id; empty = inherit from the character/session.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ModelSelection), nameof(ModelBadge), nameof(Subtitle))]
+    private string _model = string.Empty;
+
+    /// <summary>The step's provider; empty = the session's provider.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProviderSelection), nameof(ModelBadge), nameof(Subtitle))]
+    private string _provider = string.Empty;
+
     [ObservableProperty] private string _promptTemplate = string.Empty;
     /// <summary>Outcomes as typed in the inspector: "approved, rejected".</summary>
     [ObservableProperty] private string _outcomesText = string.Empty;
@@ -103,8 +118,40 @@ public sealed partial class FlowNodeViewModel : ObservableObject
         }
     }
 
-    /// <summary>Card subtitle: the character, or the run state while/after running.</summary>
-    public string Subtitle => RunState == null ? CharacterLabel : $"{CharacterLabel} · {StateText}";
+    /// <summary>What the Model combo shows: the inherit label when the step sets no model.</summary>
+    public string ModelSelection
+    {
+        get => string.IsNullOrWhiteSpace(Model) ? InheritModelLabel : Model;
+        set => Model = string.IsNullOrWhiteSpace(value) || value == InheritModelLabel ? string.Empty : value.Trim();
+    }
+
+    /// <summary>What the Provider combo shows: the session label when the step sets no provider.</summary>
+    public string ProviderSelection
+    {
+        get => string.IsNullOrWhiteSpace(Provider) ? InheritProviderLabel : Provider;
+        set => Provider = string.IsNullOrWhiteSpace(value) || value == InheritProviderLabel ? string.Empty : value.Trim();
+    }
+
+    /// <summary>Short text for the card: "fast", "claude-haiku-4-5", "openai/fast"; empty when the step overrides nothing.</summary>
+    public string ModelBadge
+    {
+        get
+        {
+            var m = Model.Trim();
+            var p = Provider.Trim();
+            return p.Length == 0 ? m : m.Length == 0 ? p : $"{p}/{m}";
+        }
+    }
+
+    /// <summary>Card subtitle: the character and its model override, then the run state while/after running.</summary>
+    public string Subtitle
+    {
+        get
+        {
+            var head = ModelBadge.Length == 0 ? CharacterLabel : $"{CharacterLabel} · {ModelBadge}";
+            return RunState == null ? head : $"{head} · {StateText}";
+        }
+    }
 
     partial void OnXChanged(double value)
     {
