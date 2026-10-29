@@ -28,14 +28,17 @@ public static class SkillCharacterCommands
         var config = new ConfigurationService();
         try { await config.LoadAsync(); } catch { /* defaults are fine for listing */ }
         var presets = new RolePresetLoader(NullLogger<RolePresetLoader>.Instance);
+        var packs = new AiCodeAgent.Core.Packs.PackStore();
         var skills = new SkillRegistry(
             NullLogger<SkillRegistry>.Instance,
             projectSkillsDir: SkillRegistry.GetDefaultProjectSkillsDir(workdir),
-            overrides: config.Config.Agent.SkillOverrides);
+            overrides: config.Config.Agent.SkillOverrides,
+            packSources: () => packs.Sources(workdir));
         var characters = new CharacterRegistry(
             presets,
             NullLogger<CharacterRegistry>.Instance,
-            projectCharactersDir: CharacterRegistry.GetDefaultProjectCharactersDir(workdir));
+            projectCharactersDir: CharacterRegistry.GetDefaultProjectCharactersDir(workdir),
+            packSources: () => packs.Sources(workdir));
         return new Registries(skills, characters, presets);
     }
 
@@ -75,7 +78,7 @@ public static class SkillCharacterCommands
             foreach (var s in skills)
             {
                 var flags = (s.DisableModelInvocation ? " [manual]" : "") + (!s.IsValid ? " [invalid]" : "") + (s.ShadowsGlobal ? " [overrides global]" : "");
-                Console.WriteLine($"{s.Name,-28} {s.Scope.ToString().ToLowerInvariant(),-8} {s.EstimatedTokens,7}  {Truncate(s.Description, 60)}{flags}");
+                Console.WriteLine($"{s.Name,-28} {(s.Scope == SkillScope.Pack ? "pack:" + s.PackName : s.Scope.ToString().ToLowerInvariant()),-8} {s.EstimatedTokens,7}  {Truncate(s.Description, 60)}{flags}");
             }
             Console.WriteLine($"\nGlobal:  {r.Skills.GlobalSkillsDirectory}\nProject: {r.Skills.ProjectSkillsDirectory}");
         }, dirOption, allOption, tagOption);
@@ -90,7 +93,7 @@ public static class SkillCharacterCommands
             var s = await r.Skills.GetAsync(name);
             if (s == null) { Fail($"Skill '{name}' not found."); return; }
             Console.WriteLine($"Name:        {s.Name}");
-            Console.WriteLine($"Scope:       {s.Scope.ToString().ToLowerInvariant()}{(s.ShadowsGlobal ? " (overrides a global skill)" : "")}");
+            Console.WriteLine($"Scope:       {(s.Scope == SkillScope.Pack ? "pack:" + s.PackName + " (read-only)" : s.Scope.ToString().ToLowerInvariant())}{(s.ShadowsGlobal ? " (overrides a global skill)" : "")}");
             Console.WriteLine($"File:        {s.FilePath}");
             Console.WriteLine($"Description: {s.Description}");
             if (s.Tags.Count > 0) Console.WriteLine($"Tags:        {string.Join(", ", s.Tags)}");
@@ -246,7 +249,7 @@ public static class SkillCharacterCommands
                     string.Join(", ", c.Skills.Concat(c.PinnedSkills.Select(p => p + "*")));
                 var flags = (c.IsTemplate ? " [template]" : "") + (c.Extends != null ? $" [extends {c.Extends}]" : "") +
                             (!c.IsValid ? " [invalid]" : c.Overrides ? " [override]" : "");
-                Console.WriteLine($"{c.Id,-22} {c.Scope.ToString().ToLowerInvariant(),-8} {c.BaseRole ?? "-",-12} {Truncate(skills, 30),-30} {Truncate(c.Description, 50)}{flags}");
+                Console.WriteLine($"{c.Id,-22} {(c.Scope == SkillScope.Pack ? "pack:" + c.PackName : c.Scope.ToString().ToLowerInvariant()),-8} {c.BaseRole ?? "-",-12} {Truncate(skills, 30),-30} {Truncate(c.Description, 50)}{flags}");
             }
             Console.WriteLine("\n* = pinned (always in context)");
             Console.WriteLine($"Global:  {r.Characters.GlobalCharactersDirectory}\nProject: {r.Characters.ProjectCharactersDirectory}");
@@ -263,7 +266,7 @@ public static class SkillCharacterCommands
             var preset = c.BaseRole == null ? null : r.Presets.GetPreset(c.BaseRole);
             var resolved = CharacterResolver.Apply(new AgentOptions(), c, preset);
             Console.WriteLine($"Character:   {c.Label} ({c.Id})");
-            Console.WriteLine($"Scope:       {c.Scope.ToString().ToLowerInvariant()}{(c.Overrides ? " (overrides another definition)" : "")}");
+            Console.WriteLine($"Scope:       {(c.Scope == SkillScope.Pack ? "pack:" + c.PackName + " (read-only)" : c.Scope.ToString().ToLowerInvariant())}{(c.Overrides ? " (overrides another definition)" : "")}");
             if (c.FilePath != null) Console.WriteLine($"File:        {c.FilePath}");
             Console.WriteLine($"Description: {c.Description}");
             Console.WriteLine($"Base role:   {c.BaseRole ?? "-"}");

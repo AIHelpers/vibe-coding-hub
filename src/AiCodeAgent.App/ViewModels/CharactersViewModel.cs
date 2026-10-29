@@ -29,6 +29,7 @@ public sealed class CharacterListItem
             var scope = Info.Scope switch
             {
                 SkillScope.BuiltIn => "Built-in",
+                SkillScope.Pack => $"Pack: {Info.PackName}",
                 SkillScope.Project => "Project",
                 _ => "Global"
             };
@@ -200,8 +201,8 @@ public partial class CharactersViewModel : ObservableObject
 
     public bool IsAvailable => _characters != null;
 
-    /// <summary>True when the selected character is a built-in (no file to edit or delete).</summary>
-    public bool SelectedIsBuiltIn => SelectedCharacter?.Info.IsBuiltIn == true;
+    /// <summary>True when the selected character cannot be edited or deleted: it is built in, or it comes from an installed pack (read-only).</summary>
+    public bool SelectedIsBuiltIn => SelectedCharacter?.Info.IsBuiltIn == true || SelectedCharacter?.Info.IsFromPack == true;
 
     public bool CanEditSelected => SelectedCharacter != null && !SelectedIsBuiltIn;
 

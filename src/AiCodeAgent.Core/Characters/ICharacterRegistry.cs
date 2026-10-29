@@ -131,6 +131,9 @@ public record CharacterInfo
 
     public SkillScope Scope { get; init; } = SkillScope.Global;
     public bool IsBuiltIn => Scope == SkillScope.BuiltIn;
+    /// <summary>The pack this character comes from when <see cref="Scope"/> is <see cref="SkillScope.Pack"/>. Pack characters are read-only.</summary>
+    public string? PackName { get; init; }
+    public bool IsFromPack => Scope == SkillScope.Pack;
     /// <summary>True when this user character overrides a built-in or global character with the same id.</summary>
     public bool Overrides { get; init; }
     public string? FilePath { get; init; }

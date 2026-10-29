@@ -14,6 +14,9 @@
                     <Button Content="AGENTS.md" Command="{Binding ShowMemoryTabCommand}" FontSize="11" Padding="10,4"/>
                     <Button Content="Skills" Command="{Binding ShowSkillsTabCommand}" FontSize="11" Padding="10,4"/>
                     <Button Content="Characters" Command="{Binding ShowCharactersTabCommand}" FontSize="11" Padding="10,4"/>
+                    <Button Content="Packs" Command="{Binding ShowPacksTabCommand}" FontSize="11" Padding="10,4"/>
+                    <Button Content="＋ Add pack" Command="{Binding BeginAddPackCommand}" FontSize="11" Padding="10,4"
+                            IsVisible="{Binding IsPacksAvailable}"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="✕" Width="24" Height="24" Padding="0" FontSize="11"
                         Command="{Binding CloseCommand}"/>
@@ -39,9 +42,9 @@
                     <Button Content="💾 Save" Command="{Binding SaveSelectedSkillCommand}"
                             IsEnabled="{Binding SelectedSkillIsDirty}" FontSize="11" Padding="8,3"/>
                     <Button Content="✎ Rename" Command="{Binding BeginRenameSkillCommand}"
-                            IsEnabled="{Binding HasSelectedSkill}" FontSize="11" Padding="8,3"/>
+                            IsEnabled="{Binding CanEditSelectedSkill}" FontSize="11" Padding="8,3"/>
                     <Button Content="🗑 Delete" Command="{Binding RequestDeleteSkillCommand}"
-                            IsEnabled="{Binding HasSelectedSkill}" FontSize="11" Padding="8,3"/>
+                            IsEnabled="{Binding CanEditSelectedSkill}" FontSize="11" Padding="8,3"/>
                     <TextBlock Text="{Binding SkillsStatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
                 <!-- Characters toolbar -->
@@ -53,6 +56,12 @@
                     <Button Content="🗑 Delete" Command="{Binding Characters.RequestDeleteCommand}"
                             IsEnabled="{Binding Characters.CanEditSelected}" FontSize="11" Padding="8,3"/>
                     <TextBlock Text="{Binding Characters.StatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+                <!-- Packs toolbar -->
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsPacksTabActive}">
+                    <Button Content="＋ Add pack" Command="{Binding BeginAddPackCommand}" FontSize="11" Padding="8,3"/>
+                    <Button Content="⬆ Update" Command="{Binding UpdatePacksCommand}" IsEnabled="{Binding !IsPackBusy}" FontSize="11" Padding="8,3"/>
+                    <TextBlock Text="{Binding PacksStatusText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -143,6 +152,7 @@
 
                 <TextBox Grid.Row="2"
                          Text="{Binding SelectedSkillContent}"
+                         IsReadOnly="{Binding IsSelectedSkillReadOnly}"
                          IsVisible="{Binding !IsCreatingSkill}"
                          AcceptsReturn="True"
                          TextWrapping="NoWrap"
@@ -383,5 +393,50 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <!-- Packs tab body -->
+        <ScrollViewer Grid.Row="2" IsVisible="{Binding IsPacksTabActive}">
+            <StackPanel Spacing="8" Margin="10">
+                <Border IsVisible="{Binding IsAddingPack}" Background="{DynamicResource AppDeepBrush}" CornerRadius="4" Padding="8">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Add pack" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBox Text="{Binding PackUrl}" Watermark="https://github.com/org/dotnet-team-pack" FontSize="11"/>
+                        <TextBox Text="{Binding PackRef}" Watermark="Ref (tag or commit, optional)" FontSize="11"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Preview" Command="{Binding FetchPackPreviewCommand}" IsEnabled="{Binding CanFetchPack}" FontSize="11" Padding="10,4"/>
+                            <Button Content="Install" Command="{Binding InstallPackCommand}" IsEnabled="{Binding PackCanInstall}" FontSize="11" Padding="10,4"/>
+                            <Button Content="Cancel" Command="{Binding CancelAddPackCommand}" FontSize="11" Padding="10,4"/>
+                        </StackPanel>
+                        <TextBox Text="{Binding PackPreviewText}" IsVisible="{Binding HasPackPreview}" IsReadOnly="True"
+                                 AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas,Menlo,monospace" FontSize="11"
+                                 MaxHeight="320"/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="No packs installed. Use ＋ Add pack to install skills, characters and flows from a git repository."
+                           IsVisible="{Binding HasNoInstalledPacks}" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+
+                <ItemsControl ItemsSource="{Binding InstalledPacks}" IsVisible="{Binding HasInstalledPacks}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:PackListItem">
+                            <Border Background="{DynamicResource AppSubBrush}" CornerRadius="4" Padding="8" Margin="0,0,0,6">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Subtitle}" FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                        <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                        <TextBlock Text="{Binding UseLabel}" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Remove" FontSize="11" Padding="8,3" VerticalAlignment="Top"
+                                            Command="{Binding DataContext.RemovePackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

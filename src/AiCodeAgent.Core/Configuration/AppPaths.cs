@@ -21,6 +21,8 @@ public static class AppPaths
     public static string Pipelines => Path.Combine(UserRoot, "pipelines");
     public static string Skills => Path.Combine(UserRoot, "skills");
     public static string Characters => Path.Combine(UserRoot, "characters");
+    /// <summary>Installed packs: <c>packs/&lt;name&gt;@&lt;ref&gt;/</c> plus <c>packs/installed.json</c>.</summary>
+    public static string Packs => Path.Combine(UserRoot, "packs");
     public static string Runs => Path.Combine(UserRoot, "runs");
     /// <summary>Saved flow runs: <c>runs/flows/&lt;flow&gt;/&lt;runId&gt;/</c>.</summary>
     public static string FlowRuns => Path.Combine(Runs, "flows");

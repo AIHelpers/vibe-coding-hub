@@ -190,9 +190,15 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>The working directory changed: flows in its <c>.aiagent/pipelines</c> are listed next to the global ones.</summary>
     public void SetProjectDirectory(string? directory)
     {
-        _loader?.SetProjectDirectory(directory);
+        // The loader raises Changed, which would post a second refresh; we refresh right below, so skip that one
+        // (two refreshes running at once could modify the lists while the caller reads them).
+        _suppressChangedRefresh = true;
+        try { _loader?.SetProjectDirectory(directory); }
+        finally { _suppressChangedRefresh = false; }
         RefreshPipelineList();
     }
+
+    private bool _suppressChangedRefresh;
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool HasProblems => Problems.Count > 0;
@@ -501,6 +507,7 @@ public partial class FlowEditorViewModel : ObservableObject
 
     private void RefreshPipelineListSafe()
     {
+        if (_suppressChangedRefresh) return;
         try
         {
             if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess()) RefreshPipelineList();
@@ -1222,6 +1229,11 @@ public partial class FlowEditorViewModel : ObservableObject
         if (_loader == null || IsReplay) return;
         var entry = _loader.GetEntry(FlowName);
         if (entry?.FilePath is not { } path || !System.IO.File.Exists(path)) return;
+        if (entry.Scope == PipelineScope.Pack)
+        {
+            StatusText = $"'{entry.Name}' comes from the pack '{entry.PackName}' and is read-only. Save a copy to change it, or remove the pack.";
+            return;
+        }
         IsChoosingSaveScope = false;
         DeletePrompt = $"Delete the {entry.ScopeLabel} flow file {System.IO.Path.GetFileName(path)}?" +
                        (entry.Scope == PipelineScope.Project ? " It is shared with your team through git." : "");

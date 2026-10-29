@@ -323,6 +323,47 @@ desktop app, use **Project Knowledge → Skills / Characters** (skill checklist 
 selector next to the pipeline picker, or `/character`, `/characters`, `/skill`, `/skills` in the chat box.
 Ready-made samples live in [`examples/`](examples/README.md).
 
+## Packs: share skills, characters and flows from a git repo
+
+A pack is a git repository with a `pack.json` and any of `skills/`, `characters/` and `pipelines/` folders:
+
+```
+dotnet-team-pack/
+  pack.json
+  skills/api-design/SKILL.md
+  characters/pack-architect.md
+  pipelines/pack-review.json
+```
+
+```json
+{ "name": "dotnet-team-pack", "version": "1.2.0", "description": "Our .NET team's skills and roles",
+  "author": "Acme", "license": "MIT", "requires": { "app": ">=1.3" } }
+```
+
+`name` is kebab-case. `requires.app` accepts `>=`, `>`, `<=`, `<` and `=` (combine with a space, e.g. `>=1.3 <2.0`).
+
+**Install.**
+
+```
+aiagent pack add https://github.com/org/dotnet-team-pack --ref v1.2.0 [--save] [--yes]
+aiagent pack list
+aiagent pack update [name]      # packs that follow a branch move to its newest commit; pinned packs stay
+aiagent pack remove <name> [--ref <ref>]
+aiagent pack sync               # install exactly the refs in .aiagent/packs.json
+```
+
+In the app, use **Project Knowledge → ＋ Add pack** (or the **Packs** tab). Packs are cloned into `~/.aiagent/packs/<name>@<ref>` and registered as read-only sources with the scope `pack:<name>`. Their skills, characters and flows show a **Pack: <name>** badge and cannot be edited or deleted; copy one to your project or global folder to change it. Removing a pack removes everything it added.
+
+**Pin a ref.** A tag or commit gives a reproducible install; a branch (or no `--ref`) follows the newest commit on `pack update`. `--save` records the pack in the project's `.aiagent/packs.json`, which you commit so teammates run `aiagent pack sync`:
+
+```json
+{ "packs": [ { "name": "dotnet-team-pack", "url": "https://github.com/org/dotnet-team-pack", "ref": "v1.2.0" } ] }
+```
+
+**Precedence on a name clash:** project > global > pack > built-in. If two packs define the same name, the pack whose name sorts later wins.
+
+**Security.** Before anything is installed you see every file plus any `hooks`, MCP server entries (`mcp.json`) and scripts or binaries. Packs never enable hooks or MCP servers, and the app never runs files from a pack. Symlinks are rejected, and packs are limited to 5000 files / 100 MB. Pack commands need `git` on your PATH.
+
 ## Flows: characters working together
 
 A **flow** is a pipeline whose stages are connected by arrows. Each character starts as soon as the
