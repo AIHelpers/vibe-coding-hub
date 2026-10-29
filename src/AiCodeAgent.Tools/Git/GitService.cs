@@ -207,6 +207,13 @@ public class GitService
         };
     }
 
+    /// <summary>The URL of the <c>origin</c> remote, or null when there is none.</summary>
+    public async Task<string?> GetRemoteUrlAsync(CancellationToken cancellationToken = default)
+    {
+        var (code, stdout, _) = await RunGitAsync("remote get-url origin", cancellationToken);
+        return code == 0 && !string.IsNullOrWhiteSpace(stdout) ? stdout.Trim() : null;
+    }
+
     /// <summary>Return the full diff of staged + unstaged changes for summarization.</summary>
     public async Task<string> GetDiffAsync(CancellationToken cancellationToken = default)
     {

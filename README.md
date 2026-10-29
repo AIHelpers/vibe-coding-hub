@@ -589,3 +589,9 @@ make publish-all
 - **＋ Add server** offers presets (GitHub, filesystem, Postgres, Playwright, Fetch) or a custom server (stdio command, or URL plus a token variable). The presets that use `npx` need Node.js; Fetch uses `uvx`.
 - **Secrets are never written as plain text.** Write `${env:GITHUB_TOKEN}` in env values, arguments, the URL or the token; the value is read from the environment when the server starts. The app refuses to save a token, password or key in either file. If a variable is not set, the row shows which one, and Test does not start the server.
 - **Tool browser.** *Tools* shows the server's tools with descriptions and the pattern for each (`mcp:github/create_issue`). Characters can be given the whole server with `tools: { add: [mcp:github/*] }`; the tool browser has a switch per character that edits this line. Built-in and pack characters are read-only. The same `mcp:server/*` patterns work in `disabled-tools` lists.
+
+### GitHub issues as tasks
+
+`/issue` lists the open issues of the repository behind the `origin` remote (pull requests are left out); `/issue label:bug assignee:me` filters them. `/issue 42` fills the message box with the issue's title, body and comments and links the task to the issue; `/issue clear` removes the link.
+
+Sign-in: set `GITHUB_TOKEN` (or `GH_TOKEN`), or sign in with the GitHub CLI (`gh auth login`); the app uses `gh auth token` when no variable is set. Public repositories also work without a token, with GitHub's lower rate limit. Hosts are behind the `IGitHostProvider` interface, so GitLab and Azure DevOps can be added later.

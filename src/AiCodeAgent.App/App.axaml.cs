@@ -584,6 +584,14 @@ public partial class App : Application
             // GitService operates on the current working directory of the app.
             return new GitService(Directory.GetCurrentDirectory(), logger);
         });
+        services.AddSingleton<AiCodeAgent.Tools.GitHosting.GitHubTokenResolver>();
+        services.AddSingleton<AiCodeAgent.Core.GitHosting.IGitHostProvider>(sp =>
+        {
+            var tokens = sp.GetRequiredService<AiCodeAgent.Tools.GitHosting.GitHubTokenResolver>();
+            return new AiCodeAgent.Tools.GitHosting.GitHubHostProvider(
+                new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                async ct => (await tokens.ResolveAsync(ct).ConfigureAwait(false))?.Value);
+        });
         services.AddTransient<ChatViewModel>();
         services.AddTransient<SettingsViewModel>(sp =>
             new SettingsViewModel(
