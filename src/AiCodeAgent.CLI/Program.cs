@@ -313,13 +313,42 @@ pipelineValidateCommand.SetHandler(async (name, cast, dir) =>
 }, flowNameArg, castOption, dirOption);
 
 var mermaidOption = new Option<bool>("--mermaid", "Print a Mermaid flowchart instead");
+var withStatusOption = new Option<string?>("--with-status", "With --mermaid or --report: a saved run id (or 'latest'); nodes are coloured by that run's status and loops show their actual rounds");
+var reportOption = new Option<bool>("--report", "Print the Markdown report of the run given by --with-status (task, diagram, steps, answers, totals, changed files)");
 var pipelineShowCommand = new Command("show", "Show a pipeline/flow: which characters run in parallel, loops and conditions");
 pipelineShowCommand.AddArgument(flowNameArg);
 pipelineShowCommand.AddOption(mermaidOption);
+pipelineShowCommand.AddOption(withStatusOption);
+pipelineShowCommand.AddOption(reportOption);
 pipelineShowCommand.AddOption(castOption);
 pipelineShowCommand.AddOption(dirOption);
-pipelineShowCommand.SetHandler(async (name, mermaid, cast, dir) =>
+pipelineShowCommand.SetHandler(async (name, mermaid, cast, dir, withStatus, report) =>
 {
+    if (report && string.IsNullOrWhiteSpace(withStatus))
+    {
+        Console.Error.WriteLine("--report needs --with-status <runId|latest>.");
+        Environment.ExitCode = 3;
+        return;
+    }
+    if (!string.IsNullOrWhiteSpace(withStatus))
+    {
+        // Runs are saved per flow; read one back and draw it (or write its report) without a provider.
+        var store = new AiCodeAgent.Core.Flows.FlowRunStore();
+        var runId = withStatus.Equals("latest", StringComparison.OrdinalIgnoreCase)
+            ? store.List(name).FirstOrDefault()?.RunId
+            : withStatus;
+        var run = runId == null ? null : store.Load(name, runId);
+        if (run == null)
+        {
+            Console.Error.WriteLine(runId == null ? $"No saved runs of '{name}'." : $"No saved run '{runId}' of '{name}'.");
+            Environment.ExitCode = 3;
+            return;
+        }
+        Console.Write(report
+            ? AiCodeAgent.Core.Flows.FlowReportBuilder.Markdown(run, s => store.LoadOutput(name, run.Id, s))
+            : AiCodeAgent.Core.Flows.FlowReportBuilder.Mermaid(run));
+        return;
+    }
     var (pipeline, graph) = await LoadGraphAsync(name, cast, dir);
     if (pipeline == null || graph == null) return;
     if (mermaid)
@@ -350,7 +379,7 @@ pipelineShowCommand.SetHandler(async (name, mermaid, cast, dir) =>
     foreach (var problem in graph.Problems)
         Console.WriteLine($"  {problem}");
     if (!graph.IsValid) Environment.ExitCode = 1;
-}, flowNameArg, mermaidOption, castOption, dirOption);
+}, flowNameArg, mermaidOption, castOption, dirOption, withStatusOption, reportOption);
 
 pipelineCommand.AddCommand(pipelineRunCommand);
 pipelineCommand.AddCommand(pipelineListCommand);

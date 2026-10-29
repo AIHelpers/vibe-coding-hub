@@ -451,6 +451,12 @@ Provider settings can come from the environment instead of a config file: `AI_CO
 
 A pull request is untrusted input. Keep the flow read-only (`Plan`), and do not give secrets to workflows triggered by forks. The Markdown report is plain for now; E5-S8 enriches it.
 
+### Export a flow run: report, Mermaid, PNG
+
+- **Flows → Export ▾**: *Copy Markdown report* (the open run from History, otherwise the newest run), *Copy Mermaid* (the flow on the canvas; in replay it is coloured by that run) and *Save PNG…* (the whole flow, never clipped, at 2x).
+- **CLI**: `aiagent pipeline show <flow> --mermaid --with-status <runId|latest>` colours nodes by status (done, failed, skipped, not run), shows the rounds of steps that ran more than once and labels loops with the rounds actually taken (`↺ 1/3`). `aiagent pipeline show <flow> --report --with-status <runId|latest>` prints the Markdown report.
+- The report holds the task, the Mermaid diagram (GitHub renders it), a table of every step run (character, model, outcome, tokens, cost, duration), each step's final answer in a collapsible `<details>`, totals and the changed files.
+
 ## Multi-Agent Coordination
 
 Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:

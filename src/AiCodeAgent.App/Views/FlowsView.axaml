@@ -104,6 +104,16 @@
                     <Button Content="↷" Command="{Binding RedoCommand}" FontSize="12" Padding="8,2" ToolTip.Tip="Redo (Ctrl+Y)"/>
                     <Button Content="⇶ Auto-layout" Command="{Binding AutoLayoutCommand}" FontSize="11" Padding="8,3" ToolTip.Tip="Arrange left to right by execution order"/>
                     <Button Content="✔ Validate" Command="{Binding ValidateCommand}" FontSize="11" Padding="8,3"/>
+                    <Button x:Name="ExportButton" Content="⇪ Export ▾" FontSize="11" Padding="8,3" IsEnabled="{Binding !IsRunning}"
+                            ToolTip.Tip="Copy the Markdown report of the latest (or opened) run, copy the flow as Mermaid, or save the canvas as a PNG">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuItem x:Name="CopyReportItem" Header="Copy Markdown report" Click="OnCopyReport"/>
+                                <MenuItem x:Name="CopyMermaidItem" Header="Copy Mermaid" Click="OnCopyMermaid"/>
+                                <MenuItem x:Name="SavePngItem" Header="Save PNG…" Click="OnSavePng"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Content="⌖" Click="OnResetView" FontSize="11" Padding="8,3" ToolTip.Tip="Reset zoom and position"/>
                 </WrapPanel>
                 <TextBlock x:Name="WavesLabel" Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"
