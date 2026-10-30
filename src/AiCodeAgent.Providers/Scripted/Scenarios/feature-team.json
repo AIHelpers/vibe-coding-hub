@@ -1,0 +1,80 @@
+{
+  // The feature-team flow (examples/pipelines/feature-team.json): Alex designs, Dana (backend) and Mia (model) build in
+  // parallel, Quinn reviews, and sends the work back once before approving; Sam writes the release notes.
+  // Each step is matched by its character's text ("You are Alex"...). Rounds: the second time a step starts, it plays round 2.
+  "name": "feature-team",
+  "description": "The feature-team flow: design, backend and model in parallel, review rejected once then approved, release notes.",
+  "agents": [
+    {
+      "name": "design",
+      "match": { "system_contains": "You are Alex" },
+      "turns": [
+        {
+          "delay_ms": 400,
+          "text": "## Design\n\n**Goal.** Add the requested feature without breaking existing behavior.\n\n1. Domain: a new value object and one use case, no new dependencies.\n2. Backend: expose the use case behind the existing service; keep validation in the Application layer.\n3. Model: a baseline scoring function with a documented threshold.\n\nBackend and model can be built in parallel; both feed the review."
+        }
+      ]
+    },
+    {
+      "name": "backend",
+      "match": { "system_contains": "You are Dana" },
+      "rounds": [
+        [
+          {
+            "delay_ms": 300,
+            "text": "Looking at the current layout before I add the use case.",
+            "tool_call": { "name": "list_directory", "args": { "path": "." } }
+          },
+          {
+            "delay_ms": 400,
+            "text": "## Backend\n\nAdded the use case in the Application layer and a unit test for the happy path.\n\nNot done yet: input validation for empty values."
+          }
+        ],
+        [
+          {
+            "delay_ms": 400,
+            "text": "## Backend (round 2)\n\nAddressed the review feedback: empty and whitespace-only input is now rejected with a clear message, and two tests cover it. Happy path unchanged."
+          }
+        ]
+      ]
+    },
+    {
+      "name": "model",
+      "match": { "system_contains": "You are Mia" },
+      "turns": [
+        {
+          "delay_ms": 500,
+          "text": "## Model\n\nStarted from a baseline: a rule-based score with a single threshold. Checked for leakage (no label-derived features). Metrics on the held-out sample are reproducible with the fixed seed documented in the notes."
+        }
+      ]
+    },
+    {
+      "name": "review",
+      "match": { "system_contains": "You are Quinn" },
+      "rounds": [
+        [
+          {
+            "delay_ms": 400,
+            "text": "## Review\n\n**Ran:** the backend tests and the model checks.\n**Passed:** happy path, model baseline.\n**Failed / missing:** no handling of empty input in the backend; a null title would throw deep in the service.\n\nSending this back to the backend.\n\nOUTCOME: rejected"
+          }
+        ],
+        [
+          {
+            "delay_ms": 400,
+            "text": "## Review (round 2)\n\n**Ran:** all backend tests, including the two new validation tests, and the model checks.\n**Passed:** everything.\n**Not tested:** concurrent use (out of scope for this change).\n\nOUTCOME: approved"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "release-notes",
+      "match": { "system_contains": "You are Sam" },
+      "turns": [
+        {
+          "delay_ms": 300,
+          "text": "## Release notes\n\n**Added**\n- New use case with validation of empty input.\n- Baseline scoring with a documented threshold.\n\n**Changed**\n- Nothing user-visible.\n\n**Tests**\n- New happy-path and validation tests."
+        }
+      ]
+    }
+  ]
+}

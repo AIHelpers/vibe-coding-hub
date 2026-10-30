@@ -4,6 +4,7 @@ using AiCodeAgent.Providers.Anthropic;
 using AiCodeAgent.Providers.Ollama;
 using AiCodeAgent.Providers.OpenAI;
 using AiCodeAgent.Providers.OpenAICompatible;
+using AiCodeAgent.Providers.Scripted;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Providers;
@@ -39,10 +40,18 @@ public static class ProviderFactory
             "openai" => new OpenAiProvider(config, loggerFactory.CreateLogger<OpenAiProvider>()),
             "anthropic" => new AnthropicProvider(config, loggerFactory.CreateLogger<AnthropicProvider>()),
             "ollama" => new OllamaProvider(config, loggerFactory.CreateLogger<OllamaProvider>()),
+            ScriptedProviderSupport.ProviderName => CreateScripted(config, loggerFactory),
             _ => new OpenAiCompatibleProvider(providerName, config,
                 loggerFactory.CreateLogger<OpenAiCompatibleProvider>())
         };
     }
+
+    /// <summary>The scripted test provider exists only when it is switched on (see <see cref="ScriptedProviderSupport"/>).</summary>
+    private static IAiProvider CreateScripted(ProviderConfiguration config, ILoggerFactory loggerFactory) =>
+        ScriptedProviderSupport.IsEnabled
+            ? new ScriptedProvider(config, loggerFactory.CreateLogger<ScriptedProvider>())
+            : throw new InvalidOperationException(
+                $"The 'scripted' provider is a test double. Set {ScriptedProviderSupport.EnableVariable}=1 to use it.");
 
     /// <summary>
     /// Creates an AI provider instance, returning a <see cref="NoOpAiProvider"/> on failure

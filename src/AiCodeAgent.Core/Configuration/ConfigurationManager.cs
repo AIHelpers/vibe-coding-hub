@@ -161,7 +161,12 @@ public class ConfigurationService
         // "Ollama" match the lowercase provider key "ollama".
         var match = _config.Providers.Keys
             .FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
-        return match != null ? _config.Providers[match] : null;
+        if (match != null) return _config.Providers[match];
+
+        // E8-S1: the scripted test provider needs no settings; it exists only when it is switched on.
+        return string.Equals(name, ScriptedProviderSupport.ProviderName, StringComparison.OrdinalIgnoreCase) && ScriptedProviderSupport.IsEnabled
+            ? ScriptedProviderSupport.DefaultConfiguration
+            : null;
     }
 
     /// <summary>

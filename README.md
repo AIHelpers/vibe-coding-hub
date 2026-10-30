@@ -116,6 +116,8 @@ Settings groups every option into sections: **Model · Agent · Safety · Cost �
 
 Environment variables still override the page, and the page says so, for example "Overridden by AIAGENT_SANDBOX": `AIAGENT_SANDBOX`, `AIAGENT_SANDBOX_IMAGE`, `AIAGENT_SANDBOX_NETWORK`, `AIAGENT_SANDBOX_MEMORY`, `AIAGENT_SANDBOX_CPUS` and `AIAGENT_BROWSER`.
 
+**Testing and demos without a model.** `AIAGENT_ENABLE_SCRIPTED=1` (or any Debug build) adds a `scripted` provider that replays JSON scenarios (tool calls, approvals, flow review loops) with no API key. Built-in scenarios: `fix-overdue` (the sample project), `explain-project`, `feature-team`. See [docs/testing.md](docs/testing.md).
+
 **Privacy and offline mode.** Code and prompts go only to the model provider you configured; the product has no telemetry. Settings → Advanced → **Network activity** lists every host this session contacted, and **Offline mode** (or `AIAGENT_OFFLINE=1`) blocks every host except `localhost` and the configured provider. See [docs/privacy.md](docs/privacy.md) for what is sent where and what is stored locally.
 
 A budget cap is read before every model call, so a change applies to a task that is already running. When a task reaches the cap it stops with "budget exceeded" in the chat. Models without a price (for example local ones) count as $0.
