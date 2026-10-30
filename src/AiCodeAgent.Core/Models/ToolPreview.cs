@@ -41,5 +41,11 @@ public sealed class ApprovalFeedback
     /// </summary>
     public bool Skip { get; set; }
 
+    /// <summary>
+    /// Who answered, when it was not the person at the keyboard (e.g. "headless run: denied without a person").
+    /// The audit trail records it; null = the signed-in user decided.
+    /// </summary>
+    public string? DecidedBy { get; set; }
+
     public bool HasText => !string.IsNullOrWhiteSpace(Text);
 }

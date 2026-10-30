@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Agent;
+using AiCodeAgent.Core.Audit;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
 using Microsoft.Extensions.Logging;
@@ -192,6 +193,9 @@ public class AgentService
 
             var effectiveOptions = ApplyConfiguredDefaults(await EnsureProjectMemoryAsync(options ?? new AgentOptions()));
             var runReport = new RunReportBuilder(sessionId, message);
+            // The tamper-evident record of this task (E7-S2): who, what, when, how much.
+            using var audit = AuditTrail.OpenChat(sessionId, message, effectiveOptions, _logger);
+            var auditStatus = "failed";
 
             try
             {
@@ -202,6 +206,7 @@ public class AgentService
                 token))
             {
                 runReport.Add(evt);
+                audit?.Observe(evt);
                 // The orchestrator already publishes each event to the
                 // shared event bus. Publishing again here would duplicate
                 // every event (doubled text, duplicate tool cards, double
@@ -209,9 +214,11 @@ public class AgentService
                 // to drive it to completion.
                 _ = evt;
             }
+            auditStatus = "completed";
             }
             finally
             {
+                audit?.Complete(token.IsCancellationRequested ? "cancelled" : auditStatus);
                 // Always leave an audit trail, even when the run was cancelled or failed midway.
                 if (runReport.HasContent)
                     _ = runReport.WriteAsync();

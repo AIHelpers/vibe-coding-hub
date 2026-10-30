@@ -221,12 +221,15 @@ public class TerminalUI
         var isFirstToken = true;
         var toolDepth = 0;
         var assistantText = new StringBuilder();
+        using var audit = AiCodeAgent.Core.Audit.AuditTrail.OpenChat(_sessionId, userMessage, _options, _logger);
+        var auditStatus = "failed";
 
         try
         {
             await foreach (var evt in _orchestrator.StreamRunAsync(
                 userMessage, _sessionId, _options, cts.Token))
             {
+                audit?.Observe(evt);
                 switch (evt)
                 {
                     case TextDeltaEvent delta:
@@ -308,10 +311,16 @@ public class TerminalUI
                         break;
                 }
             }
+            auditStatus = "completed";
         }
         catch (OperationCanceledException)
         {
+            auditStatus = "cancelled";
             WriteColored("\nCancelled\n", Colors.Info);
+        }
+        finally
+        {
+            audit?.Complete(cts.IsCancellationRequested ? "cancelled" : auditStatus);
         }
     }
 

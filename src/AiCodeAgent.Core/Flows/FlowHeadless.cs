@@ -111,6 +111,7 @@ public sealed class FlowHeadlessRunner
                             denied.Add($"{tagged.AgentId}: {approval.Call.Name}");
                             options.Log?.Invoke($"– {tagged.AgentId}: {approval.Call.Name} denied (non-interactive)");
                         }
+                        approval.Feedback.DecidedBy = "headless run (no person to ask; denied)";
                         approval.Approval.TrySetResult(false);
                         break;
 

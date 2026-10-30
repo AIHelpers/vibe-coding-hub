@@ -941,6 +941,10 @@
                                                         <Button Content="⬇ Export" FontSize="10" Padding="8,3"
                                                                 Command="{Binding $parent[Window].DataContext.SessionManager.ExportSessionCommand}"
                                                                 CommandParameter="{Binding SessionId}"/>
+                                                        <Button Content="Audit" FontSize="10" Padding="8,3"
+                                                                ToolTip.Tip="Save the audit trail of this session's tasks: tool calls, approvals, file changes, tokens and cost"
+                                                                Command="{Binding $parent[Window].DataContext.SessionManager.ExportAuditCommand}"
+                                                                CommandParameter="{Binding SessionId}"/>
                                                         <Button Content="Delete" FontSize="10" Padding="8,3"
                                                                 IsVisible="{Binding CanDelete}"
                                                                 Command="{Binding $parent[Window].DataContext.SessionManager.BeginDeleteCommand}"

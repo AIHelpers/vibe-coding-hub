@@ -1,4 +1,5 @@
 using System.Text;
+using AiCodeAgent.Core.Audit;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using AiCodeAgent.Core.Sessions;
@@ -31,9 +32,11 @@ public class SingleRunMode
         });
 
         var assistantText = new StringBuilder();
+        using var audit = AuditTrail.OpenChat(sessionId, prompt, options);
 
         await foreach (var evt in _orchestrator.StreamRunAsync(prompt, sessionId, options))
         {
+            audit?.Observe(evt);
             switch (evt)
             {
                 case TextDeltaEvent delta:
@@ -77,6 +80,7 @@ public class SingleRunMode
 
                 case AgentErrorEvent error:
                     Console.Error.WriteLine($"Error: {error.Error.Message}");
+                    audit?.Complete("failed", error.Error.Message);
                     Environment.Exit(1);
                     break;
 
@@ -88,5 +92,6 @@ public class SingleRunMode
                     break;
             }
         }
+        audit?.Complete("completed");
     }
 }

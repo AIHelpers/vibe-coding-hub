@@ -154,11 +154,19 @@ public sealed class FlowRunner
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         options ??= new FlowRunOptions();
-        var recorder = options.Store == null ? null : new FlowRunRecorder(options.Store, pipeline, task, options.Model, options.Replay, _logger);
-        await foreach (var evt in RunCoreAsync(pipeline, task, sessionId, workingDirectory, options, recorder, cancellationToken).ConfigureAwait(false))
+        var recorder = options.Store == null ? null : new FlowRunRecorder(options.Store, pipeline, task, options.Model, options.Replay, _logger,
+            options.PermissionMode?.ToString(), workingDirectory);
+        try
         {
-            recorder?.Observe(evt);
-            yield return evt;
+            await foreach (var evt in RunCoreAsync(pipeline, task, sessionId, workingDirectory, options, recorder, cancellationToken).ConfigureAwait(false))
+            {
+                recorder?.Observe(evt);
+                yield return evt;
+            }
+        }
+        finally
+        {
+            recorder?.Dispose();
         }
     }
 
@@ -283,6 +291,7 @@ public sealed class FlowRunner
                     r.Feedback.Clear();
                     running[r.Node.Id] = StartNode(r, inputs, feedback, task, sessionId, workingDirectory, options,
                         isolated.Contains(r.Node.Id), channel.Writer, runCts.Token, budget == null ? null : budget.Value - SpentOf(runs));
+                    recorder?.NodeStarted(r.Node.Id, r.Runs, r.CharacterId, r.Current?.Model, r.Current?.Provider);
                 }
 
                 if (running.Count == 0)

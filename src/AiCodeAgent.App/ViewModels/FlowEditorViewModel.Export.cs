@@ -42,6 +42,29 @@ public partial class FlowEditorViewModel
         return report;
     }
 
+    /// <summary>
+    /// E7-S2: the <c>audit.jsonl</c> of <see cref="ExportRun"/>; null (with a hint in the status line) when there is no run
+    /// yet or the run is older than audit trails.
+    /// </summary>
+    public string? AuditFileForExport()
+    {
+        var run = ExportRun();
+        if (run == null || _runStore == null)
+        {
+            StatusText = IsRunning
+                ? "Wait for the run to finish, then save its audit trail."
+                : "No run yet. Run the flow or open a run from History.";
+            return null;
+        }
+        var file = System.IO.Path.Combine(_runStore.RunDirectory(run.FlowName, run.Id), AiCodeAgent.Core.Audit.AuditChain.FileName);
+        if (!System.IO.File.Exists(file))
+        {
+            StatusText = $"Run {run.Id} has no audit trail (it ran before audit trails existed).";
+            return null;
+        }
+        return file;
+    }
+
     /// <summary>Mermaid for the flow on the canvas; in replay it also shows what happened in that run.</summary>
     public string BuildMermaid()
     {

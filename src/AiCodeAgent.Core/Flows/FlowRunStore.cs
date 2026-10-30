@@ -65,6 +65,9 @@ public sealed record FlowRunRecord
     public SdlcPipelineDefinition Definition { get; init; } = new();
     public List<FlowStepRecord> Steps { get; init; } = new();
     public List<FlowLogEntry> Events { get; init; } = new();
+    /// <summary>Hash of the last line of <c>audit.jsonl</c> when the run ended: keep it elsewhere to prove the log was not cut or rewritten (E7-S2).</summary>
+    public string? AuditHead { get; init; }
+    public int? AuditEntries { get; init; }
 
     [JsonIgnore] public TimeSpan Duration => FinishedAt - StartedAt;
 }

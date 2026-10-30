@@ -171,6 +171,72 @@ public partial class SessionManagerViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// E7-S2: saves the audit trail of every task run in a session (who, what, when, how much — hash-chained, secrets removed)
+    /// as a zip (one folder per task, with diffs), Markdown or JSON.
+    /// </summary>
+    [RelayCommand]
+    private async Task ExportAuditAsync(string? sessionId = null)
+    {
+        sessionId = string.IsNullOrWhiteSpace(sessionId) ? "default" : sessionId;
+        if (IsBusy)
+            return;
+
+        var files = new AiCodeAgent.Core.Audit.AuditLocator().ForSession(sessionId);
+        if (files.Count == 0)
+        {
+            StatusText = "This session has no audit trail yet (it is written for every task run from now on).";
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Exporting audit trail...";
+        try
+        {
+            if (_hostWindow == null)
+            {
+                StatusText = string.Empty;
+                return;
+            }
+            var picked = await _hostWindow.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save the audit trail",
+                SuggestedFileName = "session.audit.zip",
+                DefaultExtension = "zip",
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("Zip with diffs (.zip)") { Patterns = new[] { "*.zip" } },
+                    new FilePickerFileType("Markdown (.md)") { Patterns = new[] { "*.md" } },
+                    new FilePickerFileType("JSON (.json)") { Patterns = new[] { "*.json" } }
+                }
+            });
+            var path = picked?.TryGetLocalPath();
+            if (string.IsNullOrEmpty(path))
+            {
+                StatusText = string.Empty;
+                return;
+            }
+
+            var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            var format = ext == ".md" ? AiCodeAgent.Core.Audit.AuditExportFormat.Markdown
+                : ext == ".json" ? AiCodeAgent.Core.Audit.AuditExportFormat.Json
+                : AiCodeAgent.Core.Audit.AuditExportFormat.Zip;
+            var results = await Task.Run(() => AiCodeAgent.Core.Audit.AuditExporter.ExportMany(files, path, format));
+            var broken = results.Count(r => !r.Ok);
+            StatusText = broken == 0
+                ? $"Exported the audit trail of {files.Count} task(s) to {path}"
+                : $"Exported to {path}, but {broken} audit file(s) fail the hash check.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Audit export failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     [RelayCommand]
     private async Task ImportSessionAsync()
     {
