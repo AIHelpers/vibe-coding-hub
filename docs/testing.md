@@ -125,3 +125,5 @@ var provider  = new ScriptedProvider(scenarios: scenarios, delayScale: 0);   // 
 `ScriptedProviderTests` (`tests/AiCodeAgent.Providers.Tests/Scripted`) shows matching, branching, rounds, streaming chunks and the built-in scenarios; it also checks that the `fix-overdue` edit applies to the sample's real `TodoService.cs`, so editing the sample without updating the scenario fails a test.
 
 For screenshots and demos set `AIAGENT_SCRIPTED_DELAY_SCALE` so the run looks natural: the built-in scenarios use 300 to 500 ms delays.
+
+The documentation screenshots are produced with the same provider: see [screenshots.md](screenshots.md).
