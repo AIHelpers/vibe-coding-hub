@@ -596,6 +596,29 @@ make publish-all
 
 Sign-in: set `GITHUB_TOKEN` (or `GH_TOKEN`), or sign in with the GitHub CLI (`gh auth login`); the app uses `gh auth token` when no variable is set. Public repositories also work without a token, with GitHub's lower rate limit. Hosts are behind the `IGitHostProvider` interface, so GitLab and Azure DevOps can be added later.
 
-### External agents in flows (ACP prototype)
+### External agents as characters (ACP)
 
-A flow step can be run by an external agent that speaks the Agent Client Protocol (for example Gemini CLI): `{ "id": "external-review", "kind": "acp", "acpCommand": "gemini", "acpArgs": ["--acp"], "promptTemplate": "Review this task: {task}" }`. The agent's final message is the step's output and reaches later steps as `{input:external-review}`. Its permission requests are answered from the run's permission mode; there is no editor UI for these steps yet. See `docs/adr/0001-acp.md` for the design, the risks and the plan.
+A character can be an external agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (Gemini CLI, a Claude Code or Codex adapter, and others):
+
+```markdown
+---
+id: claude-code-reviewer
+display-name: Claude Code — Reviewer
+description: Reviews the change with Claude Code
+runtime: acp                 # builtin (default) | acp
+command: claude-code-acp     # how to start the agent
+args: [--stdio]              # optional
+skills: [code-review-checklist]   # sent to the agent as instructions, with the persona below
+permission-mode: ask
+---
+You review code carefully.
+```
+
+Use it like any character: `character: claude-code-reviewer` on a flow step, or `--cast review=claude-code-reviewer` for one run. The step's prompt (with `{input:<id>}` filled in) goes to the agent and its final message is the step's output, so conditional edges (`OUTCOME: approved`) work as usual. The agent signs in by itself (run its login once in a terminal); nothing secret belongs in the character file.
+
+- **Approvals.** The agent's permission requests follow `permission-mode` (or the run's `--permission`): read-only requests are allowed; in `ask` mode everything else appears in the usual approval dialog; `auto-edit` also allows edits; `full-auto` allows everything; `plan` refuses everything but reads. Without a dialog (headless runs) requests that would need one are refused.
+- **Checkpoints and diffs.** A file the agent writes through the editor gets a checkpoint first (Checkpoints panel) and its diff is shown and kept in the flow report. Changes the agent makes with its own tools are not seen by VCH.
+- **Cost.** Tokens are shown when the agent reports them (`usage`); most agents do not, and those steps count as unpriced.
+- **Limits.** The step runs in the flow's working directory, not in a worktree; the flow's budget cap cannot stop an external agent. See `docs/adr/0001-acp.md`.
+
+A step can also name the agent directly without a character: `{ "id": "external-review", "kind": "acp", "acpCommand": "gemini", "acpArgs": ["--acp"], "promptTemplate": "Review this task: {task}" }`.

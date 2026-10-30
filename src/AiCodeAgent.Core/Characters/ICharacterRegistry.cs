@@ -98,6 +98,18 @@ public record CharacterInfo
     public string? Model { get; init; }
     /// <summary>Effective permission mode (own, else inherited).</summary>
     public PermissionMode? PermissionMode { get; init; }
+    /// <summary>
+    /// <c>builtin</c> (default, null) or <c>acp</c>: the character is an external Agent Client Protocol agent started with
+    /// <see cref="Command"/>. Its persona and skills are sent to the agent as instructions; its own tools and model do not apply.
+    /// </summary>
+    public string? Runtime { get; init; }
+    /// <summary>The program that starts the external agent (<c>runtime: acp</c>).</summary>
+    public string? Command { get; init; }
+    /// <summary>Arguments for <see cref="Command"/>.</summary>
+    public IReadOnlyList<string> Args { get; init; } = Array.Empty<string>();
+    /// <summary>True for <c>runtime: acp</c>.</summary>
+    public bool IsExternal => string.Equals(Runtime, "acp", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Effective explicit tool list replacing the base role's tools (frontmatter <c>tools: [a, b]</c>).</summary>
     public IReadOnlyList<string>? Tools { get; init; }
     /// <summary>Effective tools added to the base role's tools (union along the inheritance chain).</summary>

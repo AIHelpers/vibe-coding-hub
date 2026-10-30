@@ -200,6 +200,93 @@ public class AcpAgentRunnerTests : IDisposable
         Assert.Null(AcpPermissionPolicy.Choose(PermissionMode.Ask, "read", onlyAlways));
     }
 
+    [Fact]
+    public async Task AskMode_QuestionsGoToTheUser_AndTheAnswerDecides()
+    {
+        var asked = new System.Collections.Generic.List<string>();
+        string? yes = null, no = null;
+        await using var agent = FakeAcpAgent.Scripted(async (a, _) =>
+        {
+            yes = Outcome(await a.Ask("execute", "Run tests"));
+            no = Outcome(await a.Ask("delete", "Delete build folder"));
+            await a.Say("ok");
+            return new { stopReason = "end_turn" };
+        });
+        var request = Request(PermissionMode.Ask) with { };
+        request = new ExternalAgentRequest(request.Command, request.Args, request.WorkingDirectory, request.Prompt, request.PermissionMode, request.Timeout)
+        {
+            Ask = (q, _) => { asked.Add(q.Title); return Task.FromResult(q.Title == "Run tests"); }
+        };
+
+        var result = await Run(agent, request);
+
+        Assert.Equal(new[] { "Run tests", "Delete build folder" }, asked.ToArray());
+        Assert.Equal("yes", yes);
+        Assert.Equal("no", no);
+        Assert.Equal(new[] { true, false }, result.Permissions.Select(p => p.Allowed).ToArray());
+    }
+
+    [Fact]
+    public async Task PlanMode_NeverAsks()
+    {
+        var asked = false;
+        string? answer = null;
+        await using var agent = FakeAcpAgent.Scripted(async (a, _) =>
+        {
+            answer = Outcome(await a.Ask("execute"));
+            await a.Say("ok");
+            return new { stopReason = "end_turn" };
+        });
+        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Plan, TimeSpan.FromSeconds(5))
+        {
+            Ask = (_, _) => { asked = true; return Task.FromResult(true); }
+        };
+        await Run(agent, request);
+        Assert.False(asked);
+        Assert.Equal("no", answer);
+    }
+
+    [Fact]
+    public async Task UserApprovedEdit_LetsFollowingWritesThrough_WithCheckpointAndDiff()
+    {
+        var target = Path.Combine(_dir, "c.txt");
+        File.WriteAllText(target, "old");
+        var checkpoints = new System.Collections.Generic.List<string>();
+        (string Path, string Before, string After)? diff = null;
+        await using var agent = FakeAcpAgent.Scripted(async (a, _) =>
+        {
+            Assert.Equal("yes", Outcome(await a.Ask("edit", "Edit c.txt")));
+            await a.Connection.RequestAsync("fs/write_text_file", new { sessionId = "s1", path = target, content = "new" }, default);
+            await a.Say("done");
+            return new { stopReason = "end_turn" };
+        });
+        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Ask, TimeSpan.FromSeconds(5))
+        {
+            Ask = (_, _) => Task.FromResult(true),
+            BeforeWrite = path => { checkpoints.Add(path + ":" + File.ReadAllText(path)); return Task.CompletedTask; },
+            AfterWrite = (path, before, after) => diff = (path, before, after)
+        };
+
+        await Run(agent, request);
+
+        Assert.Equal("new", File.ReadAllText(target));
+        Assert.Equal(new[] { target + ":old" }, checkpoints.ToArray()); // the checkpoint saw the file before the write
+        Assert.Equal((target, "old", "new"), diff);
+    }
+
+    [Fact]
+    public async Task ReportedUsage_IsReturned()
+    {
+        await using var agent = FakeAcpAgent.Scripted((a, _) => Task.FromResult<object?>(
+            new { stopReason = "end_turn", _meta = new { usage = new { input_tokens = 1500, output_tokens = 200 } } }));
+        var result = await Run(agent, Request());
+        Assert.Equal(1500, result.Usage!.PromptTokens);
+        Assert.Equal(200, result.Usage.CompletionTokens);
+
+        await using var silent = FakeAcpAgent.Scripted((a, _) => Task.FromResult<object?>(new { stopReason = "end_turn" }));
+        Assert.Null((await Run(silent, Request())).Usage);
+    }
+
     /// <summary>
     /// Smoke test against a real agent. Set VCH_ACP_COMMAND (and optionally VCH_ACP_ARGS, space separated), for example
     /// VCH_ACP_COMMAND=gemini VCH_ACP_ARGS=--acp. Without it the test does nothing.
