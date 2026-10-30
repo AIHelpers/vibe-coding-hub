@@ -44,6 +44,16 @@ public record SdlcStageDefinition
     /// they do for an agent step.
     /// </summary>
     public string? Kind { get; init; }
+    /// <summary>
+    /// For <c>kind: "acp"</c> (prototype, E6-S5): the command that starts an external Agent Client Protocol agent,
+    /// for example <c>gemini</c> with <see cref="AcpArgs"/> <c>["--acp"]</c>.
+    /// </summary>
+    public string? AcpCommand { get; init; }
+    /// <summary>Arguments for <see cref="AcpCommand"/>.</summary>
+    public List<string>? AcpArgs { get; init; }
+    /// <summary>True for a step run by an external ACP agent.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsAcp => string.Equals(Kind, "acp", StringComparison.OrdinalIgnoreCase);
     /// <summary>True for a step that asks the user instead of running an agent.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsHuman => string.Equals(Kind, "human", StringComparison.OrdinalIgnoreCase);
@@ -560,6 +570,7 @@ public class SdlcPipelineRunner
     private readonly IAiProviderResolver? _providers;
     private readonly ModelCatalog? _catalog;
     private readonly Flows.FlowRunStore? _runStore;
+    private readonly Flows.IExternalAgentRunner? _externalAgents;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
@@ -569,8 +580,10 @@ public class SdlcPipelineRunner
         ICharacterRegistry? characters = null,
         IAiProviderResolver? providers = null,
         ModelCatalog? catalog = null,
-        Flows.FlowRunStore? runStore = null)
+        Flows.FlowRunStore? runStore = null,
+        Flows.IExternalAgentRunner? externalAgents = null)
     {
+        _externalAgents = externalAgents;
         _runStore = runStore;
         _providers = providers;
         _catalog = catalog;
@@ -781,7 +794,7 @@ public class SdlcPipelineRunner
     {
         if (pipeline.IsFlow)
         {
-            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters);
+            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters, _externalAgents);
             return flow.RunAsync(pipeline, task, sessionId, workingDirectory, new Flows.FlowRunOptions
             {
                 Model = model,

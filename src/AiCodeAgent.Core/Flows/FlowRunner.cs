@@ -57,9 +57,11 @@ public sealed class FlowRunner
     private readonly SdlcPipelineRunner _stageBuilder;
     private readonly ILogger _logger;
     private readonly ICharacterRegistry? _characters;
+    private readonly IExternalAgentRunner? _externalAgents;
 
-    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null)
+    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null, IExternalAgentRunner? externalAgents = null)
     {
+        _externalAgents = externalAgents;
         _coordinator = coordinator;
         _stageBuilder = stageBuilder;
         _logger = logger;
@@ -579,6 +581,8 @@ public sealed class FlowRunner
         var iteration = r.Runs;
         if (node.Stage.IsHuman)
             return StartHumanNode(r, inputs, feedback, task, options, events, cancellationToken);
+        if (node.Stage.IsAcp)
+            return StartAcpNode(r, inputs, feedback, task, workingDirectory, options, events, cancellationToken);
         // Build the step (character resolution, agent registration) here on the scheduler, not inside
         // the task: several nodes start at once and registration must not race.
         SessionStep step;
@@ -794,6 +798,67 @@ public sealed class FlowRunner
             catch (OperationCanceledException)
             {
                 return new NodeResult(string.Empty, null, true, false, null, clock.Elapsed);
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// An ACP step (E6-S5 prototype): the prompt (with its <c>{input:id}</c> values filled in) goes to an external
+    /// Agent Client Protocol agent; its final message is the step's output. The step runs in the flow's working
+    /// directory without a worktree, and the agent's permission requests are answered from the flow's permission mode.
+    /// </summary>
+    private Task<NodeResult> StartAcpNode(
+        NodeRun r, IReadOnlyList<FlowNodeOutput> inputs, IReadOnlyList<FlowNodeOutput> feedback, string task,
+        string workingDirectory, FlowRunOptions options, ChannelWriter<AgentEvent> events, CancellationToken cancellationToken)
+    {
+        var node = r.Node;
+        var prompt = FlowPrompt.Build(node.Stage.PromptTemplate, task, inputs, feedback, node.Outcomes);
+        var usage = new StepUsage
+        {
+            Model = node.Stage.AcpCommand,
+            Provider = "acp",
+            Prompt = prompt,
+            InputFrom = inputs.Select(i => i.NodeId).Concat(feedback.Select(f => f.NodeId)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        };
+        r.Current = usage;
+        return Task.Run(async () =>
+        {
+            var clock = Stopwatch.StartNew();
+            try
+            {
+                if (_externalAgents == null)
+                    return new NodeResult(string.Empty, "this host cannot run external ACP agents", false, false, null, clock.Elapsed);
+                var request = new ExternalAgentRequest(node.Stage.AcpCommand ?? string.Empty,
+                    node.Stage.AcpArgs ?? (IReadOnlyList<string>)Array.Empty<string>(), workingDirectory, prompt,
+                    options.PermissionMode ?? PermissionMode.Ask, options.ConfirmationTimeout);
+                var result = await _externalAgents.RunAsync(request,
+                    line => events.TryWrite(new AgentTaggedEvent(new StatusUpdateEvent(line), node.Id, "acp")),
+                    cancellationToken).ConfigureAwait(false);
+                usage.ToolCalls.AddRange(Enumerable.Range(0, result.ToolCalls).Select(_ => new FlowToolCallRecord("acp-tool", string.Empty, false, 0)));
+                if (result.StopReason == "cancelled")
+                    return new NodeResult(result.Text, null, true, false, null, clock.Elapsed);
+                if (result.StopReason == "refusal")
+                    return new NodeResult(result.Text, "the external agent refused the request", false, false, null, clock.Elapsed);
+                if (string.IsNullOrWhiteSpace(result.Text))
+                    return new NodeResult(result.Text, "the external agent finished without an answer", false, false, null, clock.Elapsed);
+
+                string? outcome = null;
+                if (node.Outcomes.Count > 0)
+                {
+                    outcome = FlowPrompt.ParseOutcome(result.Text, node.Outcomes);
+                    if (outcome == null)
+                        return new NodeResult(result.Text, $"no valid outcome (expected OUTCOME: {string.Join(" | ", node.Outcomes)})", false, false, null, clock.Elapsed);
+                }
+                return new NodeResult(result.Text, null, false, false, outcome, clock.Elapsed);
+            }
+            catch (OperationCanceledException)
+            {
+                return new NodeResult(string.Empty, null, true, false, null, clock.Elapsed);
+            }
+            catch (ExternalAgentException ex)
+            {
+                _logger.LogWarning(ex, "ACP step {Node} failed", node.Id);
+                return new NodeResult(string.Empty, ex.Message, false, false, null, clock.Elapsed);
             }
         }, CancellationToken.None);
     }
