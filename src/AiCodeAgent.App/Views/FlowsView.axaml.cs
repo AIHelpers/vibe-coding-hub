@@ -285,6 +285,49 @@ public partial class FlowsView : UserControl
         }
     }
 
+    /// <summary>E7-S2: saves the hash-chained audit trail of the latest (or opened) run as a zip with diffs, Markdown or JSON.</summary>
+    private async void OnSaveAudit(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.AuditFileForExport() is not { } audit) return;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage == null) return;
+        try
+        {
+            var name = string.IsNullOrWhiteSpace(Vm.FlowName) ? "flow" : Vm.FlowName.Trim();
+            var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+            {
+                Title = "Save the audit trail",
+                SuggestedFileName = name + ".audit.zip",
+                DefaultExtension = "zip",
+                FileTypeChoices = new[]
+                {
+                    new Avalonia.Platform.Storage.FilePickerFileType("Zip with diffs (.zip)") { Patterns = new[] { "*.zip" } },
+                    new Avalonia.Platform.Storage.FilePickerFileType("Markdown (.md)") { Patterns = new[] { "*.md" } },
+                    new Avalonia.Platform.Storage.FilePickerFileType("JSON (.json)") { Patterns = new[] { "*.json" } }
+                }
+            });
+            if (file == null) return;
+            var path = file.Path is { IsAbsoluteUri: true, IsFile: true } uri ? uri.LocalPath : null;
+            if (path == null)
+            {
+                Vm.StatusText = "Could not save: the chosen location is not a local file.";
+                return;
+            }
+            var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            var format = ext == ".md" ? AiCodeAgent.Core.Audit.AuditExportFormat.Markdown
+                : ext == ".json" ? AiCodeAgent.Core.Audit.AuditExportFormat.Json
+                : AiCodeAgent.Core.Audit.AuditExportFormat.Zip;
+            var result = AiCodeAgent.Core.Audit.AuditExporter.Export(audit, path, format);
+            Vm.StatusText = result.Ok
+                ? $"Saved {file.Name}."
+                : $"Saved {file.Name}, but the audit hash chain is broken at line {result.Failure!.Line}.";
+        }
+        catch (Exception ex)
+        {
+            Vm.StatusText = $"Could not save the audit trail: {ex.Message}";
+        }
+    }
+
     private void OnResetView(object? sender, RoutedEventArgs e)
     {
         _scale.ScaleX = _scale.ScaleY = 1;

@@ -631,6 +631,7 @@ FileViewCommands.AddCommands(rootCommand);
 SkillCharacterCommands.AddCommands(rootCommand);
 PackCommands.AddCommands(rootCommand);
 ImportCommands.AddCommands(rootCommand);
+AuditCommands.AddCommands(rootCommand);
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
 rootCommand.AddCommand(pipelineCommand);
