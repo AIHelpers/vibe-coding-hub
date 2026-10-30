@@ -516,6 +516,21 @@ A pull request is untrusted input. Keep the flow read-only (`Plan`), and do not 
 - **CLI**: `aiagent pipeline show <flow> --mermaid --with-status <runId|latest>` colours nodes by status (done, failed, skipped, not run), shows the rounds of steps that ran more than once and labels loops with the rounds actually taken (`↺ 1/3`). `aiagent pipeline show <flow> --report --with-status <runId|latest>` prints the Markdown report.
 - The report holds the task, the Mermaid diagram (GitHub renders it), a table of every step run (character, model, outcome, tokens, cost, duration), each step's final answer in a collapsible `<details>`, totals and the changed files.
 
+### Watch a flow on another machine (prototype)
+
+`aiagent serve` runs one flow and streams its events over a WebSocket; the desktop app attaches and shows the live canvas, node status, output, approvals and Stop. Design and limits: [docs/adr/0002-remote-runners.md](docs/adr/0002-remote-runners.md).
+
+```
+# on the build server (or in a container); prints the address and a token
+aiagent serve "Add churn prediction to the customer API" --pipeline full-sdlc --permission AutoEdit
+# from your machine, one safe way: tunnel the port over SSH, then attach to ws://127.0.0.1:5000/events
+ssh -L 5000:127.0.0.1:5000 build-server
+```
+
+In the app: **Flows → 🔗 Attach ▾**, paste the address and token, **Connect**. The canvas switches to the served flow (your own flow comes back on **⏏ Detach**). Questions the flow asks (tool approvals, confirmation gates, human steps) appear in the inspector as usual; if nobody answers within `--approval-timeout` (default 600 s) the request is denied. Detaching does not stop the run; **■ Stop** does.
+
+Options: `--host` (default `127.0.0.1`), `--port` (0 = free port), `--token` or `AIAGENT_SERVE_TOKEN`, `--wait-for-client <s>`, `--linger <s>`, `--approval-timeout <s>`, plus the usual `--cast`, `--max-budget`, `--max-parallel`, `--model`, `--provider`, `--dir`. The prototype speaks plain `ws://` with one shared token: keep it on loopback and tunnel it, or put TLS in front. Exit codes are the same as for `pipeline run --non-interactive`.
+
 ## Multi-Agent Coordination
 
 Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supports parallel agent groups and inter-agent messaging:

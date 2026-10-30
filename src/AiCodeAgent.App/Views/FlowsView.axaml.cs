@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using AiCodeAgent.App.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
@@ -247,6 +248,20 @@ public partial class FlowsView : UserControl
         if (Vm?.BuildMarkdownReport() is not { } report) return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard != null) await clipboard.SetTextAsync(report);
+    }
+
+    private async void OnAttachRemote(object? sender, RoutedEventArgs e)
+    {
+        if (Vm == null) return;
+        // The flyout is outside this view's name scope, so read its boxes through the button that was clicked.
+        var boxes = ((sender as Control)?.Parent as Panel)?.Children.OfType<TextBox>().ToList();
+        if (boxes is { Count: >= 2 })
+        {
+            Vm.RemoteUrl = boxes[0].Text ?? string.Empty;
+            Vm.RemoteToken = boxes[1].Text ?? string.Empty;
+        }
+        if (this.FindControl<Button>("AttachButton")?.Flyout is { } flyout) flyout.Hide();
+        await Vm.AttachRemoteAsync();
     }
 
     private async void OnCopyMermaid(object? sender, RoutedEventArgs e)

@@ -13,6 +13,7 @@ using AiCodeAgent.Core.Context;
 using AiCodeAgent.Core.Flows;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
+using AiCodeAgent.Core.Remote;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -176,7 +177,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public bool HasSelection => SelectedNode != null || SelectedEdge != null;
 
     /// <summary>The canvas cannot be edited: a run is in progress, or a past run is open for replay.</summary>
-    public bool IsLocked => IsRunning || IsReplay;
+    public bool IsLocked => IsRunning || IsReplay || IsRemote;
 
     /// <summary><c>builtin</c>, <c>global</c> or <c>project</c> for the open flow; <c>new</c> before it is saved.</summary>
     public string ScopeBadge => LoadedScope?.Label() ?? "new";
@@ -202,7 +203,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool HasProblems => Problems.Count > 0;
-    public bool CanRun => !IsRunning && Nodes.Count > 0 && IsValid && _runner != null;
+    public bool CanRun => !IsRunning && !IsRemote && Nodes.Count > 0 && IsValid && _runner != null;
     public string PendingEdgePath => PendingEdgeSource == null
         ? string.Empty
         : $"M {PendingEdgeSource.OutPortX:0},{PendingEdgeSource.OutPortY:0} L {PendingEdgeX:0},{PendingEdgeY:0}";
@@ -1532,6 +1533,7 @@ public partial class FlowEditorViewModel : ObservableObject
     public void Stop()
     {
         _runCts?.Cancel();
+        _remoteCancel?.Invoke();
         foreach (var tcs in _approvals.Values) tcs.TrySetResult(false);
         foreach (var choice in _humanChoices.Values) choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
         StatusText = "Stopping…";
@@ -1733,6 +1735,10 @@ public partial class FlowEditorViewModel : ObservableObject
 
             case StatusUpdateEvent { Status: "Flow invalid" } invalid:
                 StatusText = "Flow is invalid: " + invalid.Detail;
+                break;
+
+            case RemoteRequestResolvedEvent resolved:
+                ApplyRemoteResolved(resolved);
                 break;
         }
     }

@@ -115,6 +115,21 @@
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
+                    <Button x:Name="AttachButton" Content="🔗 Attach ▾" FontSize="11" Padding="8,3" IsVisible="{Binding !IsRemote}" IsEnabled="{Binding !IsRunning}"
+                            ToolTip.Tip="Watch a flow that 'aiagent serve' is running in another process or on another machine">
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedLeft">
+                                <StackPanel Spacing="6" Width="300">
+                                    <TextBlock Text="Attach to a served run" FontWeight="SemiBold" FontSize="12"/>
+                                    <TextBox x:Name="RemoteUrlBox" Watermark="ws://127.0.0.1:5000/events" FontSize="11"/>
+                                    <TextBox x:Name="RemoteTokenBox" Watermark="token" PasswordChar="•" FontSize="11"/>
+                                    <Button x:Name="RemoteConnectButton" Content="Connect" Click="OnAttachRemote" FontSize="11" Padding="12,3" HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button x:Name="DetachButton" Content="⏏ Detach" Command="{Binding ExitRemoteCommand}" FontSize="11" Padding="8,3" IsVisible="{Binding IsRemote}"
+                            ToolTip.Tip="{Binding RemoteTitle}"/>
                     <Button Content="⌖" Click="OnResetView" FontSize="11" Padding="8,3" ToolTip.Tip="Reset zoom and position"/>
                 </WrapPanel>
                 <TextBlock x:Name="WavesLabel" Grid.Column="1" Text="{Binding WavesText}" FontSize="11" Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"
