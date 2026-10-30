@@ -436,3 +436,6 @@ ce65d5e0cdc2/
 
 # Agent browser screenshots
 .aiagent/screenshots/
+
+# Benchmark runs (tools/Bench); copy the report you publish somewhere deliberate
+bench/results/

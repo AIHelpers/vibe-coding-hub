@@ -1,0 +1,15 @@
+{
+  "name": "smoke-suite (1 task, not a benchmark)",
+  "description": "A smoke suite that proves the harness works end to end. It has ONE task, the TodoApp sample, which is far too small to say anything about single agents versus flows. The real suite (30 to 50 bug-fix tasks from open-source .NET and Python repositories) is yours to add; see docs/benchmark.md.",
+  "tasks": [
+    {
+      "id": "todoapp-overdue",
+      "language": "csharp",
+      "source": "samples/TodoApp (the practice project shipped with the app)",
+      "prompt": "The TodoApp test suite has a failing test about overdue items. Find the cause in the source and fix it. Do not change, skip or delete any test.",
+      "repo": { "path": "../samples/TodoApp" },
+      "setupCommand": "dotnet restore TodoApp.slnx",
+      "testCommand": "dotnet test TodoApp.slnx --nologo"
+    }
+  ]
+}

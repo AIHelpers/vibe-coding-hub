@@ -18,8 +18,10 @@
     <Project Path="tests/AiCodeAgent.Tools.Tests/AiCodeAgent.Tools.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.App.Tests/AiCodeAgent.App.Tests.csproj" />
     <Project Path="tests/AiCodeAgent.Screenshots.Tests/AiCodeAgent.Screenshots.Tests.csproj" />
+    <Project Path="tests/AiCodeAgent.Bench.Tests/AiCodeAgent.Bench.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Screenshots/AiCodeAgent.Screenshots.csproj" />
+    <Project Path="tools/Bench/AiCodeAgent.Bench.csproj" />
   </Folder>
 </Solution>
