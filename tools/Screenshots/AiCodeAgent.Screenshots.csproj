@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    E8-S2: regenerates the documentation screenshots headlessly (Avalonia.Headless + Skia).
+    Run: dotnet run, with this project as the target, and the tool options after a lone double dash (see docs/screenshots.md).
+    Not shipped with the app. The packages below are already used by the app and its UI tests (same versions).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AiCodeAgent.Screenshots</AssemblyName>
+    <RootNamespace>AiCodeAgent.Screenshots</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.0" />
+    <PackageReference Include="Avalonia.Headless" Version="11.2.0" />
+    <PackageReference Include="Avalonia.Skia" Version="11.2.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.0" />
+    <PackageReference Include="Avalonia.ReactiveUI" Version="11.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiCodeAgent.App\AiCodeAgent.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AiCodeAgent.Screenshots.Tests" />
+  </ItemGroup>
+
+</Project>
