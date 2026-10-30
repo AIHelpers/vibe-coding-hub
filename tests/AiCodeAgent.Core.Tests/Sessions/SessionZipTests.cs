@@ -100,7 +100,7 @@ public class SessionRecorderTests
             "planner-1", "planner"));
 
         // Deterministically wait until the recorder has drained the events
-        await WaitForAsync(() => recorder.GetSnapshot().ToolCallLog.Count == 1);
+        await WaitForAsync(() => recorder.GetSnapshot().ToolCallLog is [{ Output: not null }]);
 
         var bundle = recorder.GetSnapshot();
 
