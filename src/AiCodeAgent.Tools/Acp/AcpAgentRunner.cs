@@ -82,7 +82,7 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
             }, timeout.Token).ConfigureAwait(false);
 
             var stop = response.ValueKind == JsonValueKind.Object && response.TryGetProperty("stopReason", out var sr) ? sr.GetString() ?? "end_turn" : "end_turn";
-            return new ExternalAgentResult(turn.FinalMessage(), stop, turn.ToolCalls, turn.Permissions.ToList());
+            return new ExternalAgentResult(turn.FinalMessage(), stop, turn.ToolCalls, turn.Permissions.ToList()) { Usage = ReadUsage(response) };
         }
         catch (OperationCanceledException)
         {
@@ -109,6 +109,35 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
         }
     }
 
+    /// <summary>
+    /// Tokens the agent reported for the turn: a <c>usage</c> object on the prompt response or under <c>_meta</c>, with
+    /// snake_case or camelCase names. Null when there is none (ACP version 1 does not require it).
+    /// </summary>
+    internal static AiCodeAgent.Core.Models.TokenUsage? ReadUsage(JsonElement response)
+    {
+        if (response.ValueKind != JsonValueKind.Object) return null;
+        JsonElement usage = default;
+        if (response.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object) usage = u;
+        else if (response.TryGetProperty("_meta", out var meta) && meta.ValueKind == JsonValueKind.Object
+                 && meta.TryGetProperty("usage", out var mu) && mu.ValueKind == JsonValueKind.Object) usage = mu;
+        if (usage.ValueKind != JsonValueKind.Object) return null;
+
+        static int Num(JsonElement e, params string[] names)
+        {
+            foreach (var n in names)
+                if (e.TryGetProperty(n, out var v) && v.TryGetInt32(out var i)) return i;
+            return 0;
+        }
+        var result = new AiCodeAgent.Core.Models.TokenUsage
+        {
+            PromptTokens = Num(usage, "input_tokens", "inputTokens", "prompt_tokens", "promptTokens"),
+            CompletionTokens = Num(usage, "output_tokens", "outputTokens", "completion_tokens", "completionTokens"),
+            CacheReadTokens = Num(usage, "cached_read_tokens", "cachedReadTokens", "cache_read_input_tokens"),
+            CacheCreationTokens = Num(usage, "cached_write_tokens", "cachedWriteTokens", "cache_creation_input_tokens")
+        };
+        return result.PromptTokens + result.CompletionTokens + result.CacheReadTokens + result.CacheCreationTokens == 0 ? null : result;
+    }
+
     /// <summary>Everything that happens while one prompt turn runs.</summary>
     private sealed class TurnState
     {
@@ -119,6 +148,7 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
         private readonly object _gate = new();
         private readonly List<ExternalAgentPermission> _permissions = new();
         private int _toolCalls;
+        private bool _editApproved;
 
         public TurnState(ExternalAgentRequest request, Action<string>? progress)
         {
@@ -174,7 +204,7 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
             switch (method)
             {
                 case "session/request_permission":
-                    return RequestPermission(args);
+                    return await RequestPermissionAsync(args, ct).ConfigureAwait(false);
                 case "fs/read_text_file":
                     return await ReadFileAsync(args, ct).ConfigureAwait(false);
                 case "fs/write_text_file":
@@ -184,7 +214,7 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
             }
         }
 
-        private object RequestPermission(JsonElement args)
+        private async Task<object> RequestPermissionAsync(JsonElement args, CancellationToken ct)
         {
             var toolCall = args.TryGetProperty("toolCall", out var tc) ? tc : default;
             var kind = toolCall.ValueKind == JsonValueKind.Object && toolCall.TryGetProperty("kind", out var k) ? k.GetString() ?? "other" : "other";
@@ -196,9 +226,21 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
                     x.TryGetProperty("kind", out var kd) ? kd.GetString() ?? string.Empty : string.Empty)).ToList()
                 : new List<AcpPermissionOption>();
 
-            var chosen = AcpPermissionPolicy.Choose(_request.PermissionMode, kind, options);
-            var allowed = AcpPermissionPolicy.Allows(_request.PermissionMode, kind) && chosen != null && chosen.Kind.StartsWith("allow", StringComparison.Ordinal);
-            lock (_gate) _permissions.Add(new ExternalAgentPermission(title, kind, allowed));
+            var wanted = AcpPermissionPolicy.Decide(_request.PermissionMode, kind) switch
+            {
+                AcpDecision.Allow => true,
+                // The mode says "ask": the user decides in the approval dialog. Nobody to ask means no.
+                AcpDecision.Ask => _request.Ask != null && await _request.Ask(new ExternalPermissionQuestion(title, kind), ct).ConfigureAwait(false),
+                _ => false
+            };
+            var chosen = AcpPermissionPolicy.Pick(wanted, _request.PermissionMode, options);
+            var allowed = wanted && chosen != null && chosen.Kind.StartsWith("allow", StringComparison.Ordinal);
+            lock (_gate)
+            {
+                _permissions.Add(new ExternalAgentPermission(title, kind, allowed));
+                // A user-approved edit lets the agent's following fs/write_text_file calls through, even in Ask mode.
+                if (allowed && kind is "edit" or "move" or "delete") _editApproved = true;
+            }
             _progress?.Invoke($"ACP permission {(allowed ? "granted" : "refused")}: {title} ({kind})");
             return chosen == null
                 ? new { outcome = new { outcome = "cancelled" } }
@@ -229,13 +271,18 @@ public sealed class AcpAgentRunner : IExternalAgentRunner
 
         private async Task<object> WriteFileAsync(JsonElement args, CancellationToken ct)
         {
-            // Writing is an edit: the flow's mode must allow edits (the same rule as for permission requests).
-            if (!AcpPermissionPolicy.Allows(_request.PermissionMode, "edit"))
+            // Writing is an edit: allowed when the mode allows edits, or when the user approved an edit in this turn.
+            bool approved;
+            lock (_gate) approved = _editApproved;
+            if (!approved && !AcpPermissionPolicy.Allows(_request.PermissionMode, "edit"))
                 throw new AcpRpcException(AcpRpcException.InvalidParams, "Writing files is not allowed in this permission mode.");
             var full = Confine(args);
             var content = args.TryGetProperty("content", out var c) ? c.GetString() ?? string.Empty : string.Empty;
+            var before = File.Exists(full) ? await File.ReadAllTextAsync(full, ct).ConfigureAwait(false) : string.Empty;
+            if (_request.BeforeWrite != null) await _request.BeforeWrite(full).ConfigureAwait(false); // checkpoint first
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             await File.WriteAllTextAsync(full, content, new UTF8Encoding(false), ct).ConfigureAwait(false);
+            _request.AfterWrite?.Invoke(full, before, content);
             _progress?.Invoke("ACP wrote " + Path.GetFileName(full));
             return new { };
         }

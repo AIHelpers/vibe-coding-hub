@@ -571,6 +571,8 @@ public class SdlcPipelineRunner
     private readonly ModelCatalog? _catalog;
     private readonly Flows.FlowRunStore? _runStore;
     private readonly Flows.IExternalAgentRunner? _externalAgents;
+    private readonly ISkillRegistry? _skills;
+    private readonly ICheckpointManager? _checkpoints;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
@@ -581,8 +583,12 @@ public class SdlcPipelineRunner
         IAiProviderResolver? providers = null,
         ModelCatalog? catalog = null,
         Flows.FlowRunStore? runStore = null,
-        Flows.IExternalAgentRunner? externalAgents = null)
+        Flows.IExternalAgentRunner? externalAgents = null,
+        ISkillRegistry? skills = null,
+        ICheckpointManager? checkpoints = null)
     {
+        _skills = skills;
+        _checkpoints = checkpoints;
         _externalAgents = externalAgents;
         _runStore = runStore;
         _providers = providers;
@@ -677,6 +683,35 @@ public class SdlcPipelineRunner
             UserGoal = task,
             Steps = steps
         };
+    }
+
+    /// <summary>
+    /// The external agent that runs a stage, or null for a normal built-in step: either an <c>acp</c> stage with its own
+    /// command, or a stage whose (cast or stage) character has <c>runtime: acp</c>. The character's persona and skills become
+    /// the instructions sent with the prompt.
+    /// </summary>
+    public Flows.ExternalAgentTarget? ResolveExternalTarget(SdlcStageDefinition stage, IReadOnlyDictionary<string, string>? cast)
+    {
+        if (stage.IsAcp)
+            return new Flows.ExternalAgentTarget(stage.AcpCommand ?? string.Empty, stage.AcpArgs ?? new List<string>(), null, null, string.Empty);
+
+        var character = ResolveStageCharacter(stage, cast);
+        if (character is not { IsExternal: true }) return null;
+
+        var blocks = new List<string>();
+        if (!string.IsNullOrWhiteSpace(character.Persona)) blocks.Add(character.Persona.Trim());
+        if (_skills != null)
+        {
+            var names = (character.PinnedSkills).Concat(character.Skills ?? Array.Empty<string>()).Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+            {
+                var invocation = _skills.InvokeAsync(name).GetAwaiter().GetResult();
+                if (invocation != null) blocks.Add(invocation.ToPromptBlock());
+                else _logger.LogWarning("Skill {Skill} of character {Character} was not found", name, character.Id);
+            }
+        }
+        var instructions = blocks.Count == 0 ? string.Empty : "Instructions for your role in this task:\n\n" + string.Join("\n\n", blocks);
+        return new Flows.ExternalAgentTarget(character.Command ?? string.Empty, character.Args, character.Id, character.PermissionMode, instructions);
     }
 
     /// <summary>
@@ -794,7 +829,7 @@ public class SdlcPipelineRunner
     {
         if (pipeline.IsFlow)
         {
-            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters, _externalAgents);
+            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters, _externalAgents, _checkpoints);
             return flow.RunAsync(pipeline, task, sessionId, workingDirectory, new Flows.FlowRunOptions
             {
                 Model = model,

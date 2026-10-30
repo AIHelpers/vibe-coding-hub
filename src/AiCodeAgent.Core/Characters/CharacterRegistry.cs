@@ -561,8 +561,16 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
             var inheritedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (k, v) in inherited.Items.Concat(inheritedPinned.Items)) inheritedSources[k] = v;
 
+            var effectiveRuntime = c.Runtime ?? parent?.Runtime;
+            var effectiveCommand = c.Command ?? parent?.Command;
+            if (string.Equals(effectiveRuntime, "acp", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(effectiveCommand))
+                errors.Add("runtime: acp needs a command (the program that starts the external agent).");
+
             var resolved = c with
             {
+                Runtime = effectiveRuntime,
+                Command = effectiveCommand,
+                Args = c.Args.Count > 0 ? c.Args : parent?.Args ?? Array.Empty<string>(),
                 BaseRole = c.BaseRole ?? parent?.BaseRole,
                 Model = c.Model ?? parent?.Model,
                 PermissionMode = c.PermissionMode ?? parent?.PermissionMode,
@@ -690,6 +698,16 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
             if (mode == null) errors.Add($"Unknown permission-mode '{modeText}'. Use ask, auto-edit, full-auto or plan.");
         }
 
+        var runtime = doc.GetString("runtime")?.Trim();
+        if (!string.IsNullOrEmpty(runtime))
+        {
+            runtime = runtime.ToLowerInvariant().Replace("-", string.Empty);
+            if (runtime is not ("builtin" or "acp"))
+                errors.Add($"Unknown runtime '{doc.GetString("runtime")}'. Use builtin or acp.");
+            else if (runtime == "builtin") runtime = null;
+        }
+        else runtime = null;
+
         IReadOnlyList<string>? explicitTools = null;
         IReadOnlyList<string> add = Array.Empty<string>();
         IReadOnlyList<string> remove = Array.Empty<string>();
@@ -737,6 +755,9 @@ public sealed class CharacterRegistry : ICharacterRegistry, IDisposable
             RemoveSkills = doc.GetList("remove-skills"),
             BaseRole = string.IsNullOrWhiteSpace(baseRole) ? null : baseRole,
             Model = doc.GetString("model"),
+            Runtime = runtime,
+            Command = doc.GetString("command")?.Trim() is { Length: > 0 } cmd ? cmd : null,
+            Args = doc.GetList("args"),
             PermissionMode = mode,
             Tools = explicitTools,
             ToolsAdd = add,

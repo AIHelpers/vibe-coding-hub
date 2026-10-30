@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
+using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -58,9 +60,11 @@ public sealed class FlowRunner
     private readonly ILogger _logger;
     private readonly ICharacterRegistry? _characters;
     private readonly IExternalAgentRunner? _externalAgents;
+    private readonly ICheckpointManager? _checkpoints;
 
-    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null, IExternalAgentRunner? externalAgents = null)
+    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null, IExternalAgentRunner? externalAgents = null, ICheckpointManager? checkpoints = null)
     {
+        _checkpoints = checkpoints;
         _externalAgents = externalAgents;
         _coordinator = coordinator;
         _stageBuilder = stageBuilder;
@@ -581,8 +585,16 @@ public sealed class FlowRunner
         var iteration = r.Runs;
         if (node.Stage.IsHuman)
             return StartHumanNode(r, inputs, feedback, task, options, events, cancellationToken);
-        if (node.Stage.IsAcp)
-            return StartAcpNode(r, inputs, feedback, task, workingDirectory, options, events, cancellationToken);
+        // An 'acp' step, or a step whose character has runtime: acp, is run by an external ACP agent.
+        ExternalAgentTarget? external;
+        try { external = _stageBuilder.ResolveExternalTarget(node.Stage, options.Cast); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Flow node {Node} could not start", node.Id);
+            return Task.FromResult(new NodeResult(string.Empty, ex.Message, false, false, null, TimeSpan.Zero));
+        }
+        if (external != null)
+            return StartAcpNode(r, external, inputs, feedback, task, sessionId, workingDirectory, options, events, cancellationToken);
         // Build the step (character resolution, agent registration) here on the scheduler, not inside
         // the task: several nodes start at once and registration must not race.
         SessionStep step;
@@ -803,24 +815,30 @@ public sealed class FlowRunner
     }
 
     /// <summary>
-    /// An ACP step (E6-S5 prototype): the prompt (with its <c>{input:id}</c> values filled in) goes to an external
-    /// Agent Client Protocol agent; its final message is the step's output. The step runs in the flow's working
-    /// directory without a worktree, and the agent's permission requests are answered from the flow's permission mode.
+    /// A step run by an external Agent Client Protocol agent (E6-S5/S6). The prompt, with its <c>{input:id}</c> values filled
+    /// in and the character's instructions in front, goes to the agent; its final message is the step's output. The agent's
+    /// permission requests follow the step's permission mode and, where the mode says "ask", appear as approval requests
+    /// like those of built-in agents. A file the agent writes gets a checkpoint first and its diff is shown afterwards.
+    /// The step runs in the flow's working directory (no worktree yet).
     /// </summary>
     private Task<NodeResult> StartAcpNode(
-        NodeRun r, IReadOnlyList<FlowNodeOutput> inputs, IReadOnlyList<FlowNodeOutput> feedback, string task,
-        string workingDirectory, FlowRunOptions options, ChannelWriter<AgentEvent> events, CancellationToken cancellationToken)
+        NodeRun r, ExternalAgentTarget target, IReadOnlyList<FlowNodeOutput> inputs, IReadOnlyList<FlowNodeOutput> feedback, string task,
+        string sessionId, string workingDirectory, FlowRunOptions options, ChannelWriter<AgentEvent> events, CancellationToken cancellationToken)
     {
         var node = r.Node;
         var prompt = FlowPrompt.Build(node.Stage.PromptTemplate, task, inputs, feedback, node.Outcomes);
+        if (!string.IsNullOrWhiteSpace(target.Instructions)) prompt = target.Instructions + "\n\n" + prompt;
         var usage = new StepUsage
         {
-            Model = node.Stage.AcpCommand,
+            Model = target.Command,
             Provider = "acp",
             Prompt = prompt,
             InputFrom = inputs.Select(i => i.NodeId).Concat(feedback.Select(f => f.NodeId)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
         };
         r.Current = usage;
+        var nodeSession = $"{sessionId}/{node.Id}#{r.Runs}";
+        var mode = options.PermissionMode ?? target.PermissionMode ?? PermissionMode.Ask;
+
         return Task.Run(async () =>
         {
             var clock = Stopwatch.StartNew();
@@ -828,13 +846,45 @@ public sealed class FlowRunner
             {
                 if (_externalAgents == null)
                     return new NodeResult(string.Empty, "this host cannot run external ACP agents", false, false, null, clock.Elapsed);
-                var request = new ExternalAgentRequest(node.Stage.AcpCommand ?? string.Empty,
-                    node.Stage.AcpArgs ?? (IReadOnlyList<string>)Array.Empty<string>(), workingDirectory, prompt,
-                    options.PermissionMode ?? PermissionMode.Ask, options.ConfirmationTimeout);
+                if (string.IsNullOrWhiteSpace(target.Command))
+                    return new NodeResult(string.Empty, "no command is set for the external agent", false, false, null, clock.Elapsed);
+
+                var request = new ExternalAgentRequest(target.Command, target.Args, workingDirectory, prompt, mode, options.ConfirmationTimeout)
+                {
+                    Ask = (question, ct) => AskUserAsync(node, question, events, options.ConfirmationTimeout, ct),
+                    BeforeWrite = async path =>
+                    {
+                        if (_checkpoints == null) return;
+                        try
+                        {
+                            var checkpoint = await _checkpoints.CreateCheckpointAsync(path, nodeSession, sessionId).ConfigureAwait(false);
+                            await events.WriteAsync(new AgentTaggedEvent(new CheckpointCreatedEvent(checkpoint), node.Id, "acp"), CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Could not create a checkpoint for {Path}", path);
+                        }
+                    },
+                    AfterWrite = (path, before, after) =>
+                    {
+                        var diff = new DiffEntry
+                        {
+                            FilePath = path,
+                            OriginalContent = before,
+                            ModifiedContent = after,
+                            DiffText = UnifiedDiffBuilder.Build(before, after, path),
+                            AgentId = node.Id
+                        };
+                        usage.Diffs.Add(new FlowDiffRecord(diff.FilePath, diff.DiffText));
+                        events.TryWrite(new AgentTaggedEvent(new DiffProducedEvent(diff), node.Id, "acp"));
+                    }
+                };
                 var result = await _externalAgents.RunAsync(request,
                     line => events.TryWrite(new AgentTaggedEvent(new StatusUpdateEvent(line), node.Id, "acp")),
                     cancellationToken).ConfigureAwait(false);
+
                 usage.ToolCalls.AddRange(Enumerable.Range(0, result.ToolCalls).Select(_ => new FlowToolCallRecord("acp-tool", string.Empty, false, 0)));
+                if (result.Usage != null) usage.Add(new AgentResponse { TotalUsage = result.Usage });
                 if (result.StopReason == "cancelled")
                     return new NodeResult(result.Text, null, true, false, null, clock.Elapsed);
                 if (result.StopReason == "refusal")
@@ -861,5 +911,30 @@ public sealed class FlowRunner
                 return new NodeResult(string.Empty, ex.Message, false, false, null, clock.Elapsed);
             }
         }, CancellationToken.None);
+    }
+
+    /// <summary>One permission request of an external agent as an approval request (the same card built-in agents use).</summary>
+    private static async Task<bool> AskUserAsync(FlowNode node, ExternalPermissionQuestion question, ChannelWriter<AgentEvent> events, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var call = new ToolCall
+        {
+            Id = Guid.NewGuid().ToString("N")[..12],
+            Name = "acp_" + question.Kind,
+            Arguments = new Dictionary<string, object?> { ["agent"] = node.Id, ["action"] = question.Title, ["kind"] = question.Kind }
+        };
+        var risk = question.Kind switch
+        {
+            "read" or "search" or "think" => RiskLevel.Read,
+            "edit" or "move" or "delete" => RiskLevel.Write,
+            _ => RiskLevel.Execute
+        };
+        await events.WriteAsync(new AgentTaggedEvent(new ApprovalRequestEvent(call, answer, risk), node.Id, "acp"), CancellationToken.None).ConfigureAwait(false);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        await Task.WhenAny(answer.Task, Task.Delay(Timeout.InfiniteTimeSpan, cts.Token))
+            .ContinueWith(_ => { }, TaskScheduler.Default).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return answer.Task.IsCompletedSuccessfully && answer.Task.Result;
     }
 }
