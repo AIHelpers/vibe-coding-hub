@@ -436,6 +436,7 @@ public partial class SettingsViewModel
         config.Ui.Theme = uiDefaults.Theme;
         config.Ui.ResumeLastSession = uiDefaults.ResumeLastSession;
         config.Ui.CheckForUpdates = uiDefaults.CheckForUpdates;
+        ResetNetworkSettings(config);
         config.Ui.TerminalShell = null;
 
         await _configurationService.SaveAsync();

@@ -6,6 +6,8 @@ public class AppConfiguration
     public Dictionary<string, ProviderConfiguration> Providers { get; set; } = new();
     public AgentConfiguration Agent { get; set; } = new();
     public UiConfiguration Ui { get; set; } = new();
+    /// <summary>Network transparency and offline mode (Settings → Advanced → Network activity).</summary>
+    public NetworkConfiguration Network { get; set; } = new();
     
     public static AppConfiguration GetDefaults() => new()
     {
@@ -103,6 +105,12 @@ public class SandboxConfiguration
     public bool Network { get; set; }
     public string Memory { get; set; } = "4g";
     public string Cpus { get; set; } = "2";
+}
+
+public class NetworkConfiguration
+{
+    /// <summary>Block every host except localhost and the configured model provider(s). The environment variable AIAGENT_OFFLINE=1 forces it on.</summary>
+    public bool OfflineMode { get; set; }
 }
 
 public class UiConfiguration

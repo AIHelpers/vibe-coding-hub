@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Network;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -29,6 +30,7 @@ public sealed class UpdateChecker : IUpdateChecker
     private const int MaxResponseBytes = 1_000_000;
 
     private readonly HttpMessageHandler? _handler;
+    private readonly NetworkPolicy _policy;
     private readonly Uri _url;
     private readonly TimeSpan _timeout;
     private readonly string _userAgentVersion;
@@ -37,9 +39,10 @@ public sealed class UpdateChecker : IUpdateChecker
     /// <param name="url">The "latest release" address; null uses the environment variable, then GitHub.</param>
     /// <param name="timeout">How long to wait for an answer (default 10 s).</param>
     /// <param name="userAgentVersion">Sent in the User-Agent header (GitHub requires one).</param>
-    public UpdateChecker(HttpMessageHandler? handler = null, string? url = null, TimeSpan? timeout = null, string userAgentVersion = "1")
+    public UpdateChecker(HttpMessageHandler? handler = null, string? url = null, TimeSpan? timeout = null, string userAgentVersion = "1", NetworkPolicy? policy = null)
     {
         _handler = handler;
+        _policy = policy ?? NetworkPolicy.Shared;
         _timeout = timeout ?? TimeSpan.FromSeconds(10);
         _userAgentVersion = userAgentVersion;
         var configured = url ?? Environment.GetEnvironmentVariable(UrlEnvironmentVariable);
@@ -80,14 +83,14 @@ public sealed class UpdateChecker : IUpdateChecker
 
     private HttpClient CreateClient()
     {
-        var handler = _handler ?? new SocketsHttpHandler
+        var handler = _handler ?? NetworkPolicyHandler.Wrap(NetworkPurpose.UpdateCheck, new SocketsHttpHandler
         {
             UseProxy = true,
             DefaultProxyCredentials = CredentialCache.DefaultCredentials,
             ConnectTimeout = TimeSpan.FromSeconds(5),
             AllowAutoRedirect = true,
             MaxAutomaticRedirections = 3
-        };
+        }, _policy);
         var client = new HttpClient(handler, disposeHandler: _handler == null)
         {
             Timeout = _timeout,

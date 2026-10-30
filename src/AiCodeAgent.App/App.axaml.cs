@@ -65,6 +65,7 @@ public partial class App : Application
             try
             {
                 Task.Run(() => configSvc.LoadAsync()).GetAwaiter().GetResult();
+                AiCodeAgent.Core.Network.NetworkPolicyConfiguration.Bind(configSvc);
             }
             catch (Exception ex)
             {
@@ -188,7 +189,7 @@ public partial class App : Application
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Add("User-Agent", "AiCodeAgent/1.0");
         })
-        .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+        .ConfigurePrimaryHttpMessageHandler(() => AiCodeAgent.Core.Network.NetworkPolicyHandler.Wrap(AiCodeAgent.Core.Network.NetworkPurpose.WebFetch, new System.Net.Http.SocketsHttpHandler
         {
             // WebFetchTool follows redirects itself, re-validating each hop's
             // host against SsrfGuard before connecting (issue: SSRF guard
@@ -216,7 +217,7 @@ public partial class App : Application
                     throw;
                 }
             }
-        });
+        }));
 
         // Core services
         services.AddSingleton<ConfigurationService>(sp => 
@@ -464,7 +465,7 @@ public partial class App : Application
             return new McpRegistry(
                 configs,
                 cfg => cfg.IsRemote
-                    ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(), loggerFactory?.CreateLogger<HttpMcpClient>())
+                    ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(AiCodeAgent.Core.Network.NetworkPolicyHandler.Wrap(AiCodeAgent.Core.Network.NetworkPurpose.Mcp)), loggerFactory?.CreateLogger<HttpMcpClient>())
                     : new StdioMcpClient(cfg, loggerFactory?.CreateLogger<StdioMcpClient>()),
                 logger);
         });
@@ -590,7 +591,7 @@ public partial class App : Application
         {
             var tokens = sp.GetRequiredService<AiCodeAgent.Tools.GitHosting.GitHubTokenResolver>();
             return new AiCodeAgent.Tools.GitHosting.GitHubHostProvider(
-                new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                new System.Net.Http.HttpClient(AiCodeAgent.Core.Network.NetworkPolicyHandler.Wrap(AiCodeAgent.Core.Network.NetworkPurpose.GitHost)) { Timeout = TimeSpan.FromSeconds(30) },
                 async ct => (await tokens.ResolveAsync(ct).ConfigureAwait(false))?.Value);
         });
         services.AddTransient<ChatViewModel>();

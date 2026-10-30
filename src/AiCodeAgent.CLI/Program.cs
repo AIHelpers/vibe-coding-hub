@@ -660,7 +660,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
         client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.Add("User-Agent", "AiCodeAgent/1.0");
     })
-    .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+    .ConfigurePrimaryHttpMessageHandler(() => AiCodeAgent.Core.Network.NetworkPolicyHandler.Wrap(AiCodeAgent.Core.Network.NetworkPurpose.WebFetch, new System.Net.Http.SocketsHttpHandler
     {
         // See App.axaml.cs for why: WebFetchTool re-validates each redirect
         // hop itself, and this ConnectCallback is the second, connect-time
@@ -684,11 +684,12 @@ static async Task<ServiceProvider> BuildServiceProvider(
                 throw;
             }
         }
-    });
+    }));
 
     // Configuration
     var configSvc = new ConfigurationService();
     await configSvc.LoadAsync();
+    AiCodeAgent.Core.Network.NetworkPolicyConfiguration.Bind(configSvc);
     services.AddSingleton(configSvc);
     services.AddSingleton(configSvc.Config);
 
@@ -863,7 +864,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
         return new McpRegistry(
             configs,
             cfg => cfg.IsRemote
-                ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(), loggerFactory?.CreateLogger<HttpMcpClient>())
+                ? (IMcpClient)new HttpMcpClient(cfg, new HttpClient(AiCodeAgent.Core.Network.NetworkPolicyHandler.Wrap(AiCodeAgent.Core.Network.NetworkPurpose.Mcp)), loggerFactory?.CreateLogger<HttpMcpClient>())
                 : new StdioMcpClient(cfg, loggerFactory?.CreateLogger<StdioMcpClient>()),
             logger);
     });

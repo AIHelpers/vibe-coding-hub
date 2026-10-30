@@ -193,6 +193,7 @@ public partial class SettingsViewModel : ObservableObject
         CheckForUpdates = config.Ui?.CheckForUpdates ?? true;
         TerminalShell = config.Ui?.TerminalShell ?? string.Empty;
         LoadAdvancedSettings();
+        LoadNetworkSettings();
         // Intentional: set the backing field directly so the loaded value is not previewed/applied
         // via OnSelectedThemeChanged; the change notification is raised manually below.
 #pragma warning disable MVVMTK0034
@@ -447,6 +448,7 @@ public partial class SettingsViewModel : ObservableObject
         config.Ui ??= new UiConfiguration();
         config.Ui.ResumeLastSession = System.Enum.Parse<ResumeLastSessionMode>(SelectedResumeLastSession);
         config.Ui.CheckForUpdates = CheckForUpdates;
+        SaveNetworkSettings(config);
         config.Ui.TerminalShell = string.IsNullOrWhiteSpace(TerminalShell) ? null : TerminalShell.Trim();
         config.Ui.Theme = AiCodeAgent.App.Services.ThemeService.Normalize(SelectedTheme);
 
