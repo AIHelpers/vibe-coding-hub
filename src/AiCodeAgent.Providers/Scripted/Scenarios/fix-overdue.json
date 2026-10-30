@@ -1,0 +1,41 @@
+{
+  // The practice task of the sample project (E3-S3): the Overdue_ExcludesCompletedItems test fails.
+  // Read -> edit (asks for approval) -> verify -> summary. The last turn branches on the verify result.
+  "name": "fix-overdue",
+  "description": "Fix the overdue logic of the TodoApp sample: read, edit, verify, summarize.",
+  "match": { "first_user_contains": "Overdue_ExcludesCompletedItems" },
+  "turns": [
+    {
+      "delay_ms": 400,
+      "text": "I'll start by reading the overdue logic in TodoService.",
+      "tool_call": { "name": "read_file", "args": { "path": "src/TodoApp/TodoService.cs" } }
+    },
+    {
+      "delay_ms": 400,
+      "text": "Found it. `Overdue` compares with `<=`, so an item due today counts as late, and it never looks at `Done`, so completed items are included. The rules say an item is overdue only when it is not done and due before today. I'll fix both in one edit.",
+      "tool_call": {
+        "name": "edit_file",
+        "args": {
+          "path": "src/TodoApp/TodoService.cs",
+          "old_string": "_items.Where(x => x.Due <= today)",
+          "new_string": "_items.Where(x => !x.Done && x.Due < today)"
+        }
+      }
+    },
+    {
+      "delay_ms": 300,
+      "text": "Now I'll run the checks to confirm.",
+      "tool_call": { "name": "verify_changes", "args": {} }
+    },
+    {
+      "if_result_contains": "passed",
+      "delay_ms": 300,
+      "text": "Fixed. `TodoService.Overdue` now returns only items that are not done and are due before today.\n\n- Completed items are excluded (the failing test).\n- An item due today is no longer overdue, as AGENTS.md specifies.\n\nThe build and all tests pass. I changed the code only; no test was touched.",
+      "usage": { "prompt": 2400, "completion": 96 },
+      "else": {
+        "text": "I made the change, but the checks still report a problem. The verify output above shows which stage failed; I have not changed any test. Tell me if you want me to dig into it.",
+        "usage": { "prompt": 2400, "completion": 52 }
+      }
+    }
+  ]
+}

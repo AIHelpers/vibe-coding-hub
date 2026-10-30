@@ -1,0 +1,22 @@
+{
+  // A read-only tour: list the folder, read AGENTS.md, explain. No approvals needed.
+  "name": "explain-project",
+  "description": "Explain the open project: list the folder, read AGENTS.md, summarize.",
+  "match": { "first_user_regex": "explain (this|the) (project|repo|codebase)" },
+  "turns": [
+    {
+      "delay_ms": 300,
+      "text": "Let me look at how the project is laid out.",
+      "tool_call": { "name": "list_directory", "args": { "path": "." } }
+    },
+    {
+      "delay_ms": 300,
+      "text": "There is an AGENTS.md; it should describe the conventions.",
+      "tool_call": { "name": "read_file", "args": { "path": "AGENTS.md" } }
+    },
+    {
+      "delay_ms": 300,
+      "text": "Here is the short version.\n\n**What it is.** A small .NET library with xUnit tests, kept deliberately simple so changes are easy to follow.\n\n**Layout.** Code lives under `src/`, tests under `tests/`, one behavior per test. The solution file in the root builds and tests everything.\n\n**Rules to keep in mind.** Fix the code, never the test; keep changes small; match the existing style; a task is done only when the tests report 0 failures (see AGENTS.md for the exact commands).\n\nTell me what you want to change and I'll start with the file that owns that behavior."
+    }
+  ]
+}

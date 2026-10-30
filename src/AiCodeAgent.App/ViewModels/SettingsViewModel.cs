@@ -180,6 +180,9 @@ public partial class SettingsViewModel : ObservableObject
         AvailableProviders.Clear();
         foreach (var name in config.Providers.Keys)
             AvailableProviders.Add(name);
+        // E8-S1: the scripted test provider is offered only when AIAGENT_ENABLE_SCRIPTED=1 (or in a Debug build).
+        if (ScriptedProviderSupport.IsEnabled && !AvailableProviders.Contains(ScriptedProviderSupport.ProviderName, StringComparer.OrdinalIgnoreCase))
+            AvailableProviders.Add(ScriptedProviderSupport.ProviderName);
 
         SelectedProvider = config.DefaultProvider.ToLowerInvariant();
         LoadProviderSettings(config.DefaultProvider);

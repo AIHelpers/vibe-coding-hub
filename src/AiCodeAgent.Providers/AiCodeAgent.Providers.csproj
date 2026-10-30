@@ -11,4 +11,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
     <ProjectReference Include="..\AiCodeAgent.Core\AiCodeAgent.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- E8-S1: the scenarios of the scripted provider ship inside the assembly -->
+    <EmbeddedResource Include="Scripted\Scenarios\*.json" />
+  </ItemGroup>
 </Project>
