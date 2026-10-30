@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Network;
 using System.Text.Json;
 
 namespace AiCodeAgent.Providers;
@@ -34,7 +35,7 @@ public sealed class LocalProviderProbe : ILocalProviderProbe, IDisposable
     /// <param name="timeout">Per-server limit; one second by default.</param>
     public LocalProviderProbe(HttpMessageHandler? handler = null, TimeSpan? timeout = null)
     {
-        _http = handler == null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        _http = handler == null ? new HttpClient(NetworkPolicyHandler.Wrap(NetworkPurpose.ProviderProbe)) : new HttpClient(handler, disposeHandler: false);
         _http.Timeout = Timeout.InfiniteTimeSpan; // the per-request token below is the limit
         _timeout = timeout ?? TimeSpan.FromSeconds(1);
     }

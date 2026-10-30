@@ -1,3 +1,4 @@
+using AiCodeAgent.Core.Network;
 using System.Net;
 using System.Runtime.CompilerServices;
 using AiCodeAgent.Core;
@@ -22,6 +23,8 @@ public abstract class BaseHttpProvider : IAiProvider, IDisposable
     {
         Config = config;
         Logger = logger;
+        // The configured provider stays reachable in offline mode.
+        NetworkPolicy.Shared.AllowProviderUrl(config.BaseUrl);
 
         var handler = new HttpClientHandler
         {
@@ -41,7 +44,8 @@ public abstract class BaseHttpProvider : IAiProvider, IDisposable
         }
         else
         {
-            HttpClient = new HttpClient(handler)
+            // E7-S4: every provider request passes the network policy (offline mode, activity list).
+            HttpClient = new HttpClient(NetworkPolicyHandler.Wrap(NetworkPurpose.Provider, handler))
             {
                 BaseAddress = new Uri(config.BaseUrl),
                 Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds)

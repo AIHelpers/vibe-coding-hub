@@ -1,5 +1,6 @@
 using System.Net.Http;
 using AiCodeAgent.Core.Mcp;
+using AiCodeAgent.Core.Network;
 using Microsoft.Extensions.Logging;
 
 namespace AiCodeAgent.Tools.Mcp;
@@ -9,6 +10,6 @@ public static class McpClients
 {
     public static IMcpClient Create(McpServerConfig config, ILoggerFactory? loggerFactory = null) =>
         config.IsRemote
-            ? new HttpMcpClient(config, new HttpClient(), loggerFactory?.CreateLogger<HttpMcpClient>())
+            ? new HttpMcpClient(config, new HttpClient(NetworkPolicyHandler.Wrap(NetworkPurpose.Mcp)), loggerFactory?.CreateLogger<HttpMcpClient>())
             : new StdioMcpClient(config, loggerFactory?.CreateLogger<StdioMcpClient>());
 }

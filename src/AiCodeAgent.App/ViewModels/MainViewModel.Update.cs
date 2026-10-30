@@ -42,6 +42,9 @@ public partial class MainViewModel
             return;
         }
 
+        // Offline mode: no automatic look at GitHub (the policy would refuse it anyway). A manual check says why it failed.
+        if (!manual && AiCodeAgent.Core.Network.NetworkPolicy.Shared.OfflineMode) return;
+
         var ui = _configurationService.Config.Ui;
         // Switched off, or checked less than a day ago: no delay, no request.
         if (!manual && (!ui.CheckForUpdates || !UpdateService.IsDue(ui, DateTimeOffset.UtcNow))) return;

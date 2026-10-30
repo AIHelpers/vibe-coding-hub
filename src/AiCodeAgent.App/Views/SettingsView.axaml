@@ -482,6 +482,38 @@
                     <TextBlock Classes="hint" Text="When the app starts (at most once a day) it asks GitHub for the latest release and shows a banner if it is newer. Nothing else is sent. Command Palette → &quot;Check for updates&quot; looks right now."/>
                 </StackPanel>
 
+                <!-- Network transparency + offline mode (E7-S4) -->
+                <StackPanel Spacing="6">
+                    <TextBlock Text="Network activity" FontSize="13" FontWeight="SemiBold"/>
+                    <CheckBox Name="OfflineModeCheck" IsChecked="{Binding OfflineMode}"
+                              Content="Offline mode: only localhost and the configured model provider can be reached"
+                              FontSize="13"/>
+                    <TextBlock Classes="hint" Text="Everything else is refused before a connection is opened: update checks, web_fetch, remote MCP servers. Applies when you save. A local provider such as Ollama keeps working."/>
+                    <TextBlock Name="OfflineModeNoteText" Classes="hint" Text="{Binding OfflineModeNote}" IsVisible="{Binding HasOfflineModeNote}"/>
+                    <TextBlock Name="NetworkSummaryText" Text="{Binding NetworkSummary}" FontSize="12" TextWrapping="Wrap"/>
+                    <ItemsControl Name="NetworkHostsList" ItemsSource="{Binding NetworkRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:NetworkHostRowViewModel">
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                    <StackPanel Grid.Column="0" Spacing="1">
+                                        <TextBlock Text="{Binding Host}" FontSize="13"/>
+                                        <TextBlock Classes="hint" Text="{Binding Purposes}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding Where}" FontSize="12" HorizontalAlignment="Right"/>
+                                        <TextBlock Classes="hint" Text="{Binding Counts}" HorizontalAlignment="Right"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Name="RefreshNetworkButton" Content="Refresh" Command="{Binding RefreshNetworkCommand}"/>
+                        <Button Name="ClearNetworkButton" Content="Clear list" Command="{Binding ClearNetworkLogCommand}"/>
+                    </StackPanel>
+                    <TextBlock Classes="hint" Text="Only the host name is remembered (never the path, your code or prompts), and only until the app closes. See docs/privacy.md for what is sent where."/>
+                </StackPanel>
+
                 <!-- Log folder: logs are written here, never into a project -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Log folder" FontSize="13" FontWeight="SemiBold"/>
