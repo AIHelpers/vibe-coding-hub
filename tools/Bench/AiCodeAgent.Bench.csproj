@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    E8-S3: benchmark harness, a single agent in chat mode against the flows.
+    Run: dotnet run, with this project as the target, and the tool options after a lone double dash (see docs/benchmark.md).
+    It drives the aiagent CLI as a child process, so it references no app code. Not shipped with the app.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AiCodeAgent.Bench</AssemblyName>
+    <RootNamespace>AiCodeAgent.Bench</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AiCodeAgent.Bench.Tests" />
+  </ItemGroup>
+
+</Project>
