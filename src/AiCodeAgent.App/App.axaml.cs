@@ -308,6 +308,7 @@ public partial class App : Application
             var configSvc = sp.GetRequiredService<ConfigurationService>();
             return new AiCodeAgent.Core.Flows.FlowRunStore(null, () => configSvc.Config.Agent.FlowRunHistoryLimit);
         });
+        services.AddSingleton<AiCodeAgent.Core.Flows.IExternalAgentRunner, AiCodeAgent.Tools.Acp.AcpAgentRunner>();
         services.AddSingleton<SdlcPipelineRunner>();
 
         // Multi-agent session registry (Feature 5) - shared by SessionDashboardViewModel

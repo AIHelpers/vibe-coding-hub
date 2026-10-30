@@ -239,8 +239,15 @@ public sealed class FlowGraph
             if (!stage.Enabled && Edges.Any(e => !e.IsLoop && e.IsConditional && Same(e.From, node.Id)))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error,
                     $"'{node.Name}' is disabled but arrows out of it have conditions; enable it or remove those conditions.", node.Id));
-            if (!string.IsNullOrWhiteSpace(stage.Kind) && !stage.IsHuman && !string.Equals(stage.Kind, "agent", StringComparison.OrdinalIgnoreCase))
-                _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': unknown kind '{stage.Kind}' (use agent or human).", node.Id));
+            if (!string.IsNullOrWhiteSpace(stage.Kind) && !stage.IsHuman && !stage.IsAcp && !string.Equals(stage.Kind, "agent", StringComparison.OrdinalIgnoreCase))
+                _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': unknown kind '{stage.Kind}' (use agent, human or acp).", node.Id));
+            if (stage.IsAcp)
+            {
+                if (string.IsNullOrWhiteSpace(stage.AcpCommand))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}' is an ACP step but has no acpCommand.", node.Id));
+                if (!string.IsNullOrWhiteSpace(stage.Character) || !string.IsNullOrWhiteSpace(stage.Model) || !string.IsNullOrWhiteSpace(stage.Provider))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is run by an external ACP agent; its character, model and provider are ignored.", node.Id));
+            }
             if (stage.IsHuman)
             {
                 if (stage.RequireConfirmation)
@@ -248,10 +255,10 @@ public sealed class FlowGraph
                 if (!string.IsNullOrWhiteSpace(stage.Character) || !string.IsNullOrWhiteSpace(stage.Model) || !string.IsNullOrWhiteSpace(stage.Provider))
                     _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a human step; its character, model and provider are ignored.", node.Id));
             }
-            else if (characterId == null && string.IsNullOrWhiteSpace(stage.Role))
+            else if (!stage.IsAcp && characterId == null && string.IsNullOrWhiteSpace(stage.Role))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}' has no character or role.", node.Id));
 
-            if (characterId != null && characterLookup != null && !stage.IsHuman)
+            if (characterId != null && characterLookup != null && !stage.IsHuman && !stage.IsAcp)
             {
                 var c = characterLookup(characterId);
                 if (c == null)

@@ -595,3 +595,7 @@ make publish-all
 `/issue` lists the open issues of the repository behind the `origin` remote (pull requests are left out); `/issue label:bug assignee:me` filters them. `/issue 42` fills the message box with the issue's title, body and comments and links the task to the issue; `/issue clear` removes the link.
 
 Sign-in: set `GITHUB_TOKEN` (or `GH_TOKEN`), or sign in with the GitHub CLI (`gh auth login`); the app uses `gh auth token` when no variable is set. Public repositories also work without a token, with GitHub's lower rate limit. Hosts are behind the `IGitHostProvider` interface, so GitLab and Azure DevOps can be added later.
+
+### External agents in flows (ACP prototype)
+
+A flow step can be run by an external agent that speaks the Agent Client Protocol (for example Gemini CLI): `{ "id": "external-review", "kind": "acp", "acpCommand": "gemini", "acpArgs": ["--acp"], "promptTemplate": "Review this task: {task}" }`. The agent's final message is the step's output and reaches later steps as `{input:external-review}`. Its permission requests are answered from the run's permission mode; there is no editor UI for these steps yet. See `docs/adr/0001-acp.md` for the design, the risks and the plan.

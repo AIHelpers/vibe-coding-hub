@@ -727,6 +727,7 @@ static async Task<ServiceProvider> BuildServiceProvider(
         sp.GetRequiredService<ILogger<SdlcPipelineLoader>>(), null, dir ?? Directory.GetCurrentDirectory(),
         () => sp.GetRequiredService<AiCodeAgent.Core.Packs.PackStore>().Sources(dir ?? Directory.GetCurrentDirectory())));
     services.AddSingleton(new AiCodeAgent.Core.Flows.FlowRunStore(null, () => configSvc.Config.Agent.FlowRunHistoryLimit));
+    services.AddSingleton<AiCodeAgent.Core.Flows.IExternalAgentRunner, AiCodeAgent.Tools.Acp.AcpAgentRunner>();
     services.AddSingleton<SdlcPipelineRunner>();
 
     // Session export/import services (Priority 5)
