@@ -130,7 +130,9 @@ public class PtySessionTests
 
         using var s = new Session("/bin/sh", Array.Empty<string>());
         // $((6*7)) is only expanded in the output, so "ready-42" proves the shell ran the line (the typed text is echoed too).
-        s.Pty.Write("echo ready-$((6*7)); sleep 30; echo after-sleep\r");
+        // The line ends at sleep: macOS's /bin/sh (bash 3.2) keeps running the rest of a list after a child dies of SIGINT,
+        // so a trailing command would overwrite $?. sleep's own status (130 = 128 + SIGINT) is what proves the interrupt.
+        s.Pty.Write("echo ready-$((6*7)); sleep 30\r");
         Assert.True(s.WaitForText("ready-42"), s.Describe());
         Thread.Sleep(500); // let the shell start sleep
         s.Pty.Write(new byte[] { 0x03 }); // ETX: the line discipline turns it into SIGINT for the foreground job
@@ -144,7 +146,6 @@ public class PtySessionTests
         }
 
         Assert.True(interrupted, s.Describe());
-        Assert.DoesNotContain("after-sleep", s.Screen.Replace("echo ready-$((6*7)); sleep 30; echo after-sleep", ""));
     }
 
     [Fact]
