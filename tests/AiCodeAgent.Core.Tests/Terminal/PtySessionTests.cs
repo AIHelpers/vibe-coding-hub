@@ -40,9 +40,11 @@ public class PtySessionTests
 
         public string Screen { get { lock (Term.SyncRoot) return Term.GetScreenText(); } }
 
-        public bool WaitForText(string text)
+        public bool WaitForText(string text) => WaitForText(text, Timeout);
+
+        public bool WaitForText(string text, TimeSpan timeout)
         {
-            var until = DateTime.UtcNow + Timeout;
+            var until = DateTime.UtcNow + timeout;
             while (DateTime.UtcNow < until)
             {
                 if (Screen.Contains(text)) return true;
@@ -127,13 +129,22 @@ public class PtySessionTests
         }
 
         using var s = new Session("/bin/sh", Array.Empty<string>());
-        s.Pty.Write("echo ready; sleep 30; echo after-sleep\r");
-        Assert.True(s.WaitForText("ready"));
-        Thread.Sleep(300);
+        // $((6*7)) is only expanded in the output, so "ready-42" proves the shell ran the line (the typed text is echoed too).
+        s.Pty.Write("echo ready-$((6*7)); sleep 30; echo after-sleep\r");
+        Assert.True(s.WaitForText("ready-42"), s.Describe());
+        Thread.Sleep(500); // let the shell start sleep
         s.Pty.Write(new byte[] { 0x03 }); // ETX: the line discipline turns it into SIGINT for the foreground job
-        s.Pty.Write("echo status=$?\r");
-        Assert.True(s.WaitForText("status=130"));
-        Assert.DoesNotContain("after-sleep", s.Screen.Replace("echo ready; sleep 30; echo after-sleep", ""));
+        // SIGINT also flushes the tty input queue (macOS especially), so a command typed right behind ^C can be lost: retry.
+        var interrupted = false;
+        for (var attempt = 0; attempt < 8 && !interrupted; attempt++)
+        {
+            Thread.Sleep(500);
+            s.Pty.Write("echo status=$?\r");
+            interrupted = s.WaitForText("status=130", TimeSpan.FromSeconds(2));
+        }
+
+        Assert.True(interrupted, s.Describe());
+        Assert.DoesNotContain("after-sleep", s.Screen.Replace("echo ready-$((6*7)); sleep 30; echo after-sleep", ""));
     }
 
     [Fact]

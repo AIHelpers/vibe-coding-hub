@@ -40,7 +40,8 @@ public sealed class RemoteRunServer : IAsyncDisposable
     /// <summary>Messages kept for late joiners. A run that produces more drops the oldest (streamed text first in a real version).</summary>
     public const int MaxBacklog = 20_000;
 
-    private readonly HttpListener _listener = new();
+    private HttpListener _listener = new();
+    private readonly bool _autoPort;
     private readonly string _token;
     private readonly RemoteHello _hello;
     private readonly TimeSpan _approvalTimeout;
@@ -68,11 +69,12 @@ public sealed class RemoteRunServer : IAsyncDisposable
         _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(10);
         _logger = logger;
         Host = host;
-        Port = port == 0 ? FreePort(host) : port;
+        _autoPort = port == 0;
+        Port = _autoPort ? FreePort(host) : port;
     }
 
     public string Host { get; }
-    public int Port { get; }
+    public int Port { get; private set; }
     public Uri Url => new($"ws://{Host}:{Port}{RemoteProtocol.EventsPath}");
 
     /// <summary>Cancelled when a client asks to stop the run.</summary>
@@ -85,8 +87,22 @@ public sealed class RemoteRunServer : IAsyncDisposable
     {
         // HttpListener spells "every address" as "+"; an IPv6 literal needs brackets.
         var prefixHost = Host is "0.0.0.0" or "::" or "*" ? "+" : Host.Contains(':') ? $"[{Host}]" : Host;
-        _listener.Prefixes.Add($"http://{prefixHost}:{Port}/");
-        _listener.Start();
+        // A port picked by FreePort is only free until someone else binds it, so an automatic port is retried with a new one.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                _listener.Prefixes.Add($"http://{prefixHost}:{Port}/");
+                _listener.Start();
+                break;
+            }
+            catch (HttpListenerException) when (_autoPort && attempt < 5)
+            {
+                try { _listener.Close(); } catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException) { }
+                _listener = new HttpListener();
+                Port = FreePort(Host);
+            }
+        }
         _acceptLoop = Task.Run(AcceptLoopAsync);
     }
 
@@ -405,12 +421,13 @@ public sealed class RemoteRunServer : IAsyncDisposable
         {
             foreach (var s in _sessions) s.Outbox.Writer.TryComplete();
         }
-        try { _listener.Stop(); } catch (ObjectDisposedException) { }
+        // Close() alone: calling Stop() first makes Close() unregister the prefix a second time, and the managed
+        // HttpListener (Linux/macOS) re-binds the port to do it, which throws "Address already in use" when it is taken.
+        try { _listener.Close(); } catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException) { /* already gone */ }
         if (_acceptLoop != null)
         {
             try { await _acceptLoop.ConfigureAwait(false); } catch { /* stopped */ }
         }
-        _listener.Close();
         _cancelRun.Dispose();
         _stop.Dispose();
     }
