@@ -1,0 +1,4 @@
+#!/bin/sh
+# Entry point of the AppImage: starts the published single-file app that lives inside the mounted image.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/vibe-coding-hub/Vibe Coding Hub" "$@"

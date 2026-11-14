@@ -268,6 +268,38 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public void TheFilesOfOneRelease_EachSystemGetsItsInstallerOrArchive()
+    {
+        // The exact names produced by the release workflow and the packaging scripts. Renaming a file there without updating
+        // ReleaseAssetPicker would quietly send users to the wrong download, so this pins the contract.
+        var assets = new[]
+        {
+            new ReleaseAsset("vibe-coding-hub-1.2.0-win-x64.zip", "https://github.com/a", 1),
+            new ReleaseAsset("vibe-coding-hub-cli-1.2.0-win-x64.zip", "https://github.com/b", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-win-x64-setup.exe", "https://github.com/i", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-linux-x64.tar.gz", "https://github.com/c", 1),
+            new ReleaseAsset("vibe-coding-hub-cli-1.2.0-linux-x64.tar.gz", "https://github.com/d", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-x86_64.AppImage", "https://github.com/e", 1),
+            new ReleaseAsset("vibe-coding-hub_1.2.0_amd64.deb", "https://github.com/f", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", "https://github.com/g", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-osx-arm64.dmg", "https://github.com/j", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-osx-x64.dmg", "https://github.com/k", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-x64.tar.gz", "https://github.com/h", 1),
+            new ReleaseAsset("SHA256SUMS.txt", "https://github.com/s", 1)
+        };
+
+        // On Linux the AppImage beats the archive; the .deb needs a package manager and the CLI files and the checksum list are never offered.
+        Assert.Equal("VibeCodingHub-1.2.0-x86_64.AppImage", ReleaseAssetPicker.Pick(assets, Linux)!.Name);
+        // On Windows the setup beats the portable zip.
+        Assert.Equal("VibeCodingHub-1.2.0-win-x64-setup.exe", ReleaseAssetPicker.Pick(assets, Win)!.Name);
+        // On macOS the disk image beats the archive, and each CPU gets its own.
+        Assert.Equal("VibeCodingHub-1.2.0-osx-arm64.dmg", ReleaseAssetPicker.Pick(assets, MacArm)!.Name);
+        Assert.Equal("VibeCodingHub-1.2.0-osx-x64.dmg", ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.MacOs, UpdateArch.X64))!.Name);
+        // There is no Linux ARM build: the banner falls back to the release page rather than offering the x64 AppImage.
+        Assert.Null(ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.Linux, UpdateArch.Arm64)));
+    }
+
+    [Fact]
     public void NoMatchingFile_ReturnsNull_SoTheBannerOpensTheReleasePage()
     {
         var assets = new[] { new ReleaseAsset("vibe-coding-hub-1.3.0-linux-x64.tar.gz", "https://github.com/a", 1) };

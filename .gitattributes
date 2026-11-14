@@ -1,1 +1,6 @@
 * text=auto
+
+# Packaging scripts run on Linux: LF only, even when checked out on Windows
+*.sh text eol=lf
+*.desktop text eol=lf
+packaging/linux/AppRun text eol=lf

@@ -64,6 +64,18 @@ jobs:
           Compress-Archive -Path publish/app/* -DestinationPath "vibe-coding-hub-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.zip"
           Compress-Archive -Path publish/cli/* -DestinationPath "vibe-coding-hub-cli-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.zip"
 
+      # Apple Silicon refuses to run unsigned binaries, even ones that were downloaded with curl. An ad-hoc signature
+      # (no certificate) satisfies that requirement for the single-file app and CLI in the tar.gz archives.
+      - name: Ad-hoc sign macOS binaries
+        if: startsWith(matrix.rid, 'osx')
+        shell: bash
+        run: |
+          for f in publish/app/* publish/cli/*; do
+            if [ -f "$f" ] && [ -x "$f" ]; then
+              codesign --force --sign - "$f"
+            fi
+          done
+
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
         shell: bash
@@ -72,26 +84,208 @@ jobs:
           tar -czf "vibe-coding-hub-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/app .
           tar -czf "vibe-coding-hub-cli-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/cli .
 
+      # Linux installers (packaging/linux): an AppImage that runs anywhere and a .deb for Debian-based systems.
+      # Both are built from the folders published above. File names are matched by ReleaseAssetPicker (update banner).
+      - name: Build AppImage and deb
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          bash packaging/linux/make-appimage.sh "$VERSION"
+          bash packaging/linux/make-deb.sh "$VERSION"
+          # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
+          mv dist/*.AppImage dist/*.deb .
+
+      # Windows installer (packaging/windows): a per-user Setup.exe with an optional aiagent entry on PATH.
+      - name: Build Windows installer
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
+          }
+          # Windows file versions are numeric: drop any pre-release suffix.
+          $numeric = ($env:VERSION -split '[-+]')[0]
+          & $iscc "/DAppVersion=$env:VERSION" "/DAppVersionNumeric=$numeric" packaging\windows\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
+          Move-Item dist\*-setup.exe .
+
+      # macOS disk image (packaging/macos): the app is published as a folder (not a single file) so that every native
+      # library can carry its own signature inside the bundle. Without the signing secrets the bundle gets an ad-hoc
+      # signature. Signing with a Developer ID also needs the certificate imported into a keychain first; that step
+      # arrives together with the certificate.
+      - name: Publish app as a folder for the macOS bundle
+        if: startsWith(matrix.rid, 'osx')
+        shell: bash
+        run: >
+          dotnet publish src/AiCodeAgent.App/AiCodeAgent.App.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=false
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/mac-${{ matrix.rid }}
+
+      - name: Build DMG
+        if: startsWith(matrix.rid, 'osx')
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          bash packaging/macos/make-dmg.sh "${{ matrix.rid }}" "$VERSION"
+          # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
+          mv dist/*.dmg .
+
       - uses: actions/upload-artifact@v4
         with:
           name: vibe-coding-hub-${{ matrix.rid }}
           path: |
             vibe-coding-hub-*.zip
             vibe-coding-hub-*.tar.gz
+            VibeCodingHub-*.AppImage
+            vibe-coding-hub_*.deb
+            VibeCodingHub-*-setup.exe
+            VibeCodingHub-*.dmg
           if-no-files-found: error
+
+  # Installs what was built on a clean runner of each system and checks that it runs and uninstalls cleanly
+  # (packaging/smoke). It also runs for workflow_dispatch, so the whole pipeline can be tested without tagging.
+  # Only installs that work without a display are covered: the desktop app itself is not started here.
+  smoke:
+    name: Smoke test ${{ matrix.rid }}
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+    steps:
+      # First, because checkout cleans the workspace: anything downloaded before it would be deleted.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vibe-coding-hub-${{ matrix.rid }}
+          path: artifacts
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: bash packaging/smoke/smoke-linux.sh artifacts "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: bash packaging/smoke/smoke-macos.sh artifacts "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/smoke/smoke-windows.ps1 -ArtifactDir artifacts -Version "${{ steps.ver.outputs.version }}" -RepoRoot "$PWD"
+
+  # The CLI as a .NET tool (dotnet tool install -g VibeCodingHub.Cli). With RuntimeIdentifiers set, .NET 10 packs one
+  # package per platform plus a small pointer package; all of them must be pushed together.
+  tool:
+    name: Pack .NET tool
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Pack
+        run: >
+          dotnet pack src/AiCodeAgent.CLI/AiCodeAgent.CLI.csproj
+          -c Release -p:PackAsTool=true -p:Version=${{ steps.ver.outputs.version }} -o nupkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+
+      # Publishing needs a NuGet API key in the NUGET_API_KEY secret; without it the packages stay in the artifact.
+      - name: Push to NuGet.org
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::notice::NUGET_API_KEY is not set; skipping the NuGet push."
+            exit 0
+          fi
+          dotnet nuget push "nupkg/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
   release:
     name: Create GitHub release
-    needs: publish
+    needs: [publish, tool, smoke]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # First, because checkout cleans the workspace: anything downloaded before it would be deleted.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/package-managers
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: vibe-coding-hub-*
           merge-multiple: true
+
+      # One checksum file for every download, so install scripts and users can verify what they fetched.
+      - name: Generate SHA256SUMS.txt
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # winget and Homebrew files with the hashes of this release, ready to submit (see packaging/package-managers).
+      # Pre-release tags such as v1.3.0-rc.1 are skipped: neither package manager should offer them.
+      - name: Render package-manager manifests
+        id: pm
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            bash packaging/package-managers/render-manifests.sh "$v" dist/SHA256SUMS.txt package-managers
+            echo "rendered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$v is a pre-release; no package-manager manifests."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.pm.outputs.rendered == 'true'
+        with:
+          name: package-manager-manifests
+          path: package-managers
+          if-no-files-found: error
 
       - name: Create release
         uses: softprops/action-gh-release@v2

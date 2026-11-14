@@ -11,10 +11,26 @@
     <Company>AIHelpers</Company>
     <Copyright>Copyright (c) 2026 AIHelpers</Copyright>
     <Description>Command-line tool for multi-agent AI coding workflows.</Description>
+    <!-- dotnet tool package (dotnet tool install -g VibeCodingHub.Cli). The tool settings only take effect when packing
+         with -p:PackAsTool=true (see release.yml), so the self-contained single-file publish of the CLI is not affected. -->
+    <PackageId>VibeCodingHub.Cli</PackageId>
+    <ToolCommandName>aiagent</ToolCommandName>
+    <Authors>AIHelpers</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/AIHelpers/vibe-coding-hub</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AIHelpers/vibe-coding-hub</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ai;agent;coding;llm;cli;dotnet-tool</PackageTags>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\packaging\icons\vibe-coding-hub.png" Pack="true" PackagePath="icon.png" Visible="false" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />

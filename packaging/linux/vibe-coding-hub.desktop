@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Vibe Coding Hub
+GenericName=AI Coding Agent
+Comment=Multi-agent AI coding workflows
+Exec=vibe-coding-hub
+Icon=vibe-coding-hub
+Terminal=false
+Categories=Development;IDE;
+Keywords=ai;agent;coding;llm;
+StartupWMClass=Vibe Coding Hub

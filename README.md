@@ -20,9 +20,50 @@ unpack it and start the program inside.
 | macOS (Apple Silicon) | `vibe-coding-hub-<version>-osx-arm64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-arm64.tar.gz` |
 | macOS (Intel) | `vibe-coding-hub-<version>-osx-x64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-x64.tar.gz` |
 
-The archives are self-contained single-file builds: no .NET installation is needed. Installers and package-manager
-packages are not available yet, and the binaries are not code-signed, so Windows SmartScreen and macOS Gatekeeper may ask
-you to confirm the first start.
+The archives are self-contained single-file builds: no .NET installation is needed.
+
+On Windows, `VibeCodingHub-<version>-win-x64-setup.exe` installs the app for the current user (no administrator
+rights needed; the wizard also offers an all-users install), adds a Start menu entry and can put the `aiagent` command on
+the PATH. The zip stays available as a portable version.
+
+On macOS, `VibeCodingHub-<version>-osx-arm64.dmg` (Apple Silicon) or `VibeCodingHub-<version>-osx-x64.dmg` (Intel,
+macOS 14 or newer) holds the app: open it and drag **Vibe Coding Hub** to **Applications**. Until the app is notarized,
+macOS may refuse the first start ("unidentified developer" or "damaged"). Clear the download flag once, then start it:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Vibe Coding Hub.app"
+```
+
+On Linux there are two more options per release:
+
+- `VibeCodingHub-<version>-x86_64.AppImage`: make it executable (`chmod +x`) and run it. Some distributions need
+  `libfuse2` installed to run AppImages.
+- `vibe-coding-hub_<version>_amd64.deb` for Debian, Ubuntu and Mint: `sudo apt install ./vibe-coding-hub_<version>_amd64.deb`.
+  It installs the app with a menu entry and puts `vibe-coding-hub` and the `aiagent` command on the PATH.
+
+### Command line only
+
+The `aiagent` command can be installed without the desktop app. The scripts download the archive from the latest
+release and check it against `SHA256SUMS.txt` before installing anything:
+
+```bash
+# Linux and macOS (installs to ~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/AIHelpers/vibe-coding-hub/main/install.sh | bash
+```
+
+```powershell
+# Windows (installs to %LOCALAPPDATA%\Programs\aiagent and adds it to the user PATH)
+irm https://raw.githubusercontent.com/AIHelpers/vibe-coding-hub/main/install.ps1 | iex
+```
+
+With the .NET 10 SDK or runtime, it is also a .NET tool: `dotnet tool install -g VibeCodingHub.Cli`.
+
+To verify a manual download, compare its hash with the matching line in `SHA256SUMS.txt` from the same release
+(`sha256sum -c --ignore-missing SHA256SUMS.txt` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS.txt` on macOS,
+`Get-FileHash <file>` on Windows).
+
+Package-manager packages (winget, Homebrew) are not available yet. The Windows installer is not code-signed and the
+macOS app is not notarized, so Windows SmartScreen and macOS Gatekeeper may ask you to confirm the first start.
 
 On the first start the [setup wizard](#first-run-and-the-sample-project) connects a model and opens a project.
 
