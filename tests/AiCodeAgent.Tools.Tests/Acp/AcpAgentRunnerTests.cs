@@ -23,8 +23,16 @@ public class AcpAgentRunnerTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
     }
 
-    private ExternalAgentRequest Request(PermissionMode mode = PermissionMode.Ask, int seconds = 5) =>
-        new("fake-agent", Array.Empty<string>(), _dir, "Review the change", mode, TimeSpan.FromSeconds(seconds));
+    /// <summary>
+    /// Upper bound for one scripted turn with the in-memory agent. It only guards against a genuinely hung test: the fake
+    /// agent answers in milliseconds, and the timeout behaviour itself is covered by <see cref="Timeout_IsAnError"/> with
+    /// its own short limit. It is generous because a loaded CI runner can delay in-memory message passing by several
+    /// seconds, and a tight limit made unrelated cases fail at random.
+    /// </summary>
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    private ExternalAgentRequest Request(PermissionMode mode = PermissionMode.Ask) =>
+        new("fake-agent", Array.Empty<string>(), _dir, "Review the change", mode, HangGuard);
 
     private static Task<ExternalAgentResult> Run(FakeAcpAgent agent, ExternalAgentRequest request, Action<string>? progress = null, CancellationToken ct = default) =>
         new AcpAgentRunner(_ => agent).RunAsync(request, progress, ct);
@@ -237,7 +245,7 @@ public class AcpAgentRunnerTests : IDisposable
             await a.Say("ok");
             return new { stopReason = "end_turn" };
         });
-        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Plan, TimeSpan.FromSeconds(5))
+        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Plan, HangGuard)
         {
             Ask = (_, _) => { asked = true; return Task.FromResult(true); }
         };
@@ -260,7 +268,7 @@ public class AcpAgentRunnerTests : IDisposable
             await a.Say("done");
             return new { stopReason = "end_turn" };
         });
-        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Ask, TimeSpan.FromSeconds(5))
+        var request = new ExternalAgentRequest("x", Array.Empty<string>(), _dir, "p", PermissionMode.Ask, HangGuard)
         {
             Ask = (_, _) => Task.FromResult(true),
             BeforeWrite = path => { checkpoints.Add(path + ":" + File.ReadAllText(path)); return Task.CompletedTask; },
