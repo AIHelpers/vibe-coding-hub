@@ -270,12 +270,13 @@ public class UpdateCheckerTests
     [Fact]
     public void TheFilesOfOneRelease_EachSystemGetsItsInstallerOrArchive()
     {
-        // The exact names produced by the release workflow and packaging/linux. Renaming a file there without updating
+        // The exact names produced by the release workflow and the packaging scripts. Renaming a file there without updating
         // ReleaseAssetPicker would quietly send users to the wrong download, so this pins the contract.
         var assets = new[]
         {
             new ReleaseAsset("vibe-coding-hub-1.2.0-win-x64.zip", "https://github.com/a", 1),
             new ReleaseAsset("vibe-coding-hub-cli-1.2.0-win-x64.zip", "https://github.com/b", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-win-x64-setup.exe", "https://github.com/i", 1),
             new ReleaseAsset("vibe-coding-hub-1.2.0-linux-x64.tar.gz", "https://github.com/c", 1),
             new ReleaseAsset("vibe-coding-hub-cli-1.2.0-linux-x64.tar.gz", "https://github.com/d", 1),
             new ReleaseAsset("VibeCodingHub-1.2.0-x86_64.AppImage", "https://github.com/e", 1),
@@ -286,7 +287,8 @@ public class UpdateCheckerTests
 
         // On Linux the AppImage beats the archive; the .deb needs a package manager and the CLI files are never offered.
         Assert.Equal("VibeCodingHub-1.2.0-x86_64.AppImage", ReleaseAssetPicker.Pick(assets, Linux)!.Name);
-        Assert.Equal("vibe-coding-hub-1.2.0-win-x64.zip", ReleaseAssetPicker.Pick(assets, Win)!.Name);
+        // On Windows the setup beats the portable zip.
+        Assert.Equal("VibeCodingHub-1.2.0-win-x64-setup.exe", ReleaseAssetPicker.Pick(assets, Win)!.Name);
         Assert.Equal("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", ReleaseAssetPicker.Pick(assets, MacArm)!.Name);
         // There is no Linux ARM build: the banner falls back to the release page rather than offering the x64 AppImage.
         Assert.Null(ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.Linux, UpdateArch.Arm64)));
