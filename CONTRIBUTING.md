@@ -1,4 +1,4 @@
-# Contributing to AI Code Agent
+# Contributing to Vibe Coding Hub
 
 Thank you for your interest in contributing! This document outlines the process for contributing to the project.
 

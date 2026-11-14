@@ -7,6 +7,10 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>aiagent</AssemblyName>
     <RootNamespace>AiCodeAgent.CLI</RootNamespace>
+    <Product>Vibe Coding Hub</Product>
+    <Company>AIHelpers</Company>
+    <Copyright>Copyright (c) 2026 AIHelpers</Copyright>
+    <Description>Command-line tool for multi-agent AI coding workflows.</Description>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

@@ -1,47 +1,82 @@
-# AI Code Agent
+# Vibe Coding Hub
 
-An intelligent coding assistant with a CLI interface, supporting multiple AI providers (OpenAI, Anthropic, Ollama, and any OpenAI-compatible API).
+An open-source AI coding agent for your desktop and terminal. Bring your own model: OpenAI, Anthropic, Ollama, LM Studio or
+any OpenAI-compatible API. Build teams of agents ("characters") that work together in visual flows, review every change as a
+diff before it is applied, and keep a replayable, tamper-evident audit trail of each run. No telemetry, works offline with
+local models.
+
+The repository is called `vibe-coding-hub`; the solution and the code namespaces still use the original name `AiCodeAgent`.
+The desktop app is **Vibe Coding Hub**, the command-line tool is `aiagent`.
+
+## Install
+
+Download the archive for your system from the [latest release](https://github.com/AIHelpers/vibe-coding-hub/releases/latest),
+unpack it and start the program inside.
+
+| System | Desktop app | Command line |
+|---|---|---|
+| Windows (x64) | `vibe-coding-hub-<version>-win-x64.zip` | `vibe-coding-hub-cli-<version>-win-x64.zip` |
+| Linux (x64) | `vibe-coding-hub-<version>-linux-x64.tar.gz` | `vibe-coding-hub-cli-<version>-linux-x64.tar.gz` |
+| macOS (Apple Silicon) | `vibe-coding-hub-<version>-osx-arm64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-arm64.tar.gz` |
+| macOS (Intel) | `vibe-coding-hub-<version>-osx-x64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-x64.tar.gz` |
+
+The archives are self-contained single-file builds: no .NET installation is needed. Installers and package-manager
+packages are not available yet, and the binaries are not code-signed, so Windows SmartScreen and macOS Gatekeeper may ask
+you to confirm the first start.
+
+On the first start the [setup wizard](#first-run-and-the-sample-project) connects a model and opens a project.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     AI Code Agent                            │
-├─────────────────────────────────────────────────────────────┤
-│  CLI Interface  │  TUI (Terminal UI)  │  LSP Server         │
-├─────────────────────────────────────────────────────────────┤
-│              Agent Orchestration Layer                        │
-├──────────────┬──────────────┬──────────────────────────────┤
-│  Tool System │ Context Mgr  │  Memory & RAG                 │
-├──────────────┴──────────────┴──────────────────────────────┤
-│              AI Provider Abstraction Layer                    │
-├─────────────┬──────────────┬──────────────┬────────────────┤
-│  OpenAI     │  Anthropic   │  Ollama      │  Custom/Local  │
-└─────────────┴──────────────┴──────────────┴────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                       Vibe Coding Hub                          │
+├────────────────────────────────────────────────────────────────┤
+│  Desktop app (Avalonia)            │  CLI (aiagent)            │
+├────────────────────────────────────────────────────────────────┤
+│        Agent orchestration: sessions, flows, characters        │
+├───────────────┬────────────────┬───────────────────────────────┤
+│  Tool system  │ Context manager│  Semantic index, language     │
+│               │ and memory     │  services (C#, Python, TS)    │
+├───────────────┴────────────────┴───────────────────────────────┤
+│                AI provider abstraction layer                   │
+├───────────────┬───────────────┬──────────────┬─────────────────┤
+│  OpenAI       │  Anthropic    │  Ollama      │  Custom / local │
+└───────────────┴───────────────┴──────────────┴─────────────────┘
 ```
 
 ## Project Structure
 
 ```
-AiCodeAgent/
+vibe-coding-hub/
 ├── src/
-│   ├── AiCodeAgent.Core/           # Core models and interfaces
-│   ├── AiCodeAgent.Providers/      # AI providers (OpenAI, Anthropic, Ollama, etc.)
-│   ├── AiCodeAgent.Tools/          # Agent tools (file ops, shell, git, search, etc.)
-│   ├── AiCodeAgent.Context/        # Context management
-│   └── AiCodeAgent.CLI/            # CLI entry point
-├── tests/
+│   ├── AiCodeAgent.Core/             # Core models, interfaces, agent loop, flows
+│   ├── AiCodeAgent.Providers/        # AI providers (OpenAI, Anthropic, Ollama, etc.)
+│   ├── AiCodeAgent.Tools/            # Agent tools (file ops, shell, git, search, etc.)
+│   ├── AiCodeAgent.Context/          # Context management and compaction
+│   ├── AiCodeAgent.Indexing/         # Semantic index (embeddings)
+│   ├── AiCodeAgent.LanguageServices/ # Language server (LSP) tools for C#, Python, TypeScript
+│   ├── AiCodeAgent.App/              # Desktop app (Avalonia)
+│   └── AiCodeAgent.CLI/              # Command-line entry point (aiagent)
+├── tests/                            # Unit and integration tests, one project per source project
+├── tools/                            # Screenshot generator and benchmark runner
+├── bench/                            # Benchmark task set
+├── samples/                          # Sample project for the guided first task
+├── docs/                             # Architecture decisions, testing, privacy, benchmark
 ├── Makefile
-├── install.sh
 └── AiCodeAgent.slnx
 ```
 
-## Build
+## Build from source
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```bash
 dotnet build AiCodeAgent.slnx
+dotnet test AiCodeAgent.slnx
 # or
 make build
+make test
 ```
 
 ## Configuration
@@ -599,11 +634,8 @@ Beyond sequential SDLC pipelines, the coordinator (AgentSessionCoordinator) supp
 
 ## Publish
 
-```bash
-make publish-all
-# or
-./install.sh
-```
+Release archives are built by the `Release` workflow when a `v*` tag is pushed. `make publish-all` builds the CLI for Windows, Linux and macOS into `./publish`. The desktop app is published by the workflow
+(`dotnet publish src/AiCodeAgent.App -c Release -r <rid> --self-contained`).
 
 ### MCP server manager
 

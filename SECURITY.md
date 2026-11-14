@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in AI Code Agent, please report it responsibly.
+If you discover a security vulnerability in Vibe Coding Hub, please report it responsibly.
 
 **DO NOT open a public GitHub issue for security vulnerabilities.**
 
