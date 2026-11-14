@@ -206,6 +206,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # First, because checkout cleans the workspace: anything downloaded before it would be deleted.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/package-managers
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -218,6 +223,26 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      # winget and Homebrew files with the hashes of this release, ready to submit (see packaging/package-managers).
+      # Pre-release tags such as v1.3.0-rc.1 are skipped: neither package manager should offer them.
+      - name: Render package-manager manifests
+        id: pm
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            bash packaging/package-managers/render-manifests.sh "$v" dist/SHA256SUMS.txt package-managers
+            echo "rendered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$v is a pre-release; no package-manager manifests."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.pm.outputs.rendered == 'true'
+        with:
+          name: package-manager-manifests
+          path: package-managers
+          if-no-files-found: error
 
       - name: Create release
         uses: softprops/action-gh-release@v2
