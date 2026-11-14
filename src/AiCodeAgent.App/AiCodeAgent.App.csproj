@@ -7,8 +7,18 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Vibe Coding Hub</AssemblyName>
     <RootNamespace>AiCodeAgent.App</RootNamespace>
-    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <Product>Vibe Coding Hub</Product>
+    <Company>AIHelpers</Company>
+    <Copyright>Copyright (c) 2026 AIHelpers</Copyright>
+    <Description>Desktop app for multi-agent AI coding workflows.</Description>
+    <!-- Windows exe icon (shown in Explorer, the taskbar and the installer). Regenerate with packaging/icons/make-icons.py. -->
+    <ApplicationIcon>..\..\packaging\icons\app.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Window icon (MainWindow Icon="/Assets/app.png"); needed on Linux and for the Windows title bar. Same artwork as the Linux desktop entry. -->
+    <AvaloniaResource Include="..\..\packaging\icons\vibe-coding-hub.png" Link="Assets\app.png" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.0" />
     <PackageReference Include="Avalonia.Desktop" Version="11.2.0" />
