@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Vibe Coding Hub</string>
+  <key>CFBundleDisplayName</key><string>Vibe Coding Hub</string>
+  <key>CFBundleIdentifier</key><string>info.aihelpers.vibecodinghub</string>
+  <key>CFBundleExecutable</key><string>Vibe Coding Hub</string>
+  <key>CFBundleIconFile</key><string>app.icns</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <!-- __VERSION__ is replaced by make-dmg.sh with the numeric release version (no pre-release suffix). -->
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleVersion</key><string>__VERSION__</string>
+  <!-- The oldest macOS that .NET 10 supports (14 Sonoma, 15 Sequoia, 26 Tahoe). -->
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>

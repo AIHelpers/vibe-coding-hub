@@ -104,6 +104,34 @@ jobs:
           # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
           Move-Item dist\*-setup.exe .
 
+      # macOS disk image (packaging/macos): the app is published as a folder (not a single file) so that every native
+      # library can carry its own signature inside the bundle. Without the signing secrets the bundle gets an ad-hoc
+      # signature. Signing with a Developer ID also needs the certificate imported into a keychain first; that step
+      # arrives together with the certificate.
+      - name: Publish app as a folder for the macOS bundle
+        if: startsWith(matrix.rid, 'osx')
+        shell: bash
+        run: >
+          dotnet publish src/AiCodeAgent.App/AiCodeAgent.App.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=false
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/mac-${{ matrix.rid }}
+
+      - name: Build DMG
+        if: startsWith(matrix.rid, 'osx')
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          bash packaging/macos/make-dmg.sh "${{ matrix.rid }}" "$VERSION"
+          # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
+          mv dist/*.dmg .
+
       - uses: actions/upload-artifact@v4
         with:
           name: vibe-coding-hub-${{ matrix.rid }}
@@ -113,6 +141,7 @@ jobs:
             VibeCodingHub-*.AppImage
             vibe-coding-hub_*.deb
             VibeCodingHub-*-setup.exe
+            VibeCodingHub-*.dmg
           if-no-files-found: error
 
   release:

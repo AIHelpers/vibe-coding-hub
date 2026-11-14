@@ -26,6 +26,14 @@ On Windows, `VibeCodingHub-<version>-win-x64-setup.exe` installs the app for the
 rights needed; the wizard also offers an all-users install), adds a Start menu entry and can put the `aiagent` command on
 the PATH. The zip stays available as a portable version.
 
+On macOS, `VibeCodingHub-<version>-osx-arm64.dmg` (Apple Silicon) or `VibeCodingHub-<version>-osx-x64.dmg` (Intel,
+macOS 14 or newer) holds the app: open it and drag **Vibe Coding Hub** to **Applications**. Until the app is notarized,
+macOS may refuse the first start ("unidentified developer" or "damaged"). Clear the download flag once, then start it:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Vibe Coding Hub.app"
+```
+
 On Linux there are two more options per release:
 
 - `VibeCodingHub-<version>-x86_64.AppImage`: make it executable (`chmod +x`) and run it. Some distributions need
@@ -33,8 +41,8 @@ On Linux there are two more options per release:
 - `vibe-coding-hub_<version>_amd64.deb` for Debian, Ubuntu and Mint: `sudo apt install ./vibe-coding-hub_<version>_amd64.deb`.
   It installs the app with a menu entry and puts `vibe-coding-hub` and the `aiagent` command on the PATH.
 
-A macOS installer and package-manager packages are not available yet. The binaries are not code-signed, so Windows
-SmartScreen and macOS Gatekeeper may ask you to confirm the first start.
+Package-manager packages (winget, Homebrew) are not available yet. The Windows installer is not code-signed and the
+macOS app is not notarized, so Windows SmartScreen and macOS Gatekeeper may ask you to confirm the first start.
 
 On the first start the [setup wizard](#first-run-and-the-sample-project) connects a model and opens a project.
 

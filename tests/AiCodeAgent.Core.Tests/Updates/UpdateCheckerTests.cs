@@ -282,6 +282,8 @@ public class UpdateCheckerTests
             new ReleaseAsset("VibeCodingHub-1.2.0-x86_64.AppImage", "https://github.com/e", 1),
             new ReleaseAsset("vibe-coding-hub_1.2.0_amd64.deb", "https://github.com/f", 1),
             new ReleaseAsset("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", "https://github.com/g", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-osx-arm64.dmg", "https://github.com/j", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-osx-x64.dmg", "https://github.com/k", 1),
             new ReleaseAsset("vibe-coding-hub-1.2.0-osx-x64.tar.gz", "https://github.com/h", 1)
         };
 
@@ -289,7 +291,9 @@ public class UpdateCheckerTests
         Assert.Equal("VibeCodingHub-1.2.0-x86_64.AppImage", ReleaseAssetPicker.Pick(assets, Linux)!.Name);
         // On Windows the setup beats the portable zip.
         Assert.Equal("VibeCodingHub-1.2.0-win-x64-setup.exe", ReleaseAssetPicker.Pick(assets, Win)!.Name);
-        Assert.Equal("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", ReleaseAssetPicker.Pick(assets, MacArm)!.Name);
+        // On macOS the disk image beats the archive, and each CPU gets its own.
+        Assert.Equal("VibeCodingHub-1.2.0-osx-arm64.dmg", ReleaseAssetPicker.Pick(assets, MacArm)!.Name);
+        Assert.Equal("VibeCodingHub-1.2.0-osx-x64.dmg", ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.MacOs, UpdateArch.X64))!.Name);
         // There is no Linux ARM build: the banner falls back to the release page rather than offering the x64 AppImage.
         Assert.Null(ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.Linux, UpdateArch.Arm64)));
     }
