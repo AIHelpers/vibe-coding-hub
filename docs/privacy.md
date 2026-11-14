@@ -4,7 +4,7 @@ Vibe Coding Hub runs on your computer. Your code, prompts and files go **only** 
 
 **Short version**
 
-- The product has **no telemetry**: it does not send usage statistics, crash reports, prompts or code to Anthropic, to the authors of this project or to anyone else.
+- The product has **no telemetry**: it does not send usage statistics, crash reports, prompts or code to Anthropic, to the authors of this project or to anyone else. The one related feature is the **Send report** button on the error notice, which only opens a prefilled GitHub issue in your browser for you to review (see below).
 - Code and prompts leave your computer only to **the model provider you configured** (and to MCP servers / tools you added yourself, see below).
 - **Settings → Advanced → Network activity** lists every host this session contacted. **Offline mode** blocks everything except `localhost` and the configured provider.
 
@@ -17,6 +17,7 @@ Vibe Coding Hub runs on your computer. Your code, prompts and files go **only** 
 | **`web_fetch` targets** | A GET request to the page the agent asks for. Requests to private and loopback addresses are refused (SSRF guard). The request carries a fixed `User-Agent` and none of your credentials. | Only when the agent calls `web_fetch` | Deny the tool, use Plan mode, or turn on Offline mode. |
 | **GitHub** (`api.github.com`) for **update checks** | One `GET` of the latest release of `AIHelpers/vibe-coding-hub` with a `User-Agent` of the form `VibeCodingHub/<version>`. Nothing about you or your project. | At most once a day after start, and when you pick "Check for updates" | Settings → Advanced → "Check for updates automatically" off, or Offline mode. `AIAGENT_UPDATE_URL` points the check at your own server. |
 | **GitHub** (`api.github.com`) for **issues** | Reads issues for the repository you open from the issue picker, using your `gh` login or token. | Only when you use the issue picker | Do not use the picker, or Offline mode. |
+| **GitHub** (in your browser) for **crash reports** | Nothing is sent by the app. The **Send report** button on the error notice opens a prefilled "new issue" page at `github.com/AIHelpers/vibe-coding-hub` in your default browser. The text holds the app version, system and .NET runtime and the exception text; secrets and user names in file paths are removed first. Your browser sends the link to GitHub when it opens the page, and GitHub shows the full text for editing. Nothing is submitted until you press *Submit new issue* there. | Only when you press **Send report** | Do not press it. **Copy details** puts the same exception text on the clipboard instead. |
 | **Local provider detection** | `GET` to `localhost:11434` and `localhost:1234` | First-run setup wizard | n/a (never leaves the computer) |
 | **Git remotes** | `git` itself talks to your remote when you ask the agent (or the Source Control panel) to push, pull or fetch. | Only on those actions | n/a (see "Not covered") |
 | **External agents** (ACP characters such as Claude Code, Codex, Gemini CLI) | They are separate programs with their own network behavior and privacy terms. We hand them the task and the files they ask for. | Only when a flow step uses one | Do not use `runtime: acp` characters. |
@@ -45,6 +46,7 @@ The gate controls the product's own HTTP clients. It cannot see traffic made by 
 - shell commands the agent runs (`git push`, `npm install`, `dotnet restore`, `curl`, ...). Use the Docker sandbox with `AIAGENT_SANDBOX_NETWORK` off (the default) to cut their network access;
 - local MCP servers started over `stdio` (they are your programs) and ACP external agents;
 - the Docker daemon, language servers and the browser check, which use their own connections.
+- your default browser when you press **Send report** or the update banner's **Download**: you open those pages yourself, so the Offline mode gate does not apply to them.
 
 For a strict guarantee, combine Offline mode with the Docker sandbox and an OS firewall.
 

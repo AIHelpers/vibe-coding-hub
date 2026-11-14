@@ -23,7 +23,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is much faster without the progress bar
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+# Windows PowerShell 5.1 may default to old TLS versions; GitHub needs TLS 1.2 or newer.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
 # x64 binaries also run on Windows on ARM through emulation.
 if (-not [Environment]::Is64BitOperatingSystem) {

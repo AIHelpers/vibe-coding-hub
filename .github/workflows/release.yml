@@ -156,6 +156,49 @@ jobs:
             VibeCodingHub-*.dmg
           if-no-files-found: error
 
+  # Installs what was built on a clean runner of each system and checks that it runs and uninstalls cleanly
+  # (packaging/smoke). It also runs for workflow_dispatch, so the whole pipeline can be tested without tagging.
+  # Only installs that work without a display are covered: the desktop app itself is not started here.
+  smoke:
+    name: Smoke test ${{ matrix.rid }}
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+    steps:
+      # First, because checkout cleans the workspace: anything downloaded before it would be deleted.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vibe-coding-hub-${{ matrix.rid }}
+          path: artifacts
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: bash packaging/smoke/smoke-linux.sh artifacts "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: bash packaging/smoke/smoke-macos.sh artifacts "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/smoke/smoke-windows.ps1 -ArtifactDir artifacts -Version "${{ steps.ver.outputs.version }}" -RepoRoot "$PWD"
+
   # The CLI as a .NET tool (dotnet tool install -g VibeCodingHub.Cli). With RuntimeIdentifiers set, .NET 10 packs one
   # package per platform plus a small pointer package; all of them must be pushed together.
   tool:
@@ -200,7 +243,7 @@ jobs:
 
   release:
     name: Create GitHub release
-    needs: [publish, tool]
+    needs: [publish, tool, smoke]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
