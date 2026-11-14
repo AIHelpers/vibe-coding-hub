@@ -20,9 +20,17 @@ unpack it and start the program inside.
 | macOS (Apple Silicon) | `vibe-coding-hub-<version>-osx-arm64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-arm64.tar.gz` |
 | macOS (Intel) | `vibe-coding-hub-<version>-osx-x64.tar.gz` | `vibe-coding-hub-cli-<version>-osx-x64.tar.gz` |
 
-The archives are self-contained single-file builds: no .NET installation is needed. Installers and package-manager
-packages are not available yet, and the binaries are not code-signed, so Windows SmartScreen and macOS Gatekeeper may ask
-you to confirm the first start.
+The archives are self-contained single-file builds: no .NET installation is needed.
+
+On Linux there are two more options per release:
+
+- `VibeCodingHub-<version>-x86_64.AppImage`: make it executable (`chmod +x`) and run it. Some distributions need
+  `libfuse2` installed to run AppImages.
+- `vibe-coding-hub_<version>_amd64.deb` for Debian, Ubuntu and Mint: `sudo apt install ./vibe-coding-hub_<version>_amd64.deb`.
+  It installs the app with a menu entry and puts `vibe-coding-hub` and the `aiagent` command on the PATH.
+
+Windows and macOS installers and package-manager packages are not available yet. The binaries are not code-signed, so
+Windows SmartScreen and macOS Gatekeeper may ask you to confirm the first start.
 
 On the first start the [setup wizard](#first-run-and-the-sample-project) connects a model and opens a project.
 

@@ -268,6 +268,31 @@ public class UpdateCheckerTests
     }
 
     [Fact]
+    public void TheFilesOfOneRelease_EachSystemGetsItsInstallerOrArchive()
+    {
+        // The exact names produced by the release workflow and packaging/linux. Renaming a file there without updating
+        // ReleaseAssetPicker would quietly send users to the wrong download, so this pins the contract.
+        var assets = new[]
+        {
+            new ReleaseAsset("vibe-coding-hub-1.2.0-win-x64.zip", "https://github.com/a", 1),
+            new ReleaseAsset("vibe-coding-hub-cli-1.2.0-win-x64.zip", "https://github.com/b", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-linux-x64.tar.gz", "https://github.com/c", 1),
+            new ReleaseAsset("vibe-coding-hub-cli-1.2.0-linux-x64.tar.gz", "https://github.com/d", 1),
+            new ReleaseAsset("VibeCodingHub-1.2.0-x86_64.AppImage", "https://github.com/e", 1),
+            new ReleaseAsset("vibe-coding-hub_1.2.0_amd64.deb", "https://github.com/f", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", "https://github.com/g", 1),
+            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-x64.tar.gz", "https://github.com/h", 1)
+        };
+
+        // On Linux the AppImage beats the archive; the .deb needs a package manager and the CLI files are never offered.
+        Assert.Equal("VibeCodingHub-1.2.0-x86_64.AppImage", ReleaseAssetPicker.Pick(assets, Linux)!.Name);
+        Assert.Equal("vibe-coding-hub-1.2.0-win-x64.zip", ReleaseAssetPicker.Pick(assets, Win)!.Name);
+        Assert.Equal("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", ReleaseAssetPicker.Pick(assets, MacArm)!.Name);
+        // There is no Linux ARM build: the banner falls back to the release page rather than offering the x64 AppImage.
+        Assert.Null(ReleaseAssetPicker.Pick(assets, new UpdatePlatform(UpdateOs.Linux, UpdateArch.Arm64)));
+    }
+
+    [Fact]
     public void NoMatchingFile_ReturnsNull_SoTheBannerOpensTheReleasePage()
     {
         var assets = new[] { new ReleaseAsset("vibe-coding-hub-1.3.0-linux-x64.tar.gz", "https://github.com/a", 1) };

@@ -72,12 +72,27 @@ jobs:
           tar -czf "vibe-coding-hub-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/app .
           tar -czf "vibe-coding-hub-cli-${{ steps.ver.outputs.version }}-${{ matrix.rid }}.tar.gz" -C publish/cli .
 
+      # Linux installers (packaging/linux): an AppImage that runs anywhere and a .deb for Debian-based systems.
+      # Both are built from the folders published above. File names are matched by ReleaseAssetPicker (update banner).
+      - name: Build AppImage and deb
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          bash packaging/linux/make-appimage.sh "$VERSION"
+          bash packaging/linux/make-deb.sh "$VERSION"
+          # Next to the archives, so the artifact keeps a flat layout and the release job finds them in dist/*.
+          mv dist/*.AppImage dist/*.deb .
+
       - uses: actions/upload-artifact@v4
         with:
           name: vibe-coding-hub-${{ matrix.rid }}
           path: |
             vibe-coding-hub-*.zip
             vibe-coding-hub-*.tar.gz
+            VibeCodingHub-*.AppImage
+            vibe-coding-hub_*.deb
           if-no-files-found: error
 
   release:

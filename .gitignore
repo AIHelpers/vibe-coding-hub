@@ -439,3 +439,7 @@ ce65d5e0cdc2/
 
 # Benchmark runs (tools/Bench); copy the report you publish somewhere deliberate
 bench/results/
+
+# Installer build output (packaging/*)
+/build/
+/dist/
