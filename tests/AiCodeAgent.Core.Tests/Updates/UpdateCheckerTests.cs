@@ -284,10 +284,11 @@ public class UpdateCheckerTests
             new ReleaseAsset("vibe-coding-hub-1.2.0-osx-arm64.tar.gz", "https://github.com/g", 1),
             new ReleaseAsset("VibeCodingHub-1.2.0-osx-arm64.dmg", "https://github.com/j", 1),
             new ReleaseAsset("VibeCodingHub-1.2.0-osx-x64.dmg", "https://github.com/k", 1),
-            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-x64.tar.gz", "https://github.com/h", 1)
+            new ReleaseAsset("vibe-coding-hub-1.2.0-osx-x64.tar.gz", "https://github.com/h", 1),
+            new ReleaseAsset("SHA256SUMS.txt", "https://github.com/s", 1)
         };
 
-        // On Linux the AppImage beats the archive; the .deb needs a package manager and the CLI files are never offered.
+        // On Linux the AppImage beats the archive; the .deb needs a package manager and the CLI files and the checksum list are never offered.
         Assert.Equal("VibeCodingHub-1.2.0-x86_64.AppImage", ReleaseAssetPicker.Pick(assets, Linux)!.Name);
         // On Windows the setup beats the portable zip.
         Assert.Equal("VibeCodingHub-1.2.0-win-x64-setup.exe", ReleaseAssetPicker.Pick(assets, Win)!.Name);

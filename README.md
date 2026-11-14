@@ -41,6 +41,27 @@ On Linux there are two more options per release:
 - `vibe-coding-hub_<version>_amd64.deb` for Debian, Ubuntu and Mint: `sudo apt install ./vibe-coding-hub_<version>_amd64.deb`.
   It installs the app with a menu entry and puts `vibe-coding-hub` and the `aiagent` command on the PATH.
 
+### Command line only
+
+The `aiagent` command can be installed without the desktop app. The scripts download the archive from the latest
+release and check it against `SHA256SUMS.txt` before installing anything:
+
+```bash
+# Linux and macOS (installs to ~/.local/bin)
+curl -fsSL https://raw.githubusercontent.com/AIHelpers/vibe-coding-hub/main/install.sh | bash
+```
+
+```powershell
+# Windows (installs to %LOCALAPPDATA%\Programs\aiagent and adds it to the user PATH)
+irm https://raw.githubusercontent.com/AIHelpers/vibe-coding-hub/main/install.ps1 | iex
+```
+
+With the .NET 10 SDK or runtime, it is also a .NET tool: `dotnet tool install -g VibeCodingHub.Cli`.
+
+To verify a manual download, compare its hash with the matching line in `SHA256SUMS.txt` from the same release
+(`sha256sum -c --ignore-missing SHA256SUMS.txt` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS.txt` on macOS,
+`Get-FileHash <file>` on Windows).
+
 Package-manager packages (winget, Homebrew) are not available yet. The Windows installer is not code-signed and the
 macOS app is not notarized, so Windows SmartScreen and macOS Gatekeeper may ask you to confirm the first start.
 
