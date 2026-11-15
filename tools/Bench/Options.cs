@@ -22,6 +22,20 @@ internal sealed record Options
     public bool List { get; init; }
     public bool KeepWorkspaces { get; init; }
 
+    // --collect: build a task from a bug-fix commit.
+    public string? Collect { get; init; }
+    public string? Fix { get; init; }
+    public string? Parent { get; init; }
+    public string? Id { get; init; }
+    public string? PromptFile { get; init; }
+    public string? TestCommand { get; init; }
+    public string? SetupCommand { get; init; }
+    public string? Language { get; init; }
+    public string? Source { get; init; }
+    public string? GitUrl { get; init; }
+    public string? SuiteName { get; init; }
+    public bool Append { get; init; }
+
     public string ResolvedWorkDir => Path.GetFullPath(WorkDir ?? Path.Combine(Path.GetTempPath(), "vch-bench"));
 
     public const string HelpText = """
@@ -48,6 +62,23 @@ internal sealed record Options
           --validate              Check the tasks only: the hidden test must FAIL on the untouched snapshot. No agent, no cost.
           --list                  Print the tasks and exit.
           --help                  This text.
+
+        Collecting a task from a bug-fix commit (no agent, no cost):
+
+          dotnet run --project tools/Bench -- --collect <repo url or local clone> --fix <sha> --id <id> --prompt-file <issue.txt> --language csharp [--test-command "..."]
+
+          --collect <url|dir>     The repository: a URL (only the fix and its parent are fetched) or a local clone.
+          --fix <sha>             The commit that fixed the bug (the full 40 characters with a URL).
+          --id <id>               Task id; also names patches/<id>.tests.patch next to the task file.
+          --prompt-file <file>    The task text as the agent should see it (the issue), without the solution.
+          --language <name>       csharp or python: fills in default setup and test commands.
+          --test-command <cmd>    The command that runs the hidden tests (narrow it to the new tests).
+          --setup-command <cmd>   Runs once per workspace before the agent (default for csharp: dotnet restore).
+          --source <url>          Issue or commit address, shown in the report.
+          --parent <sha>          For a merge commit: the parent to start from.
+          --git-url <url>         Clone address stored in the task (default: the origin remote of a local clone).
+          --append                Add the task to the --tasks file (created if missing; its comments are not kept).
+          --suite-name <name>     Name of a newly created task file.
         """;
 }
 
@@ -82,6 +113,18 @@ internal static class OptionsParser
                 case "--validate": o = o with { Validate = true }; break;
                 case "--list": o = o with { List = true }; break;
                 case "--keep-workspaces": o = o with { KeepWorkspaces = true }; break;
+                case "--append": o = o with { Append = true }; break;
+                case "--collect": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Collect = v }; break; }
+                case "--fix": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Fix = v }; break; }
+                case "--parent": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Parent = v }; break; }
+                case "--id": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Id = v }; break; }
+                case "--prompt-file": { var v = Value(out err); if (err != null) return Fail(err); o = o with { PromptFile = v }; break; }
+                case "--test-command": { var v = Value(out err); if (err != null) return Fail(err); o = o with { TestCommand = v }; break; }
+                case "--setup-command": { var v = Value(out err); if (err != null) return Fail(err); o = o with { SetupCommand = v }; break; }
+                case "--language": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Language = v }; break; }
+                case "--source": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Source = v }; break; }
+                case "--git-url": { var v = Value(out err); if (err != null) return Fail(err); o = o with { GitUrl = v }; break; }
+                case "--suite-name": { var v = Value(out err); if (err != null) return Fail(err); o = o with { SuiteName = v }; break; }
                 case "--tasks": { var v = Value(out err); if (err != null) return Fail(err); o = o with { TasksPath = v! }; break; }
                 case "--configs": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Configs = Split(v!) }; break; }
                 case "--only": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Only = Split(v!) }; break; }
@@ -106,7 +149,7 @@ internal static class OptionsParser
             }
         }
 
-        if (!o.List && !o.Validate && string.IsNullOrWhiteSpace(o.Model))
+        if (!o.List && !o.Validate && o.Collect == null && string.IsNullOrWhiteSpace(o.Model))
             return Fail("--model is required: every configuration must run on the same model.");
         return new OptionsResult(o, null, false);
 

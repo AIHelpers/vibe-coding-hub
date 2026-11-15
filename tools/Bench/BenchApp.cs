@@ -16,6 +16,7 @@ internal static class BenchApp
 
         try
         {
+            if (options.Collect != null) return await TaskCollector.RunAsync(options, stdout, cancellation);
             var suite = TaskSuiteLoader.Filter(TaskSuiteLoader.Load(options.TasksPath), options.Only);
             var configs = BenchConfig.ParseList(options.Configs);
 
