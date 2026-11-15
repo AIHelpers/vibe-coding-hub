@@ -35,6 +35,14 @@ public static class EvidencePackRenderer
         if (p.Gaps.Count == 0) sb.AppendLine("Nothing flagged. This is not a review: it only means no gap was detected in the recorded evidence.");
         else foreach (var g in p.Gaps) sb.AppendLine($"- {g}");
 
+        if (p.Acceptance != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### Acceptance criteria");
+            sb.AppendLine();
+            RenderAcceptance(sb, p.Acceptance);
+        }
+
         sb.AppendLine();
         sb.AppendLine("### Tests");
         sb.AppendLine();
@@ -108,6 +116,7 @@ public static class EvidencePackRenderer
         sb.AppendLine($" · ${p.CostUsd.ToString("0.00", Inv)}");
         sb.AppendLine();
         sb.AppendLine($"- **Tests:** {TestsLine(p)}");
+        if (p.Acceptance != null) sb.AppendLine($"- **Acceptance:** {AcceptanceLine(p.Acceptance)}");
         sb.AppendLine($"- **Build:** {CheckLine(p.Build)} · **Lint:** {CheckLine(p.Lint)}");
         sb.AppendLine($"- **Files:** {FilesLine(p)}");
         if (p.Gaps.Count > 0)
@@ -118,6 +127,13 @@ public static class EvidencePackRenderer
             foreach (var g in p.Gaps) sb.AppendLine($"- {g}");
         }
         return sb.ToString();
+    }
+
+    private static string AcceptanceLine(AcceptanceEvidence a)
+    {
+        var line = $"{a.ProvenCount} of {a.Criteria.Count} proven";
+        var open = a.Criteria.Where(c => c.Status != CriterionStatus.Proven).ToList();
+        return open.Count == 0 ? line : line + " · open: " + string.Join(", ", open.Select(c => $"{c.Id} {EvidencePackBuilder.Label(c.Status)}"));
     }
 
     private static string TestsLine(EvidencePack p)
@@ -150,6 +166,33 @@ public static class EvidencePackRenderer
         var line = $"{p.Files.Count} changed" + (high + medium > 0 ? $" ({high} high, {medium} medium risk)" : "");
         return line + $"; riskiest `{Code(top.Path)}`" + (top.Reasons.Count > 0 ? $" ({string.Join(", ", top.Reasons)})" : "");
     }
+
+    private static void RenderAcceptance(StringBuilder sb, AcceptanceEvidence a)
+    {
+        sb.AppendLine($"{a.ProvenCount} of {a.Criteria.Count} proven. \"Proven\" means the audit trail confirms a cited test, file or command; the agent's own mark alone is only a claim.");
+        sb.AppendLine();
+        sb.AppendLine("| | Criterion | Status | Proof |");
+        sb.AppendLine("|---|---|---|---|");
+        foreach (var c in a.Criteria)
+        {
+            var proof = c.Proofs.Count == 0
+                ? (c.Status == CriterionStatus.Unproven ? "never marked" : "none cited")
+                : string.Join("<br>", c.Proofs.Select(x => $"{(x.Verified ? "confirmed" : "not confirmed")}: {x.Kind} `{Code(x.Ref)}`. {Cell(x.Detail)}"));
+            if (!string.IsNullOrWhiteSpace(c.Note)) proof += $"<br>Agent's note: {Cell(FirstLine(c.Note!, 200))}";
+            sb.AppendLine($"| {c.Id} | {Cell(FirstLine(c.Text, 200))} | {StatusText(c.Status)} | {proof} |");
+        }
+        if (a.DeclaredAfterEdits)
+            sb.AppendLine().AppendLine("The criteria were declared after the first edit.");
+    }
+
+    private static string StatusText(CriterionStatus s) => s switch
+    {
+        CriterionStatus.Proven => "**proven**",
+        CriterionStatus.Claimed => "claimed, not confirmed",
+        CriterionStatus.Contradicted => "**contradicted**",
+        CriterionStatus.NotMet => "**not met**",
+        _ => "**unproven**"
+    };
 
     private static void RenderTests(StringBuilder sb, EvidencePack p)
     {

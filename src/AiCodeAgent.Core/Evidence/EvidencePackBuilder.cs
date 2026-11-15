@@ -9,6 +9,7 @@ namespace AiCodeAgent.Core.Evidence;
 public static class EvidencePackBuilder
 {
     private const int MaxCommandChars = 300;
+    private const int MaxAddedText = 60_000;
     private static readonly string EmptySha = AuditChain.Sha256(string.Empty);
 
     private sealed record PendingCall(int Seq, string Tool, string? Agent, JsonNode? Arguments);
@@ -32,6 +33,8 @@ public static class EvidencePackBuilder
         var fileAcc = new Dictionary<string, FileAccumulator>(StringComparer.Ordinal);
         int requested = 0, approved = 0, denied = 0;
         var lastFileChangeSeq = 0;
+        var firstFileChangeSeq = 0;
+        var acceptanceCalls = new List<AcceptanceReplay.Call>();
         decimal lastUsageCost = 0;
 
         foreach (var line in lines)
@@ -76,11 +79,12 @@ public static class EvidencePackBuilder
 
                 case "tool.result":
                     if (line.Str("id") is { } resultId && pending.Remove(resultId, out var call))
-                        OnToolResult(line, call, tests, checks, commands, shots);
+                        OnToolResult(line, call, tests, checks, commands, shots, acceptanceCalls);
                     break;
 
                 case "file.change":
                     lastFileChangeSeq = line.Seq;
+                    if (firstFileChangeSeq == 0) firstFileChangeSeq = line.Seq;
                     Accumulate(fileAcc, line);
                     break;
 
@@ -112,7 +116,8 @@ public static class EvidencePackBuilder
         var build = checks.Where(c => c.Kind == CommandKind.Build).OrderBy(c => c.Seq).LastOrDefault();
         var lint = checks.Where(c => c.Kind == CommandKind.Lint).OrderBy(c => c.Seq).LastOrDefault();
 
-        var gaps = Gaps(status, tests, build, lint, lastFileChangeSeq, files.Count > 0, verification);
+        var acceptance = CheckAcceptance(acceptanceCalls, tests, comparison, fileAcc.Values, commands, lastFileChangeSeq, firstFileChangeSeq);
+        var gaps = Gaps(status, tests, build, lint, lastFileChangeSeq, files.Count > 0, verification, acceptance);
         return new EvidencePack
         {
             RunId = runId, Kind = kind, Name = name, Task = task, Model = model, WorkingDirectory = workDir.Length == 0 ? null : workDir,
@@ -120,14 +125,14 @@ public static class EvidencePackBuilder
             AuditHeadHash = verification?.HeadHash, AuditIntact = verification?.Ok,
             TestRuns = tests.OrderBy(t => t.Seq).ToList(), Tests = comparison, Build = build, Lint = lint,
             Files = files, Commands = commands, Screenshots = shots, Steps = steps,
-            Approvals = new ApprovalEvidence(requested, approved, denied), Gaps = gaps
+            Approvals = new ApprovalEvidence(requested, approved, denied), Acceptance = acceptance, Gaps = gaps
         };
     }
 
     // ------------------------------------------------------------------ tool results
 
     private static void OnToolResult(AuditLine line, PendingCall call, List<TestRunEvidence> tests, List<CheckEvidence> checks,
-        List<CommandEvidence> commands, List<ScreenshotEvidence> shots)
+        List<CommandEvidence> commands, List<ScreenshotEvidence> shots, List<AcceptanceReplay.Call> acceptanceCalls)
     {
         var output = line.Str("output") ?? "";
         var isError = line.Data["isError"] is JsonValue v && v.TryGetValue<bool>(out var e) && e;
@@ -157,6 +162,9 @@ public static class EvidencePackBuilder
                     commands.Add(new CommandEvidence(line.Seq, cmd, kind, exit, passed, 0, call.Agent));
                     AddOutcome(kind, line.Seq, cmd, passed, passed ? "" : output, partial, call.Agent, tests, checks);
                 }
+                break;
+            case "acceptance_criteria":
+                if (!isError) acceptanceCalls.Add(new AcceptanceReplay.Call(call.Seq, call.Arguments));
                 break;
             case "browser_check":
             {
@@ -214,7 +222,7 @@ public static class EvidencePackBuilder
     }
 
     private static IReadOnlyList<string> Gaps(string status, List<TestRunEvidence> tests, CheckEvidence? build, CheckEvidence? lint,
-        int lastFileChangeSeq, bool anyFiles, AuditVerification? verification)
+        int lastFileChangeSeq, bool anyFiles, AuditVerification? verification, AcceptanceEvidence? acceptance)
     {
         var gaps = new List<string>();
         if (verification is { Ok: false })
@@ -239,7 +247,41 @@ public static class EvidencePackBuilder
             if (anyFiles && lastFileChangeSeq > build.Seq) gaps.Add("Files were changed after the last build.");
         }
         if (lint is { Passed: false }) gaps.Add("The last lint run failed.");
+
+        if (acceptance != null)
+        {
+            var open = acceptance.Criteria.Where(c => c.Status != CriterionStatus.Proven).ToList();
+            if (open.Count > 0)
+                gaps.Add($"{open.Count} of {acceptance.Criteria.Count} acceptance criteria are not proven: " +
+                         string.Join(", ", open.Select(c => $"{c.Id} ({Label(c.Status)})")) + ".");
+            if (acceptance.DeclaredAfterEdits)
+                gaps.Add("The acceptance criteria were declared after the first edit, so they may have been written to fit the result.");
+        }
         return gaps;
+    }
+
+    internal static string Label(CriterionStatus s) => s switch
+    {
+        CriterionStatus.Proven => "proven",
+        CriterionStatus.Claimed => "claimed, not confirmed",
+        CriterionStatus.Contradicted => "contradicted by a failing test",
+        CriterionStatus.NotMet => "not met",
+        _ => "unproven"
+    };
+
+    private static AcceptanceEvidence? CheckAcceptance(List<AcceptanceReplay.Call> calls, List<TestRunEvidence> tests, TestComparison? comparison,
+        IEnumerable<FileAccumulator> files, List<CommandEvidence> commands, int lastFileChangeSeq, int firstFileChangeSeq)
+    {
+        if (calls.Count == 0) return null;
+        var (declared, marks, firstDeclare) = AcceptanceReplay.Replay(calls);
+        if (declared.Count == 0) return null;
+        var changed = files.Select(a =>
+        {
+            var e = a.ToEvidence();
+            return new AcceptanceChecker.ChangedFile(a.Path, e.IsTest, a.AddedText.ToString(), e.Added, e.Removed);
+        }).ToList();
+        var late = firstFileChangeSeq > 0 && firstDeclare is { } seq && seq > firstFileChangeSeq;
+        return AcceptanceChecker.Check(declared, marks, tests, comparison, changed, commands, lastFileChangeSeq, late);
     }
 
     // ------------------------------------------------------------------ files
@@ -251,6 +293,8 @@ public static class EvidencePackBuilder
         public int Added, Removed, Changes;
         public bool Api;
         public string? Step;
+        /// <summary>The added lines of every diff, cut at <see cref="MaxAddedText"/>: where an acceptance proof looks for a test the agent wrote.</summary>
+        public readonly System.Text.StringBuilder AddedText = new();
 
         public FileEvidence ToEvidence()
         {
@@ -275,6 +319,11 @@ public static class EvidencePackBuilder
         a.Removed += removed;
         a.Changes++;
         a.Api |= FileRiskScorer.TouchesPublicApi(path, diff);
+        foreach (var l in diff.Split('\n'))
+        {
+            if (a.AddedText.Length >= MaxAddedText) break;
+            if (l.Length > 1 && l[0] == '+' && !l.StartsWith("+++", StringComparison.Ordinal)) a.AddedText.AppendLine(l[1..]);
+        }
         if (line.Data["diffTruncated"] is JsonValue t && t.TryGetValue<bool>(out var tv) && tv) a.Approx = true;
     }
 

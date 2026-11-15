@@ -14,7 +14,7 @@ public static class KnownToolNames
         "list_directory", "grep", "glob", "execute_command", "run_diagnostics",
         "verify_changes", "browser_check", "git", "get_diagnostics", "todo_write",
         "ask_user", "go_to_definition", "find_references", "web_fetch", "use_skill",
-        "spawn_subagent", "send_message", "pipeline_stage", "scaffold_backend"
+        "spawn_subagent", "send_message", "pipeline_stage", "scaffold_backend", "acceptance_criteria"
     };
 
     /// <summary>True for a known tool name, or for a pattern such as <c>mcp:github/*</c> that is not checked here.</summary>

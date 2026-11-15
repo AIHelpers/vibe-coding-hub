@@ -214,6 +214,7 @@ public sealed partial class AgentActivityTracker : ObservableObject
             "find_references" => "Finding references",
             "go_to_definition" => "Finding a definition",
             "todo_write" => "Updating the to-do list",
+            "acceptance_criteria" => "Updating the acceptance criteria",
             "browser_check" => "Checking the page in a browser",
             "scaffold_backend" => "Scaffolding a backend",
             _ => $"Running {toolName}"

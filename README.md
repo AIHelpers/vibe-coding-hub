@@ -736,6 +736,7 @@ When a task or a flow finishes, the app and the CLI store an **evidence pack** b
 - **Build and lint.** The last build and lint command and whether it passed, found from the commands the agent ran and the stages of `verify_changes`.
 - **Changed files, riskiest first.** Size, public API touched, security-sensitive paths, build, deploy or data config, removals; each file shows why it ranks where it does. Test files rank low.
 - **Not proven.** No test run, a failing last run, files changed after the last test or build, a run that never finished, an audit trail that fails verification.
+- **Acceptance criteria.** The agent states what "done" means before it edits (`acceptance_criteria` tool) and marks each criterion with a test, file or command at the end. The pack checks every proof against the trail and shows a mark it cannot confirm as "claimed", never as proven; unmarked criteria are unproven.
 - **Also:** commands run, `browser_check` screenshots (local files), flow steps with cost and time, approvals asked and answered, tokens and cost.
 
 Limits: tool output over 8,000 characters is cut in the audit file, so a long test log may lose its summary line; the pack then says the output was cut. If the agent never ran the tests before changing code there is no "before" and the pack says so. Details: [docs/evidence-pack.md](docs/evidence-pack.md).

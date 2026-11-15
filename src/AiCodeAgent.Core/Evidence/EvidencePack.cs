@@ -80,6 +80,9 @@ public sealed class EvidencePack
     public IReadOnlyList<StepEvidence> Steps { get; init; } = Array.Empty<StepEvidence>();
     public ApprovalEvidence Approvals { get; init; } = new(0, 0, 0);
     /// <summary>What is not proven or needs a look: no test run, files changed after the last test, a failed last run, a broken trail.</summary>
+    /// <summary>The acceptance checklist (E10-S2); null when the agent declared none.</summary>
+    public AcceptanceEvidence? Acceptance { get; init; }
+
     public IReadOnlyList<string> Gaps { get; init; } = Array.Empty<string>();
 
     /// <summary>
@@ -87,5 +90,5 @@ public sealed class EvidencePack
     /// only when there is something to look at, so a plain question does not end with an evidence card.
     /// </summary>
     [JsonIgnore]
-    public bool WorthShowing => Files.Count > 0 || TestRuns.Count > 0 || Build != null || Lint != null;
+    public bool WorthShowing => Files.Count > 0 || TestRuns.Count > 0 || Build != null || Lint != null || Acceptance != null;
 }
