@@ -30,5 +30,6 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\HermeticTestHome.cs" Link="HermeticTestHome.cs" />
+    <Compile Include="..\Shared\LoopbackListener.cs" Link="LoopbackListener.cs" />
   </ItemGroup>
 </Project>
