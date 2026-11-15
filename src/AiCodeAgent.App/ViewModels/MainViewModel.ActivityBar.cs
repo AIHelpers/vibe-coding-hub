@@ -38,6 +38,7 @@ public partial class MainViewModel
         : IsCheckpointBrowserOpen ? SidePanelIds.Checkpoints
         : IsSessionHistoryOpen ? SidePanelIds.Sessions
         : IsSessionDashboardOpen ? SidePanelIds.Dashboard
+        : Review?.IsVisible == true ? SidePanelIds.Review
         : _chatViewModel?.PlanVM.IsVisible == true ? SidePanelIds.Plan
         : null;
 
@@ -61,6 +62,7 @@ public partial class MainViewModel
                     new ActivityBarItem(ActivityBarIds.Changes, "Changes", ActivityBarIcons.Changes, ToggleSourceControlCommand, "Ctrl+Shift+G", "stage, diff and commit"),
                     new ActivityBarItem(ActivityBarIds.Flows, "Flows", ActivityBarIcons.Flows, ToggleFlowsCommand, description: "draw and run flows of characters"),
                     new ActivityBarItem(ActivityBarIds.Tasks, "Tasks", ActivityBarIcons.Tasks, ToggleBackgroundTasksCommand, description: "delegate work, keep chatting", badgeColor: "#4A9EFF"),
+                    new ActivityBarItem(ActivityBarIds.Review, "Review", ActivityBarIcons.Review, ToggleReviewCommand, "Ctrl+Shift+R", "everything waiting for you", badgeColor: "#E0A030"),
                 }),
                 new ActivityBarGroup("TEAM", new[]
                 {
@@ -98,7 +100,7 @@ public partial class MainViewModel
                 or nameof(ActiveScreen))
                 RefreshNavigationState();
         };
-        foreach (var source in new object[] { SourceControl, Flows, BackgroundTasks, ProjectKnowledge, DiffViewer })
+        foreach (var source in new object[] { SourceControl, Flows, BackgroundTasks, ProjectKnowledge, DiffViewer, Review })
         {
             // Some of these are ReactiveObjects, which implement the event explicitly.
             ((INotifyPropertyChanged)source).PropertyChanged += OnNavigationSourcePropertyChanged;
@@ -112,7 +114,7 @@ public partial class MainViewModel
 
     private void OnNavigationSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is "IsVisible" or "ActiveTabIndex" or "RunningCount")
+        if (e.PropertyName is "IsVisible" or "ActiveTabIndex" or "RunningCount" or "PendingCount")
             RunOnUi(RefreshNavigationState);
     }
 
@@ -128,7 +130,7 @@ public partial class MainViewModel
             {
                 // The agent opened its plan: it takes the host, so no other panel stays open next to it.
                 if (chat.PlanVM.IsVisible && (SourceControl.IsVisible || BackgroundTasks.IsVisible || IsCheckpointBrowserOpen
-                                              || IsSessionHistoryOpen || IsSessionDashboardOpen))
+                                              || IsSessionHistoryOpen || IsSessionDashboardOpen || Review.IsVisible))
                 {
                     CloseOverlays(keepPlan: true);
                 }
@@ -212,6 +214,7 @@ public partial class MainViewModel
         if (panel == SidePanelIds.Checkpoints) active.Add(ActivityBarIds.Checkpoints);
         if (panel == SidePanelIds.Sessions) active.Add(ActivityBarIds.Sessions);
         if (panel == SidePanelIds.Dashboard) active.Add(ActivityBarIds.Dashboard);
+        if (panel == SidePanelIds.Review) active.Add(ActivityBarIds.Review);
         if (Flows.IsVisible) active.Add(ActivityBarIds.Flows);
         if (ProjectKnowledge.IsVisible)
         {
@@ -227,6 +230,7 @@ public partial class MainViewModel
         ActivityBar.SetActive(active);
         ActivityBar.SetBadge(ActivityBarIds.Changes, FileExplorer.Changes.Count);
         ActivityBar.SetBadge(ActivityBarIds.Tasks, BackgroundTasks.RunningCount);
+        ActivityBar.SetBadge(ActivityBarIds.Review, Review.PendingCount);
 
         OnPropertyChanged(nameof(ActiveSidePanel));
         OnPropertyChanged(nameof(IsSidePanelOpen));

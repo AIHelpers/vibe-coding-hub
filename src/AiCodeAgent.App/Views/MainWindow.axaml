@@ -872,6 +872,16 @@
                         HorizontalAlignment="Stretch">
                     <views:BackgroundTaskManagerView DataContext="{Binding BackgroundTasks}"/>
                 </Border>
+                <!-- Review Queue (E10-S3): approvals, flow gates and finished tasks in one list. -->
+                <Border IsVisible="{Binding Review.IsVisible}"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                        CornerRadius="4"
+                        Margin="0"
+                        Padding="0"
+                        VerticalAlignment="Stretch"
+                        HorizontalAlignment="Stretch">
+                    <views:ReviewQueueView DataContext="{Binding Review}"/>
+                </Border>
                 <!-- Autonomous Plan Overlay -->
                 <Border IsVisible="{Binding ChatViewModel.PlanVM.IsVisible}"
                         Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"

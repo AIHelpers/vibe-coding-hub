@@ -1519,6 +1519,7 @@ public partial class FlowEditorViewModel : ObservableObject
             foreach (var tcs in _approvals.Values) tcs.TrySetResult(false);
             _approvals.Clear();
             _gateFeedback.Clear();
+            _approvalCalls.Clear();
             foreach (var choice in _humanChoices.Values) choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
             _humanChoices.Clear();
             IsEnteringGateNote = false;
@@ -1526,6 +1527,7 @@ public partial class FlowEditorViewModel : ObservableObject
             _runCts?.Dispose();
             _runCts = null;
             RefreshHistory();
+            RaisePendingReviewChanged();
         }
     }
 
@@ -1537,6 +1539,7 @@ public partial class FlowEditorViewModel : ObservableObject
         foreach (var tcs in _approvals.Values) tcs.TrySetResult(false);
         foreach (var choice in _humanChoices.Values) choice.TrySetResult(new FlowHumanChoice(null, null, Stop: true));
         StatusText = "Stopping…";
+        RaisePendingReviewChanged();
     }
 
     /// <summary>Answer the confirmation gate of the selected node.</summary>
@@ -1552,9 +1555,11 @@ public partial class FlowEditorViewModel : ObservableObject
         node.IsAwaitingApproval = false;
         node.IsAwaitingGate = false;
         _gateFeedback.Remove(node.Id);
+        _approvalCalls.Remove(node.Id);
         IsEnteringGateNote = false;
         GateNote = string.Empty;
         tcs.TrySetResult(approved);
+        RaisePendingReviewChanged();
     }
 
     /// <summary>The note typed for "Approve with note" (also used as the note of a human step).</summary>
@@ -1607,6 +1612,7 @@ public partial class FlowEditorViewModel : ObservableObject
             node.AppendOutput($"\n\n**You chose:** {choice.Outcome ?? "continue"}" + (choice.Note != null ? $" — {choice.Note}" : "") + "\n");
         tcs.TrySetResult(choice);
         if (ReferenceEquals(node, SelectedNode)) OnPropertyChanged(nameof(SelectedOutput));
+        RaisePendingReviewChanged();
     }
 
     public void ResetRunState()
@@ -1696,14 +1702,18 @@ public partial class FlowEditorViewModel : ObservableObject
                     GateNote = string.Empty;
                     SelectedNode = node;
                     StatusText = $"'{node.Name}' is waiting for your approval to start.";
+                    RaisePendingReviewChanged();
                 }
                 else
                 {
                     // Tool approvals inside a step use the same buttons.
                     _approvals[node.Id] = approval.Approval;
+                    _gateFeedback[node.Id] = approval.Feedback;
+                    _approvalCalls[node.Id] = approval.Call;
                     node.IsAwaitingApproval = true;
                     node.AppendOutput(AgentOutputText.ApprovalNote(approval.Call.Name));
                     StatusText = $"'{node.Name}' asks to run {approval.Call.Name}.";
+                    RaisePendingReviewChanged();
                 }
                 break;
 
@@ -1716,6 +1726,7 @@ public partial class FlowEditorViewModel : ObservableObject
                 SelectedNode = humanNode;
                 OnPropertyChanged(nameof(SelectedOutput));
                 StatusText = $"'{humanNode.Name}' is waiting for your decision.";
+                RaisePendingReviewChanged();
                 break;
 
             case FlowUsageEvent usage when FindNode(usage.NodeId) is { } usedNode:
