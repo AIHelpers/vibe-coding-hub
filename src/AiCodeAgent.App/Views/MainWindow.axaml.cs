@@ -58,7 +58,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Shows a non-blocking error toast with a "Copy details" action. The window keeps running.
+    /// Shows a non-blocking error toast with "Copy details" and "Send report" actions. The window keeps running.
+    /// "Send report" opens a prefilled GitHub issue in the browser; nothing is sent by the app itself.
     /// </summary>
     private void ShowCrashNotice(CrashNotice notice)
     {
@@ -67,6 +68,7 @@ public partial class MainWindow : Window
             return;
 
         var copy = new Button { Content = "Copy details", Margin = new Thickness(8, 0, 0, 0) };
+        var send = new Button { Content = "Send report", Margin = new Thickness(8, 0, 0, 0) };
         var close = new Button { Content = "✕", Margin = new Thickness(8, 0, 0, 0) };
         var toast = new Border
         {
@@ -90,6 +92,7 @@ public partial class MainWindow : Window
                         VerticalAlignment = VerticalAlignment.Center
                     },
                     copy,
+                    send,
                     close
                 }
             }
@@ -103,6 +106,11 @@ public partial class MainWindow : Window
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard is not null)
                 await clipboard.SetTextAsync(notice.Details);
+        };
+        send.Click += (_, _) =>
+        {
+            if (!CrashReportSender.Send(notice, new SystemUrlLauncher()))
+                send.Content = "Could not open the browser";
         };
         close.Click += (_, _) => root.Children.Remove(toast);
 
