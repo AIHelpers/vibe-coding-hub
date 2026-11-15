@@ -632,6 +632,7 @@ SkillCharacterCommands.AddCommands(rootCommand);
 PackCommands.AddCommands(rootCommand);
 ImportCommands.AddCommands(rootCommand);
 AuditCommands.AddCommands(rootCommand);
+EvidenceCommands.AddCommands(rootCommand);
 ServeMode.AddCommands(rootCommand, async (provider, model, dir) => await BuildServiceProvider(provider, model, dir));
 rootCommand.AddCommand(chatCommand);
 rootCommand.AddCommand(runCommand);
