@@ -14,11 +14,25 @@ namespace AiCodeAgent.App.Tests.Views;
 /// <summary>E2-S3: the chat renders as one ItemsControl in event order, with the "↓ New messages" pill.</summary>
 public class ChatTimelineViewTests
 {
+    /// <summary>
+    /// Lays the window out until the timeline's scroll extent stops changing. The markdown viewers build their content over
+    /// more than one dispatcher pass, so a single measure/arrange can leave the last streamed text unmeasured on a slow or
+    /// busy machine (CI runs all test assemblies at once). Bounded, so a layout that never settles still fails fast.
+    /// </summary>
     private static void LayoutWindow(Window window)
     {
-        window.Measure(new Size(window.Width, window.Height));
-        window.Arrange(new Rect(0, 0, window.Width, window.Height));
-        Dispatcher.UIThread.RunJobs();
+        var scroll = (window.Content as ChatTimelineView)?.FindControl<ScrollViewer>("TimelineScroll");
+        var previous = double.NaN;
+        for (var pass = 0; pass < 20; pass++)
+        {
+            window.Measure(new Size(window.Width, window.Height));
+            window.Arrange(new Rect(0, 0, window.Width, window.Height));
+            Dispatcher.UIThread.RunJobs();
+
+            var extent = scroll?.Extent.Height ?? 0;
+            if (pass > 0 && extent.Equals(previous)) break;
+            previous = extent;
+        }
     }
 
     [AvaloniaFact]
