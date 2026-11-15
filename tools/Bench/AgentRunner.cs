@@ -19,7 +19,7 @@ internal interface IAgentRunner
 /// Drives the <c>aiagent</c> CLI as a child process: <c>aiagent run</c> for <c>single</c> (chat mode, tools auto-approved) and
 /// <c>aiagent pipeline run --non-interactive --permission FullAuto</c> for a flow, so both may change files and run commands.
 /// </summary>
-internal sealed class CliAgentRunner : IAgentRunner
+internal sealed class CliAgentRunner : IAgentRunner, ISetupPreparer
 {
     private readonly Options _options;
     private readonly string _file;
@@ -77,6 +77,34 @@ internal sealed class CliAgentRunner : IAgentRunner
         catch (BenchException) { return "unknown"; }
     }
 
+    private static readonly string[] BuiltInPipelines = { "full-sdlc", "quick-fix" };
+
+    /// <summary>
+    /// Prepares the isolated agent home of a matrix setup: points the provider at its endpoint and installs the flow templates
+    /// (with their characters) that the configurations use, exactly as a user would with <c>config add-provider</c> and <c>pipeline copy</c>.
+    /// </summary>
+    public async Task<string?> PrepareAsync(MatrixSetup setup, IReadOnlyList<BenchConfig> configs, CancellationToken cancellation)
+    {
+        if (string.IsNullOrWhiteSpace(_options.AgentHome)) return "no agent home for the setup";
+        var home = Path.GetFullPath(_options.AgentHome);
+        Directory.CreateDirectory(home);
+
+        var steps = new List<string[]>();
+        if (setup.BaseUrl != null)
+            steps.Add(new[] { "config", "add-provider", setup.Provider, "--url", setup.BaseUrl, "--model", setup.Model });
+        foreach (var pipeline in configs.Where(c => !c.IsSingle).Select(c => c.Pipeline!).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (!BuiltInPipelines.Contains(pipeline, StringComparer.OrdinalIgnoreCase))
+                steps.Add(new[] { "pipeline", "copy", pipeline, "--to", "global", "--with-characters" });
+
+        foreach (var step in steps)
+        {
+            var result = await ProcessRunner.RunAsync(_file, _prefix.Concat(step), home, BaseEnvironment(0, "", ""), TimeSpan.FromMinutes(2), cancellation);
+            if (result.ExitCode != 0)
+                return $"'aiagent {string.Join(' ', step.Take(3))}' failed (exit code {result.ExitCode}): {ProcessRunner.Tail(result.Stderr + result.Stdout, 300)}";
+        }
+        return null;
+    }
+
     public async Task<AgentRun> RunAsync(AgentInvocation inv, CancellationToken cancellation)
     {
         var args = new List<string>(_prefix);
@@ -107,7 +135,7 @@ internal sealed class CliAgentRunner : IAgentRunner
         {
             usage = ReadNewAudit(runsRoot, before);
             if (usage.Tokens == null) note = "no usage found in the run report (audit file)";
-            if (result.ExitCode != 0 && !result.TimedOut) note = AppendNote(note, "exit code " + result.ExitCode + ": " + ProcessRunner.Tail(result.Stderr, 300));
+            if (result.ExitCode != 0 && !result.TimedOut) note = AppendNote(note, "exit code " + result.ExitCode + ": " + ErrorSummary(result.Stderr));
         }
         else
         {
@@ -129,6 +157,8 @@ internal sealed class CliAgentRunner : IAgentRunner
             ["AIAGENT_BENCH_CONFIG"] = config
         };
         if (!string.IsNullOrWhiteSpace(_options.AgentHome)) env["AIAGENT_HOME"] = Path.GetFullPath(_options.AgentHome);
+        if (_options.AgentEnvironment != null)
+            foreach (var (key, value) in _options.AgentEnvironment) env[key] = value;
         return env;
     }
 
@@ -159,6 +189,16 @@ internal sealed class CliAgentRunner : IAgentRunner
             return UsageParsers.FromAuditLines(lines, Path.GetFileName(created).Replace(".audit.jsonl", "", StringComparison.OrdinalIgnoreCase));
         }
         catch (IOException) { return UsageInfo.Unknown; }
+    }
+
+    /// <summary>The first line of the error (what went wrong) and the end of it; a stack trace alone buries the message.</summary>
+    internal static string ErrorSummary(string stderr)
+    {
+        var lines = stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length == 0) return "";
+        var first = ProcessRunner.Tail(lines[0], 200);
+        var tail = ProcessRunner.Tail(stderr, 300);
+        return lines.Length == 1 || tail.Contains(lines[0], StringComparison.Ordinal) ? tail : first + " ... " + tail;
     }
 
     private static string AppendNote(string? note, string more) => string.IsNullOrEmpty(note) ? more : note + "; " + more;

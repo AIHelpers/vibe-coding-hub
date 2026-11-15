@@ -25,5 +25,6 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\HermeticTestHome.cs" Link="HermeticTestHome.cs" />
+    <Content Include="..\..\bench\matrix.json" Link="matrix.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
