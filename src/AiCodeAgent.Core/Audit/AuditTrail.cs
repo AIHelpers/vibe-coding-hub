@@ -182,7 +182,10 @@ public sealed class AuditTrail : IDisposable
             ["costUsd"] = costUsd ?? _lastCostUsd,
             ["entries"] = _writer.Count + 1
         });
+        var path = _writer.Path;
         Close();
+        // The evidence pack (E10-S1) is derived from the finished trail and stored beside it. It never fails the run.
+        AiCodeAgent.Core.Evidence.EvidencePackStore.TryWrite(path, _logger);
     }
 
     public void Dispose() => Close();
