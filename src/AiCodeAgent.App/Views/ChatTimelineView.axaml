@@ -98,6 +98,46 @@
                         </Border>
                     </DataTemplate>
 
+                    <DataTemplate DataType="vm:EvidenceItem">
+                        <Border Classes="chat-evidence" Margin="0,4" Padding="10"
+                                Background="{DynamicResource AppInsetBrush}"
+                                BorderBrush="{DynamicResource AppBadgeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Evidence pack" FontWeight="SemiBold" FontSize="12"
+                                               Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="Copy for PR body" Click="CopyEvidenceButton_ClickAsync"
+                                            ToolTip.Tip="Copy the full evidence pack as Markdown"
+                                            FontSize="11" Padding="6,2" Cursor="Hand"/>
+                                </Grid>
+                                <md:MarkdownScrollViewer ctl:MarkdownWrap.WrapText="True" Markdown="{Binding Summary}">
+                                    <md:MarkdownScrollViewer.Styles>
+                                        <StyleInclude Source="../Styles/MarkdownTheme.axaml"/>
+                                    </md:MarkdownScrollViewer.Styles>
+                                    <md:MarkdownScrollViewer.Plugins>
+                                        <md:MdAvPlugins>
+                                            <mdtight:ChatAISetup/>
+                                        </md:MdAvPlugins>
+                                    </md:MarkdownScrollViewer.Plugins>
+                                </md:MarkdownScrollViewer>
+                                <Expander Header="Full evidence" FontSize="12">
+                                    <md:MarkdownScrollViewer ctl:MarkdownWrap.WrapText="True" Markdown="{Binding Markdown}">
+                                        <md:MarkdownScrollViewer.Styles>
+                                            <StyleInclude Source="../Styles/MarkdownTheme.axaml"/>
+                                        </md:MarkdownScrollViewer.Styles>
+                                        <md:MarkdownScrollViewer.Plugins>
+                                            <md:MdAvPlugins>
+                                                <mdtight:ChatAISetup/>
+                                            </md:MdAvPlugins>
+                                        </md:MarkdownScrollViewer.Plugins>
+                                    </md:MarkdownScrollViewer>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+
                     <DataTemplate DataType="vm:ToolCallItem">
                         <views:ToolCallCardView DataContext="{Binding Card}"/>
                     </DataTemplate>

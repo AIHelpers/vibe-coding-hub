@@ -65,6 +65,29 @@ public partial class FlowEditorViewModel
         return file;
     }
 
+    /// <summary>
+    /// E10-S1: the evidence pack of <see cref="ExportRun"/> as Markdown for a pull request body; null (with a hint in the status
+    /// line) when there is no run or no audit trail to build it from.
+    /// </summary>
+    public string? BuildEvidenceMarkdown()
+    {
+        var audit = AuditFileForExport();
+        if (audit == null) return null;
+        try
+        {
+            var pack = AiCodeAgent.Core.Evidence.EvidencePackStore.Build(audit);
+            StatusText = pack.Gaps.Count == 0
+                ? "Copied the evidence pack."
+                : $"Copied the evidence pack. {pack.Gaps.Count} thing(s) are not proven: {pack.Gaps[0]}";
+            return AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToMarkdown(pack);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.IO.InvalidDataException)
+        {
+            StatusText = "Could not read the audit trail: " + ex.Message;
+            return null;
+        }
+    }
+
     /// <summary>Mermaid for the flow on the canvas; in replay it also shows what happened in that run.</summary>
     public string BuildMermaid()
     {

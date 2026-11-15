@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AiCodeAgent.Core.Evidence;
 
 /// <summary>What a command was for.</summary>
@@ -79,4 +81,11 @@ public sealed class EvidencePack
     public ApprovalEvidence Approvals { get; init; } = new(0, 0, 0);
     /// <summary>What is not proven or needs a look: no test run, files changed after the last test, a failed last run, a broken trail.</summary>
     public IReadOnlyList<string> Gaps { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// False for a run that only read and answered: no file changed, no test, build or lint ran. The app shows a pack
+    /// only when there is something to look at, so a plain question does not end with an evidence card.
+    /// </summary>
+    [JsonIgnore]
+    public bool WorthShowing => Files.Count > 0 || TestRuns.Count > 0 || Build != null || Lint != null;
 }

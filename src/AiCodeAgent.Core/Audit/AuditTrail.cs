@@ -104,6 +104,9 @@ public sealed class AuditTrail : IDisposable
     }
 
     public string Path => _writer.Path;
+
+    /// <summary>The evidence pack built when <see cref="Complete"/> ran (E10-S1); null before that or when it could not be built.</summary>
+    public AiCodeAgent.Core.Evidence.EvidencePack? Evidence { get; private set; }
     public string User => _user;
     /// <summary>Hash of the last line: store it elsewhere to also detect a tampered or cut-off tail.</summary>
     public string HeadHash => _writer.HeadHash;
@@ -185,7 +188,7 @@ public sealed class AuditTrail : IDisposable
         var path = _writer.Path;
         Close();
         // The evidence pack (E10-S1) is derived from the finished trail and stored beside it. It never fails the run.
-        AiCodeAgent.Core.Evidence.EvidencePackStore.TryWrite(path, _logger);
+        Evidence = AiCodeAgent.Core.Evidence.EvidencePackStore.TryWrite(path, _logger);
     }
 
     public void Dispose() => Close();

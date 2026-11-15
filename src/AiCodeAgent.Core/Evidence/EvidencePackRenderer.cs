@@ -99,6 +99,58 @@ public static class EvidencePackRenderer
         return sb.ToString();
     }
 
+    /// <summary>A short card: the verdict-free facts a reviewer wants first (tests, build and lint, riskiest file) and what is not proven.</summary>
+    public static string ToSummaryMarkdown(EvidencePack p)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"**Evidence** · {p.Status}");
+        if (p.DurationSeconds is { } seconds) sb.Append($" · {Duration(seconds)}");
+        sb.AppendLine($" · ${p.CostUsd.ToString("0.00", Inv)}");
+        sb.AppendLine();
+        sb.AppendLine($"- **Tests:** {TestsLine(p)}");
+        sb.AppendLine($"- **Build:** {CheckLine(p.Build)} · **Lint:** {CheckLine(p.Lint)}");
+        sb.AppendLine($"- **Files:** {FilesLine(p)}");
+        if (p.Gaps.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("**Not proven**");
+            sb.AppendLine();
+            foreach (var g in p.Gaps) sb.AppendLine($"- {g}");
+        }
+        return sb.ToString();
+    }
+
+    private static string TestsLine(EvidencePack p)
+    {
+        if (p.TestRuns.Count == 0) return "no test run observed";
+        if (p.Tests is { } c)
+        {
+            var line = $"{Brief(c.Before)} → {Brief(c.After)}";
+            if (c.NamesKnown && c.Fixed.Count > 0) line += $" · now passing: {Names(c.Fixed.Take(3).ToList())}" + (c.Fixed.Count > 3 ? $" (+{c.Fixed.Count - 3})" : "");
+            if (c.NamesKnown && c.NewlyFailing.Count > 0) line += $" · **newly failing: {Names(c.NewlyFailing.Take(3).ToList())}**" + (c.NewlyFailing.Count > 3 ? $" (+{c.NewlyFailing.Count - 3})" : "");
+            return line;
+        }
+        var last = p.TestRuns[^1];
+        return p.TestRuns.Count == 1 ? $"ran once, {Brief(last)} (no earlier run to compare)" : $"{p.TestRuns.Count} runs, last {Brief(last)}";
+    }
+
+    private static string Brief(TestRunEvidence r) =>
+        r.FailedCount is > 0 ? $"{r.FailedCount} failed"
+        : r.PassedCount is { } passed ? $"{passed} passed"
+        : r.Passed ? "passed" : "failed";
+
+    private static string CheckLine(CheckEvidence? c) => c == null ? "not run" : c.Passed ? "passed" : "**failed**";
+
+    private static string FilesLine(EvidencePack p)
+    {
+        if (p.Files.Count == 0) return "none changed";
+        var high = p.Files.Count(f => f.Risk == EvidenceRisk.High);
+        var medium = p.Files.Count(f => f.Risk == EvidenceRisk.Medium);
+        var top = p.Files[0];
+        var line = $"{p.Files.Count} changed" + (high + medium > 0 ? $" ({high} high, {medium} medium risk)" : "");
+        return line + $"; riskiest `{Code(top.Path)}`" + (top.Reasons.Count > 0 ? $" ({string.Join(", ", top.Reasons)})" : "");
+    }
+
     private static void RenderTests(StringBuilder sb, EvidencePack p)
     {
         if (p.TestRuns.Count == 0) { sb.AppendLine("No test run was observed."); return; }

@@ -317,4 +317,58 @@ public sealed class EvidencePackTests : IDisposable
         Assert.Contains("…and 15 more file(s)", md);
         Assert.Contains("…and 15 more.", md);
     }
+
+    [Fact]
+    public void Summary_ShowsTestsBeforeAndAfter_RiskiestFile_AndWhatIsNotProven()
+    {
+        using var t = Open();
+        Command(t, "1", "dotnet test", FailingDotnet, isError: true);
+        Change(t, "src/App/Auth/Login.cs", "@@ -1 +1 @@\n-a\n+b\n");
+        Command(t, "2", "dotnet test", PassingDotnet, isError: false);
+        var pack = Finish(t);
+
+        var summary = EvidencePackRenderer.ToSummaryMarkdown(pack);
+
+        Assert.Contains("**Evidence** · completed", summary);
+        Assert.Contains("2 failed → 12 passed", summary);
+        Assert.Contains("Login.cs", summary);
+        Assert.Contains("**Build:** not run", summary);
+        Assert.True(summary.Length < EvidencePackRenderer.ToMarkdown(pack).Length);
+    }
+
+    [Fact]
+    public void Summary_OfARunWithoutTests_SaysSo_AndListsTheGap()
+    {
+        using var t = Open();
+        Change(t, "src/App/Thing.cs", "@@ -1 +1 @@\n-a\n+b\n");
+        var pack = Finish(t);
+
+        var summary = EvidencePackRenderer.ToSummaryMarkdown(pack);
+
+        Assert.Contains("no test run observed", summary);
+        Assert.Contains("**Not proven**", summary);
+    }
+
+    [Fact]
+    public void WorthShowing_IsFalseForARunThatOnlyAnswered_AndTrueOnceAFileChanged()
+    {
+        using (var read = Open("read.audit.jsonl"))
+        {
+            read.Complete("completed", costUsd: 0.01m, tokens: 10);
+            Assert.False(read.Evidence!.WorthShowing);
+        }
+        using var edit = Open("edit.audit.jsonl");
+        Change(edit, "src/A.cs", "@@ -1 +1 @@\n-a\n+b\n");
+        edit.Complete("completed", costUsd: 0.01m, tokens: 10);
+        Assert.True(edit.Evidence!.WorthShowing);
+    }
+
+    [Fact]
+    public void WorthShowing_IsNotWrittenToTheJson()
+    {
+        using var t = Open();
+        Command(t, "1", "dotnet test", PassingDotnet, isError: false);
+        var json = EvidencePackStore.ToJson(Finish(t));
+        Assert.DoesNotContain("worthShowing", json, StringComparison.OrdinalIgnoreCase);
+    }
 }
