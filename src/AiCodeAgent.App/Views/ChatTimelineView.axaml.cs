@@ -77,4 +77,12 @@ public partial class ChatTimelineView : UserControl
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard != null) await clipboard.SetTextAsync(item.Content);
     }
+
+    /// <summary>E10-S1: copies the full evidence pack as Markdown, ready for a pull request body.</summary>
+    private async void CopyEvidenceButton_ClickAsync(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: EvidenceItem item }) return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(item.Markdown);
+    }
 }

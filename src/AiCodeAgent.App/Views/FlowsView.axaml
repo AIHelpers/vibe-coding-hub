@@ -109,6 +109,7 @@
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                 <MenuItem x:Name="CopyReportItem" Header="Copy Markdown report" Click="OnCopyReport"/>
+                                <MenuItem x:Name="CopyEvidenceItem" Header="Copy evidence for PR body" Click="OnCopyEvidence"/>
                                 <MenuItem x:Name="CopyMermaidItem" Header="Copy Mermaid" Click="OnCopyMermaid"/>
                                 <MenuItem x:Name="SavePngItem" Header="Save PNG…" Click="OnSavePng"/>
                                 <MenuItem x:Name="SaveAuditItem" Header="Save audit trail… (zip, Markdown, JSON)" Click="OnSaveAudit"/>

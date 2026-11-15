@@ -627,6 +627,7 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource = null;
 
         run.Complete();
+        ShowEvidence();
     }
 
     /// <summary>
@@ -801,7 +802,15 @@ public partial class ChatViewModel : ObservableObject
         _cancellationTokenSource?.Dispose();
         _cancellationTokenSource = null;
         run.Complete();
+        ShowEvidence();
     }
+    /// <summary>E10-S1: puts the evidence card of the task that just finished at the end of the chat, when there is something to show.</summary>
+    private void ShowEvidence()
+    {
+        if (_agentService.TakeEvidence(SessionId) is { } pack)
+            Timeline.AddEvidence(pack);
+    }
+
     /// <summary>
     /// True when an event from <paramref name="eventSessionId"/> belongs to the run <paramref name="runSessionId"/>:
     /// the same session, or a flow step's sub-session "&lt;run&gt;/&lt;step&gt;#&lt;round&gt;".

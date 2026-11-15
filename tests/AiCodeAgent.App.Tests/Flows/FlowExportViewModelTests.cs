@@ -160,4 +160,32 @@ public class FlowExportViewModelTests : IDisposable
 
         Assert.True(b.Width > 0 && b.Height > 0);
     }
+
+    [Fact]
+    public async Task Evidence_OfARunWithAnAuditTrail_IsTheMarkdownPack()
+    {
+        var store = SaveRun();
+        var runDir = Path.GetDirectoryName(Directory.GetFiles(Path.Combine(_root, "runs"), "*.json", SearchOption.AllDirectories)[0])!;
+        using (var trail = AiCodeAgent.Core.Audit.AuditTrail.Open(Path.Combine(runDir, AiCodeAgent.Core.Audit.AuditChain.FileName),
+                   new AiCodeAgent.Core.Audit.AuditRunInfo("flow", "run-1", "diamond", "ship it", "m", null, "Ask", _root)))
+        {
+            trail.Complete("completed", costUsd: 0.1m, tokens: 10);
+        }
+        var vm = await OpenAsync(store);
+
+        var evidence = vm.BuildEvidenceMarkdown();
+
+        Assert.NotNull(evidence);
+        Assert.Contains("ship it", evidence);
+        Assert.StartsWith("Copied the evidence pack", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Evidence_WithoutARun_SaysSoInsteadOfCopyingNothing()
+    {
+        var vm = await OpenAsync(null);
+
+        Assert.Null(vm.BuildEvidenceMarkdown());
+        Assert.False(string.IsNullOrWhiteSpace(vm.StatusText));
+    }
 }

@@ -315,4 +315,24 @@ public class ChatTimelineTests
         Assert.Equal("#2", users[0].RewindLabel);
         Assert.Equal(-1, t.IndexOfRewindPoint(1)); // blank message: no item
     }
+
+    [Fact]
+    public void AddEvidence_AppendsOneCard_WithTheSummary_AndTheFullPackForThePullRequest()
+    {
+        var t = new ChatTimeline();
+        var pack = new AiCodeAgent.Core.Evidence.EvidencePack
+        {
+            RunId = "r1", Status = "completed", Task = "fix it",
+            Files = new[] { new AiCodeAgent.Core.Evidence.FileEvidence("src/A.cs", false, false, 3, 1, false, false, AiCodeAgent.Core.Evidence.EvidenceRisk.High, 9, new[] { "auth" }, 1, null) },
+            Gaps = new[] { "No test run was observed." }
+        };
+
+        var item = t.AddEvidence(pack);
+
+        Assert.Same(item, Assert.Single(t.Items));
+        Assert.Contains("**Evidence**", item.Summary);
+        Assert.Contains("No test run was observed.", item.Summary);
+        Assert.True(item.HasGaps);
+        Assert.True(item.Markdown.Length >= item.Summary.Length);
+    }
 }

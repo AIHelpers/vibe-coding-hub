@@ -225,7 +225,8 @@ public class ThemeContrastTests
 
         // The chat viewers wrap long lines instead of scrolling them sideways.
         var chat = File.ReadAllText(AppFile("Views", "ChatTimelineView.axaml"));
-        Assert.Equal(3, Regex.Matches(chat, @"ctl:MarkdownWrap\.WrapText=""True""").Count);
+        // Includes the two viewers of the evidence card (summary and full pack).
+        Assert.Equal(5, Regex.Matches(chat, @"ctl:MarkdownWrap\.WrapText=""True""").Count);
     }
 
     [Fact]

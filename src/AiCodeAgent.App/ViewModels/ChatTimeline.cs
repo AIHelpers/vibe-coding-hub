@@ -88,6 +88,29 @@ public sealed partial class ToolCallItem : ChatItem
     public ToolCallCardViewModel Card { get; }
 }
 
+/// <summary>
+/// E10-S1: what a reviewer should look at once a task is done: tests before and after, build and lint, the riskiest files,
+/// and what is not proven. <see cref="Markdown"/> is the full pack, ready for a pull request body.
+/// </summary>
+public sealed class EvidenceItem : ChatItem
+{
+    public EvidenceItem(AiCodeAgent.Core.Evidence.EvidencePack pack)
+    {
+        Pack = pack;
+        Summary = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToSummaryMarkdown(pack);
+        Markdown = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToMarkdown(pack);
+        HasGaps = pack.Gaps.Count > 0;
+    }
+
+    public AiCodeAgent.Core.Evidence.EvidencePack Pack { get; }
+    /// <summary>The short card shown in the chat.</summary>
+    public string Summary { get; }
+    /// <summary>The full pack as Markdown (the expander and the copy button).</summary>
+    public string Markdown { get; }
+    /// <summary>True when something is not proven: the card is then drawn as a warning.</summary>
+    public bool HasGaps { get; }
+}
+
 public enum ApprovalStatus { Pending, Approved, Declined }
 
 /// <summary>An approval (or confirmation) the agent asked for, and how it was answered.</summary>
@@ -191,6 +214,14 @@ public sealed class ChatTimeline
     public UserMessageItem AddUser(string content, int? rewindNumber = null)
     {
         var item = new UserMessageItem { Content = content, RewindNumber = rewindNumber };
+        Append(item);
+        return item;
+    }
+
+    /// <summary>Appends the evidence card of a finished task.</summary>
+    public EvidenceItem AddEvidence(AiCodeAgent.Core.Evidence.EvidencePack pack)
+    {
+        var item = new EvidenceItem(pack);
         Append(item);
         return item;
     }

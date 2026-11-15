@@ -37,6 +37,16 @@ public class AgentService
 
     public IAgentEventBus EventBus => _eventBus;
 
+    // The evidence pack (E10-S1) of the last finished task of each session, until the chat takes it.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, AiCodeAgent.Core.Evidence.EvidencePack> _evidence = new();
+
+    /// <summary>
+    /// The evidence pack of the task that just finished in <paramref name="sessionId"/>, once: null when the task changed
+    /// nothing and ran no test, build or lint (a plain question), or when the pack could not be built.
+    /// </summary>
+    public AiCodeAgent.Core.Evidence.EvidencePack? TakeEvidence(string sessionId) =>
+        _evidence.TryRemove(sessionId, out var pack) ? pack : null;
+
     public AgentService(
         IAgentOrchestrator orchestrator,
         IToolRegistry toolRegistry,
@@ -219,6 +229,8 @@ public class AgentService
             finally
             {
                 audit?.Complete(token.IsCancellationRequested ? "cancelled" : auditStatus);
+                if (audit?.Evidence is { WorthShowing: true } pack) _evidence[sessionId] = pack;
+                else _evidence.TryRemove(sessionId, out _);
                 // Always leave an audit trail, even when the run was cancelled or failed midway.
                 if (runReport.HasContent)
                     _ = runReport.WriteAsync();

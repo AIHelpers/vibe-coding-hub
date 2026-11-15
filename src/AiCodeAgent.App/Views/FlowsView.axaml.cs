@@ -250,6 +250,13 @@ public partial class FlowsView : UserControl
         if (clipboard != null) await clipboard.SetTextAsync(report);
     }
 
+    private async void OnCopyEvidence(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.BuildEvidenceMarkdown() is not { } evidence) return;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard != null) await clipboard.SetTextAsync(evidence);
+    }
+
     private async void OnAttachRemote(object? sender, RoutedEventArgs e)
     {
         if (Vm == null) return;
