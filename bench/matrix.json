@@ -1,0 +1,44 @@
+{
+  // Real-model matrix (E9-S2). Run: dotnet run --project tools/Bench -- --matrix bench/matrix.json
+  // Edit the models to what you have. Keys are never written here: apiKeyEnv is the NAME of an environment variable.
+  // A setup whose variable is unset, or whose local server does not answer, is reported as skipped, not as failed.
+  "name": "five real setups",
+  "setups": [
+    {
+      "id": "anthropic",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "apiKeyEnv": "ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "openai",
+      "provider": "openai",
+      "model": "gpt-5.6-terra",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    },
+    {
+      "id": "openai-compatible",
+      "provider": "openrouter",
+      "model": "qwen/qwen3-coder",
+      "baseUrl": "https://openrouter.ai/api",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "description": "Any OpenAI-compatible host works; change provider, baseUrl and model together. The agent adds /v1 itself."
+    },
+    {
+      "id": "ollama",
+      "provider": "ollama",
+      "model": "qwen2.5-coder",
+      "baseUrl": "http://localhost:11434",
+      "local": true,
+      "description": "Run 'ollama pull qwen2.5-coder' first. Pick a model that supports tool calls."
+    },
+    {
+      "id": "lmstudio",
+      "provider": "lmstudio",
+      "model": "local-model",
+      "baseUrl": "http://localhost:1234",
+      "local": true,
+      "description": "Load a model in LM Studio and start its local server. Set model to the loaded model's identifier."
+    }
+  ]
+}

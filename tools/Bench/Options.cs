@@ -4,12 +4,14 @@ namespace AiCodeAgent.Bench;
 
 internal sealed record Options
 {
+    public const string DefaultOutDir = "bench/results";
+
     public string TasksPath { get; init; } = Path.Combine("bench", "tasks.json");
     public IReadOnlyList<string> Configs { get; init; } = new[] { "single", "bug-fix-flow" };
     public string? Model { get; init; }
     public string? Provider { get; init; }
     public int Seeds { get; init; } = 3;
-    public string OutDir { get; init; } = Path.Combine("bench", "results");
+    public string OutDir { get; init; } = DefaultOutDir;
     public string? WorkDir { get; init; }
     public string? AgentCommand { get; init; }
     public string? AgentHome { get; init; }
@@ -21,6 +23,15 @@ internal sealed record Options
     public bool Validate { get; init; }
     public bool List { get; init; }
     public bool KeepWorkspaces { get; init; }
+
+    /// <summary>True when --seeds was given (the matrix runs one seed unless told otherwise).</summary>
+    public bool SeedsGiven { get; init; }
+
+    // --matrix: the real-model matrix (E9-S2).
+    public string? Matrix { get; init; }
+    public IReadOnlyList<string> Setups { get; init; } = Array.Empty<string>();
+    /// <summary>Extra environment variables for the agent process (the API key of a matrix setup). Never written to results.</summary>
+    public IReadOnlyDictionary<string, string?>? AgentEnvironment { get; init; }
 
     // --collect: build a task from a bug-fix commit.
     public string? Collect { get; init; }
@@ -62,6 +73,16 @@ internal sealed record Options
           --validate              Check the tasks only: the hidden test must FAIL on the untouched snapshot. No agent, no cost.
           --list                  Print the tasks and exit.
           --help                  This text.
+
+        Real-model matrix (E9-S2): does the agent work against each real setup?
+
+          dotnet run --project tools/Bench -- --matrix bench/matrix.json [--setups anthropic,ollama] [--configs single,bug-fix-flow,feature-team-flow]
+
+          --matrix <file>         Setups to test (provider, model, endpoint, name of the API-key environment variable). Each setup runs with its own
+                                  empty agent home. A setup whose key is not set, or whose local server does not answer, is reported as skipped.
+          --setups <id,id,...>    Test only these setups.
+                                  Defaults in this mode: --configs single,bug-fix-flow,feature-team-flow, --seeds 1, --out bench/matrix-results;
+                                  --model and --provider come from the matrix file. Writes matrix.md and matrix.csv.
 
         Collecting a task from a bug-fix commit (no agent, no cost):
 
@@ -134,7 +155,9 @@ internal static class OptionsParser
                 case "--work-dir": { var v = Value(out err); if (err != null) return Fail(err); o = o with { WorkDir = v }; break; }
                 case "--agent": { var v = Value(out err); if (err != null) return Fail(err); o = o with { AgentCommand = v }; break; }
                 case "--agent-home": { var v = Value(out err); if (err != null) return Fail(err); o = o with { AgentHome = v }; break; }
-                case "--seeds": { var v = Value(out err); if (err != null) return Fail(err); if (!TryInt(v, 1, 20, out var n)) return Fail("--seeds must be a whole number from 1 to 20."); o = o with { Seeds = n }; break; }
+                case "--seeds": { var v = Value(out err); if (err != null) return Fail(err); if (!TryInt(v, 1, 20, out var n)) return Fail("--seeds must be a whole number from 1 to 20."); o = o with { Seeds = n, SeedsGiven = true }; break; }
+                case "--matrix": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Matrix = v }; break; }
+                case "--setups": { var v = Value(out err); if (err != null) return Fail(err); o = o with { Setups = Split(v!) }; break; }
                 case "--timeout": { var v = Value(out err); if (err != null) return Fail(err); if (!TryInt(v, 10, 86_400, out var n)) return Fail("--timeout must be a number of seconds from 10 to 86400."); o = o with { TimeoutSeconds = n }; break; }
                 case "--test-timeout": { var v = Value(out err); if (err != null) return Fail(err); if (!TryInt(v, 10, 86_400, out var n)) return Fail("--test-timeout must be a number of seconds from 10 to 86400."); o = o with { TestTimeoutSeconds = n }; break; }
                 case "--max-budget":
@@ -149,7 +172,7 @@ internal static class OptionsParser
             }
         }
 
-        if (!o.List && !o.Validate && o.Collect == null && string.IsNullOrWhiteSpace(o.Model))
+        if (!o.List && !o.Validate && o.Collect == null && o.Matrix == null && string.IsNullOrWhiteSpace(o.Model))
             return Fail("--model is required: every configuration must run on the same model.");
         return new OptionsResult(o, null, false);
 

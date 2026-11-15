@@ -7,7 +7,8 @@ namespace AiCodeAgent.Bench;
 /// <summary>Exit codes: 0 report written from a complete run, 1 the run was cut short (a partial report is still written), 2 bad input.</summary>
 internal static class BenchApp
 {
-    public static async Task<int> RunAsync(string[] args, IAgentRunner? agentOverride, TextWriter stdout, TextWriter stderr, CancellationToken cancellation)
+    public static async Task<int> RunAsync(string[] args, IAgentRunner? agentOverride, TextWriter stdout, TextWriter stderr, CancellationToken cancellation,
+        MatrixAvailability? availability = null)
     {
         var parsed = OptionsParser.Parse(args);
         if (parsed.ShowHelp) { stdout.WriteLine(Options.HelpText); return 0; }
@@ -18,7 +19,8 @@ internal static class BenchApp
         {
             if (options.Collect != null) return await TaskCollector.RunAsync(options, stdout, cancellation);
             var suite = TaskSuiteLoader.Filter(TaskSuiteLoader.Load(options.TasksPath), options.Only);
-            var configs = BenchConfig.ParseList(options.Configs);
+            var configNames = options.Matrix != null && options.Configs.SequenceEqual(new Options().Configs) ? MatrixApp.DefaultConfigs : options.Configs;
+            var configs = BenchConfig.ParseList(configNames);
 
             if (options.List)
             {
@@ -28,6 +30,9 @@ internal static class BenchApp
                 return 0;
             }
             if (options.Validate) return await ValidateAsync(options, suite, stdout, cancellation);
+            if (options.Matrix != null)
+                return await MatrixApp.RunAsync(options, suite, configs, agentOverride == null ? null : _ => agentOverride,
+                    availability ?? new MatrixAvailability(), stdout, stderr, cancellation);
             return await BenchmarkAsync(options, suite, configs, agentOverride, stdout, stderr, cancellation);
         }
         catch (BenchException ex)
@@ -56,7 +61,7 @@ internal static class BenchApp
         return bad == 0 ? 0 : 2;
     }
 
-    private static async Task<int> BenchmarkAsync(
+    internal static async Task<int> BenchmarkAsync(
         Options options, TaskSuite suite, IReadOnlyList<BenchConfig> configs, IAgentRunner? agentOverride,
         TextWriter stdout, TextWriter stderr, CancellationToken cancellation)
     {
