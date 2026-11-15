@@ -438,6 +438,10 @@ public partial class MainWindow : Window
                     _ = editor.SaveActiveAsync();
                     e.Handled = true;
                     break;
+                case Key.R when e.KeyModifiers.HasFlag(KeyModifiers.Shift):
+                    mainVm.ToggleReviewCommand.Execute(null);
+                    e.Handled = true;
+                    break;
                 case Key.W:
                     _ = editor.CloseActiveTabAsync();
                     e.Handled = true;

@@ -178,6 +178,9 @@ public partial class MainViewModel : ObservableObject
             _configurationService.Saved += OnConfigurationSaved;
         }
 
+        // Review Queue: approvals, flow gates and finished tasks in one list (E10-S3).
+        InitializeReview();
+
         // Activity bar + side-panel host; brings back the panel this workspace had open last time.
         InitializeActivityBar();
     }
@@ -444,6 +447,7 @@ public partial class MainViewModel : ObservableObject
         ProjectKnowledge.Close();
         Flows.Close();
         BackgroundTasks.Close();
+        Review?.Close();
         if (!keepSourceControl)
             SourceControl.Close();
     }
@@ -1224,6 +1228,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "background", "task", "delegate", "cowork", "async", "queue" },
                 KeybindingHint = "",
                 Action = ToggleBackgroundTasks
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.review",
+                Title = "Review Queue (approve, request changes)",
+                Category = "Navigation",
+                Keywords = new[] { "review", "queue", "approve", "approval", "gate", "inbox", "waiting", "changes" },
+                KeybindingHint = "Ctrl+Shift+R",
+                Action = ToggleReview
             },
             new CommandPaletteEntry
             {

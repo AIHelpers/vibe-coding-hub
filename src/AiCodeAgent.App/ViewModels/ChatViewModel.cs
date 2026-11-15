@@ -171,7 +171,36 @@ public partial class ChatViewModel : ObservableObject
     private readonly Queue<PendingApprovalRequest> _approvalQueue = new();
     private sealed record PendingApprovalRequest(
         TaskCompletionSource<bool> Completion, string Risk, string ToolName, string Args, string Agent, string Role,
-        ApprovalItem? Item, ApprovalPreviewViewModel? Preview, ApprovalFeedback? Feedback, bool RulesApply = true);
+        ApprovalItem? Item, ApprovalPreviewViewModel? Preview, ApprovalFeedback? Feedback, bool RulesApply = true)
+    {
+        /// <summary>Identifies this request to the Review Queue, which may answer it out of order.</summary>
+        public string Key { get; } = Guid.NewGuid().ToString("N");
+        public DateTimeOffset Since { get; } = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>The request shown in the dialog (or waiting at the front of the Review Queue) right now.</summary>
+    private PendingApprovalRequest? _currentApprovalRequest;
+
+    /// <summary>
+    /// The Review Queue panel is open: approvals are answered there, so the modal dialog stays away. Closing the panel brings
+    /// the dialog back for the approval that is still waiting.
+    /// </summary>
+    [ObservableProperty]
+    private bool _approvalsInReviewQueue;
+
+    partial void OnApprovalsInReviewQueueChanged(bool value)
+    {
+        if (value) ShowApprovalDialog = false;
+        else if (_pendingApproval != null) ShowApprovalDialog = true;
+    }
+
+    /// <summary>Something started or stopped waiting for the user (an approval arrived or was answered).</summary>
+    public event EventHandler? PendingReviewChanged;
+
+    /// <summary>A task finished and has an evidence pack worth looking at (E10-S1); the Review Queue lists it.</summary>
+    public event Action<AiCodeAgent.Core.Evidence.EvidencePack>? TaskReadyForReview;
+
+    private void RaisePendingReviewChanged() => PendingReviewChanged?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Where "Deny with feedback" writes the user's note for the approval shown right now.</summary>
     private ApprovalFeedback? _currentApprovalFeedback;
@@ -186,6 +215,8 @@ public partial class ChatViewModel : ObservableObject
         _approvalQueue.Enqueue(new PendingApprovalRequest(completion, risk, toolName, args, agent, role, item, preview, feedback, rulesApply));
         if (_pendingApproval is null)
             ShowNextApproval();
+        else
+            RaisePendingReviewChanged();
     }
 
     private void ShowNextApproval()
@@ -216,20 +247,82 @@ public partial class ChatViewModel : ObservableObject
             _pendingApproval = next.Completion;
             _currentApprovalItem = next.Item;
             _currentApprovalFeedback = next.Feedback;
+            _currentApprovalRequest = next;
             CanSetApprovalRules = next.RulesApply;
             ApprovalPreview = next.Preview;
             IsEnteringApprovalFeedback = false;
             ApprovalFeedbackText = string.Empty;
-            ShowApprovalDialog = true;
+            ShowApprovalDialog = !ApprovalsInReviewQueue;
+            RaisePendingReviewChanged();
             return;
         }
 
         _pendingApproval = null;
         _currentApprovalItem = null;
         _currentApprovalFeedback = null;
+        _currentApprovalRequest = null;
         ApprovalPreview = null;
         IsEnteringApprovalFeedback = false;
         ShowApprovalDialog = false;
+        RaisePendingReviewChanged();
+    }
+
+    /// <summary>The approvals waiting for an answer, the one in front first.</summary>
+    internal IReadOnlyList<PendingApprovalInfo> PendingApprovals()
+    {
+        var list = new List<PendingApprovalInfo>();
+        if (_pendingApproval != null && _currentApprovalRequest != null && !_currentApprovalRequest.Completion.Task.IsCompleted)
+            list.Add(Describe(_currentApprovalRequest));
+        foreach (var request in _approvalQueue)
+            if (!request.Completion.Task.IsCompleted) list.Add(Describe(request));
+        return list;
+    }
+
+    private PendingApprovalInfo Describe(PendingApprovalRequest r) =>
+        new(r.Key, r.Risk, r.ToolName, r.Args, r.Agent, r.Role, r.Preview, r.Since);
+
+    /// <summary>
+    /// Answers one waiting approval for the Review Queue, in any order. A comment is only used with a denial: the agent gets it as
+    /// the tool result, exactly as with "Deny with feedback". False when the approval is gone already.
+    /// </summary>
+    internal bool ResolveApproval(string key, bool approved, string? comment = null)
+    {
+        var text = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
+
+        if (_currentApprovalRequest?.Key == key && _pendingApproval != null)
+        {
+            if (!approved && text != null && _currentApprovalFeedback != null) _currentApprovalFeedback.Text = text;
+            ResolveCurrentApproval(approved, !approved && text != null ? $"feedback: {text}" : null);
+            return true;
+        }
+
+        var found = _approvalQueue.FirstOrDefault(r => r.Key == key);
+        if (found == null) return false;
+        var rest = _approvalQueue.Where(r => r.Key != key).ToList();
+        _approvalQueue.Clear();
+        foreach (var r in rest) _approvalQueue.Enqueue(r);
+
+        if (!approved && text != null && found.Feedback != null) found.Feedback.Text = text;
+        found.Completion.TrySetResult(approved);
+        found.Item?.Resolve(approved, !approved && text != null ? $"feedback: {text}" : null);
+        RaisePendingReviewChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Sends a reviewer's comment about the finished task back to the agent as the next message. False, with the reason, when
+    /// the chat cannot take a message right now; nothing is overwritten or lost then.
+    /// </summary>
+    internal bool TrySendReviewComment(string comment, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(comment)) { message = "Write what should change."; return false; }
+        if (IsProcessing) { message = "The agent is still working. Wait for it to finish or stop it first."; return false; }
+        if (!string.IsNullOrWhiteSpace(InputText)) { message = "There is an unsent message in the chat box. Send or clear it first."; return false; }
+
+        InputText = "Review feedback on your last task. Please change it as follows:\n\n" + comment.Trim();
+        SendCommand.Execute(null);
+        message = "Sent to the agent.";
+        return true;
     }
 
     /// <summary>
@@ -293,6 +386,7 @@ public partial class ChatViewModel : ObservableObject
         _currentApprovalItem?.Resolve(false);
         _currentApprovalItem = null;
         _currentApprovalFeedback = null;
+        _currentApprovalRequest = null;
         ApprovalPreview = null;
         IsEnteringApprovalFeedback = false;
         while (_approvalQueue.Count > 0)
@@ -302,6 +396,7 @@ public partial class ChatViewModel : ObservableObject
             queued.Item?.Resolve(false);
         }
         ShowApprovalDialog = false;
+        RaisePendingReviewChanged();
     }
     // Feature 8: Conversational Requirements Clarification
     private readonly IRequirementsClarifier? _requirementsClarifier;
@@ -807,8 +902,9 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>E10-S1: puts the evidence card of the task that just finished at the end of the chat, when there is something to show.</summary>
     private void ShowEvidence()
     {
-        if (_agentService.TakeEvidence(SessionId) is { } pack)
-            Timeline.AddEvidence(pack);
+        if (_agentService.TakeEvidence(SessionId) is not { } pack) return;
+        Timeline.AddEvidence(pack);
+        TaskReadyForReview?.Invoke(pack);
     }
 
     /// <summary>

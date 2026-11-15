@@ -10,15 +10,17 @@ public static class SidePanelIds
     public const string Checkpoints = "checkpoints";
     public const string Sessions = "sessions";
     public const string Dashboard = "dashboard";
+    /// <summary>The Review Queue (E10-S3). It fills with what is waiting, so it is not reopened on its own next time.</summary>
+    public const string Review = "review";
     /// <summary>The autonomous plan. The agent opens it, so it is never remembered between runs.</summary>
     public const string Plan = "plan";
 
-    public static readonly IReadOnlyList<string> All = new[] { Changes, Tasks, Checkpoints, Sessions, Dashboard, Plan };
+    public static readonly IReadOnlyList<string> All = new[] { Changes, Tasks, Checkpoints, Sessions, Dashboard, Review, Plan };
 
     public static bool IsKnown(string? id) => id != null && All.Contains(id);
 
     /// <summary>True for panels the user opened on purpose and that are worth reopening next time.</summary>
-    public static bool IsRestorable(string? id) => IsKnown(id) && id != Plan;
+    public static bool IsRestorable(string? id) => IsKnown(id) && id != Plan && id != Review;
 }
 
 /// <summary>What is remembered for one workspace: which side panel was open and how wide it was.</summary>
