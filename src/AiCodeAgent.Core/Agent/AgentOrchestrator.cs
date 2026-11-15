@@ -986,6 +986,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             - Always read files before editing them to understand current state
             - Make minimal, targeted changes when fixing bugs
             - Run diagnostics after making changes to verify correctness
+            - For a task that changes code, if the acceptance_criteria tool is available, declare 2-8 checkable criteria before the first edit and mark each with its proof (tests, files, commands) after the last test run
             - Explain what you're doing and why
             - If a task is ambiguous, ask for clarification
             - Prefer editing specific code over rewriting entire files

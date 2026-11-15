@@ -35,6 +35,7 @@ public static class ToolCallCardFormatting
             ["find_references"] = "Find references",
             ["go_to_definition"] = "Go to definition",
             ["todo_write"] = "Update to-do list",
+            ["acceptance_criteria"] = "Acceptance criteria",
             ["scaffold_backend"] = "Scaffold backend",
         };
 

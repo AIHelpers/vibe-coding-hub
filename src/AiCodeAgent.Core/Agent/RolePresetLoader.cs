@@ -69,7 +69,7 @@ public class RolePresetLoader
             DefaultPermissionMode = PermissionMode.Plan,
             AllowedTools = new List<string>
             {
-                "read_file", "list_directory", "grep", "glob", "todo_write", "ask_user",
+                "read_file", "list_directory", "grep", "glob", "todo_write", "acceptance_criteria", "ask_user",
                 "get_diagnostics", "go_to_definition", "find_references"
             }
         };
@@ -96,7 +96,7 @@ public class RolePresetLoader
             AllowedTools = new List<string>
             {
                 "read_file", "write_file", "edit_file", "multi_edit", "apply_patch", "list_directory", "grep", "glob",
-                "execute_command", "run_diagnostics", "verify_changes", "browser_check", "todo_write", "ask_user",
+                "execute_command", "run_diagnostics", "verify_changes", "browser_check", "todo_write", "acceptance_criteria", "ask_user",
                 "git", "go_to_definition", "find_references"
             }
         };

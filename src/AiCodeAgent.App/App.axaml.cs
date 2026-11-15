@@ -412,6 +412,7 @@ public partial class App : Application
         services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.MultiEditTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.FileSystem.ApplyPatchTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.TodoWriteTool>();
+        services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AcceptanceCriteriaTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Planning.AskUserTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Verification.VerifyChangesTool>();
         services.AddSingleton<ITool, AiCodeAgent.Tools.Browser.BrowserCheckTool>();
