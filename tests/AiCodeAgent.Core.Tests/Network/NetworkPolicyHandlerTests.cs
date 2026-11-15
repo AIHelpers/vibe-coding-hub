@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using AiCodeAgent.Core.Network;
+using AiCodeAgent.Tests.Loopback;
 
 namespace AiCodeAgent.Core.Tests.Network;
 
@@ -193,7 +194,7 @@ public class NetworkPolicyHandlerTests
 
     private sealed class LoopbackServer : IDisposable
     {
-        private readonly HttpListener _listener = new();
+        private readonly HttpListener _listener;
         private readonly Task _loop;
         public int Port { get; }
         public List<string?> AuthorizationSeen { get; } = new();
@@ -201,13 +202,8 @@ public class NetworkPolicyHandlerTests
 
         public LoopbackServer()
         {
-            var probe = new TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            Port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-            _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
-            _listener.Prefixes.Add($"http://localhost:{Port}/");
-            _listener.Start();
+            _listener = LoopbackListener.Start(new[] { "127.0.0.1", "localhost" }, out var port);
+            Port = port;
             _loop = Task.Run(async () =>
             {
                 while (_listener.IsListening)
@@ -226,8 +222,7 @@ public class NetworkPolicyHandlerTests
 
         public void Dispose()
         {
-            try { _listener.Stop(); } catch { /* stopped */ }
-            _listener.Close();
+            LoopbackListener.Close(_listener);
         }
     }
 

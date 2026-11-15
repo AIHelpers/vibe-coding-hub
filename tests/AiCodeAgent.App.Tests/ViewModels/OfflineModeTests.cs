@@ -16,6 +16,7 @@ using AiCodeAgent.Core.Network;
 using AiCodeAgent.Core.Updates;
 using AiCodeAgent.Providers;
 using AiCodeAgent.Providers.Ollama;
+using AiCodeAgent.Tests.Loopback;
 using AiCodeAgent.Tools.Mcp;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -53,18 +54,14 @@ public class OfflineModeTests : IDisposable
     /// <summary>A stand-in for Ollama on a free loopback port.</summary>
     private sealed class FakeOllama : IDisposable
     {
-        private readonly HttpListener _listener = new();
+        private readonly HttpListener _listener;
         public int Port { get; }
         public int Requests;
 
         public FakeOllama()
         {
-            var probe = new TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            Port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-            _listener.Prefixes.Add($"http://localhost:{Port}/");
-            _listener.Start();
+            _listener = LoopbackListener.Start(new[] { "localhost" }, out var port);
+            Port = port;
             _ = Task.Run(async () =>
             {
                 while (_listener.IsListening)
@@ -88,8 +85,7 @@ public class OfflineModeTests : IDisposable
 
         public void Dispose()
         {
-            try { _listener.Stop(); } catch { /* stopped */ }
-            _listener.Close();
+            LoopbackListener.Close(_listener);
         }
     }
 
