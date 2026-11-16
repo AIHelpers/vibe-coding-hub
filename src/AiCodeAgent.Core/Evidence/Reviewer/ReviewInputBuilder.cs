@@ -12,6 +12,12 @@ public sealed record ReviewInput(
     string Task, IReadOnlyList<DeclaredCriterion> Criteria, string Diff, IReadOnlyList<string> ChangedFiles,
     IReadOnlyList<string> UnreviewedFiles, bool Truncated, IReadOnlyList<string> Facts)
 {
+    /// <summary>What earlier steps of a flow said (their plans and reports). Data for the reviewer, never instructions.</summary>
+    public string? Context { get; init; }
+
+    /// <summary>What the flow author asked this review to look at, from the step's prompt.</summary>
+    public string? Focus { get; init; }
+
     public bool HasChanges => ChangedFiles.Count > 0;
 }
 
@@ -61,6 +67,45 @@ public static class ReviewInputBuilder
 
         var criteria = pack.Acceptance?.Criteria.Select(c => new DeclaredCriterion(c.Id, c.Text)).ToList() ?? new List<DeclaredCriterion>();
         return new ReviewInput(pack.Task, criteria, diff.ToString(), ordered, left, truncated || left.Count > 0, Facts(pack));
+    }
+
+    /// <summary>
+    /// Builds the input for a flow's review step from the diffs the earlier steps produced, in the order they were made. Files are
+    /// ranked by the same risk score as the pack, so a diff that does not fit loses the files that matter least.
+    /// </summary>
+    public static ReviewInput FromChanges(string task, IEnumerable<(string Path, string Diff)> changes, int maxChars = DefaultMaxChars)
+    {
+        var perFile = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
+        foreach (var (path, text) in changes)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            if (!perFile.TryGetValue(path, out var sb)) perFile[path] = sb = new StringBuilder();
+            sb.AppendLine(text ?? string.Empty);
+        }
+
+        var scored = perFile.ToDictionary(kv => kv.Key, kv =>
+        {
+            var diff = kv.Value.ToString();
+            var (added, removed) = FileRiskScorer.CountLines(diff);
+            return FileRiskScorer.Score(kv.Key, added, removed, created: false, deleted: false, FileRiskScorer.TouchesPublicApi(kv.Key, diff), FileRiskScorer.IsTestPath(kv.Key)).Score;
+        }, StringComparer.Ordinal);
+        var ordered = perFile.Keys.OrderByDescending(p => scored[p]).ThenBy(p => p, StringComparer.Ordinal).ToList();
+
+        var diffText = new StringBuilder();
+        var left = new List<string>();
+        var truncated = false;
+        foreach (var path in ordered)
+        {
+            var text = perFile[path].ToString().TrimEnd();
+            if (text.Length == 0) continue;
+            var cut = false;
+            if (text.Length > MaxCharsPerFile) { text = text[..MaxCharsPerFile]; cut = true; }
+            var block = $"=== {path} ===\n{text}\n{(cut ? "[diff cut here]\n" : string.Empty)}\n";
+            if (diffText.Length + block.Length > maxChars) { left.Add(path); continue; }
+            diffText.Append(block);
+            truncated |= cut;
+        }
+        return new ReviewInput(task, new List<DeclaredCriterion>(), diffText.ToString(), ordered, left, truncated || left.Count > 0, new List<string>());
     }
 
     /// <summary>Plain facts the pack proved, so the reviewer does not repeat them or contradict them.</summary>

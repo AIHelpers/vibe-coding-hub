@@ -47,17 +47,33 @@ public sealed class ReviewService
             return ReviewOutcome.Failed("The run changed no files, so there is nothing to review.");
 
         var used = UsedBy(pack);
-        var choice = Pick(used.Providers, used.Models);
-        if (choice == null)
-            return ReviewOutcome.Failed("No model is available to review with. Add a provider with an API key in Settings.");
-
-        var outcome = await _reviewer.ReviewAsync(choice, input, cancellationToken).ConfigureAwait(false);
+        var outcome = await ReviewChangesAsync(input, used.Providers, used.Models, null, cancellationToken).ConfigureAwait(false);
         if (outcome.Review is { } review)
         {
             pack.Review = review;
             ReviewStore.TryWrite(pack.AuditPath, review, _logger);
         }
         return outcome;
+    }
+
+    /// <summary>
+    /// Reviews changes that are not (yet) in a finished run's pack: a flow's review step passes the diffs of the steps before it.
+    /// </summary>
+    /// <param name="usedProviders">Providers that wrote the change; an empty name means the session's provider.</param>
+    /// <param name="pin">A reviewer fixed by the step itself; it wins over the settings.</param>
+    public async Task<ReviewOutcome> ReviewChangesAsync(
+        ReviewInput input, IReadOnlyCollection<string> usedProviders, IReadOnlyCollection<string> usedModels,
+        ReviewerPreference? pin, CancellationToken cancellationToken = default)
+    {
+        if (!input.HasChanges)
+            return ReviewOutcome.Failed("The run changed no files, so there is nothing to review.");
+
+        var providers = usedProviders.Select(p => string.IsNullOrWhiteSpace(p) ? _resolver.DefaultProviderName ?? "" : p).ToList();
+        var preference = pin is { Provider: { Length: > 0 } } or { Model: { Length: > 0 } } ? pin : _preference();
+        var choice = ReviewerSelector.Choose(_resolver, providers, usedModels, preference);
+        if (choice == null)
+            return ReviewOutcome.Failed("No model is available to review with. Add a provider with an API key in Settings.");
+        return await _reviewer.ReviewAsync(choice, input, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The providers and models that wrote the change. A chat run used the session's provider; a flow records its steps' models.</summary>

@@ -476,6 +476,9 @@ public partial class FlowEditorViewModel : ObservableObject
     /// <summary>Palette id of the "Human decision" entry (it is not a character).</summary>
     public const string HumanItemId = "@human";
 
+    /// <summary>Palette id of the "Independent review" entry (E10-S4b; it is not a character either).</summary>
+    public const string ReviewItemId = "@review";
+
     private void RebuildPalette()
     {
         Palette.Clear();
@@ -488,6 +491,15 @@ public partial class FlowEditorViewModel : ObservableObject
                 Description = "Runs no agent: asks you to choose an outcome (and leave a note)",
                 BaseRole = null,
                 Avatar = "🧑"
+            });
+        if (filter.Length == 0 || "independent review second model reviewer".Contains(filter, StringComparison.OrdinalIgnoreCase))
+            Palette.Add(new FlowPaletteItem
+            {
+                CharacterId = ReviewItemId,
+                Label = "Independent review",
+                Description = "Runs no agent: a second model reviews the changes so far and answers approved or rejected",
+                BaseRole = null,
+                Avatar = "🔎"
             });
         foreach (var c in _characterById.Values.Where(c => !c.IsTemplate && c.IsValid).OrderBy(c => c.IsBuiltIn).ThenBy(c => c.Id, StringComparer.OrdinalIgnoreCase))
         {
@@ -693,7 +705,7 @@ public partial class FlowEditorViewModel : ObservableObject
                 {
                     Id = node.Id,
                     Name = string.IsNullOrWhiteSpace(s.Name) ? node.Id : s.Name,
-                    Kind = s.IsHuman ? "human" : string.Empty,
+                    Kind = s.IsHuman ? "human" : s.IsReview ? "review" : string.Empty,
                     CharacterId = s.Character,
                     Role = s.Role,
                     Model = s.Model?.Trim() ?? string.Empty,
@@ -735,6 +747,11 @@ public partial class FlowEditorViewModel : ObservableObject
             vm.CharacterLabel = "You decide";
             vm.Avatar = "🧑";
         }
+        else if (vm.IsReview)
+        {
+            vm.CharacterLabel = "Second model";
+            vm.Avatar = "🔎";
+        }
         else if (vm.CharacterId != null && _characterById.TryGetValue(vm.CharacterId, out var c))
         {
             vm.CharacterLabel = c.DisplayName; // the node shows the avatar next to it
@@ -760,8 +777,8 @@ public partial class FlowEditorViewModel : ObservableObject
         {
             Id = n.Id,
             Name = n.Name,
-            Kind = n.IsHuman ? "human" : null,
-            Character = n.IsHuman || string.IsNullOrWhiteSpace(n.CharacterId) ? null : n.CharacterId,
+            Kind = n.IsHuman ? "human" : n.IsReview ? "review" : null,
+            Character = n.IsHuman || n.IsReview || string.IsNullOrWhiteSpace(n.CharacterId) ? null : n.CharacterId,
             Role = n.Role ?? string.Empty,
             Model = string.IsNullOrWhiteSpace(n.Model) ? null : n.Model.Trim(),
             Provider = string.IsNullOrWhiteSpace(n.Provider) ? null : n.Provider.Trim(),
@@ -913,21 +930,23 @@ public partial class FlowEditorViewModel : ObservableObject
     {
         Snapshot();
         var human = characterId == HumanItemId;
-        var c = !human && _characterById.TryGetValue(characterId, out var info) ? info : null;
-        var baseId = human ? "human" : LocalFileStore.ToKebab(characterId);
+        var review = characterId == ReviewItemId;
+        var c = !human && !review && _characterById.TryGetValue(characterId, out var info) ? info : null;
+        var baseId = human ? "human" : review ? "review" : LocalFileStore.ToKebab(characterId);
         if (string.IsNullOrEmpty(baseId)) baseId = "step";
         var id = baseId;
         for (var i = 2; Nodes.Any(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase)); i++) id = $"{baseId}-{i}";
         var node = new FlowNodeViewModel
         {
             Id = id,
-            Name = human ? "Human decision" : c?.DisplayName ?? characterId,
-            CharacterId = human ? null : characterId,
+            Name = human ? "Human decision" : review ? "Independent review" : c?.DisplayName ?? characterId,
+            CharacterId = human || review ? null : characterId,
             Role = string.Empty,
-            Kind = human ? "human" : string.Empty,
-            OutcomesText = human ? "approved, rejected" : string.Empty,
+            Kind = human ? "human" : review ? "review" : string.Empty,
+            OutcomesText = human || review ? "approved, rejected" : string.Empty,
             PromptTemplate = human
                 ? "Review the result above and choose how the flow continues."
+                : review ? string.Empty
                 : "Task: {task}\n\nDescribe what this step must do.",
             X = Snap(Math.Max(0, x)),
             Y = Snap(Math.Max(0, y))

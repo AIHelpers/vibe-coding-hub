@@ -1012,4 +1012,11 @@ static void RegisterProvider(
         name => configSvc.GetProvider(name) is { } found ? ProviderEnvironment.Apply(found, name) : null,
         sp.GetRequiredService<ILoggerFactory>(),
         () => configSvc.Config.Providers.Keys.ToList()));
+
+    // Independent review (E10-S4/S4b): a flow's review step asks a second model.
+    services.AddSingleton(sp => new AiCodeAgent.Core.Evidence.ReviewService(
+        sp.GetRequiredService<IAiProviderResolver>(),
+        () => configSvc.Config.Reviewer is { } r && (!string.IsNullOrWhiteSpace(r.Provider) || !string.IsNullOrWhiteSpace(r.Model))
+            ? new AiCodeAgent.Core.Evidence.ReviewerPreference(r.Provider, r.Model) : null,
+        sp.GetRequiredService<ILoggerFactory>().CreateLogger<AiCodeAgent.Core.Evidence.ReviewService>()));
 }

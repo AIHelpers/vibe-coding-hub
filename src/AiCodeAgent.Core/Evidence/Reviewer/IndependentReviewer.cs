@@ -74,7 +74,11 @@ public sealed class IndependentReviewer
             ReviewedUtc = DateTimeOffset.UtcNow,
             Seconds = clock.Elapsed.TotalSeconds,
             Tokens = usage.PromptTokens + usage.CompletionTokens + usage.CacheReadTokens + usage.CacheCreationTokens,
-            CostUsd = ModelPricing.Cost(choice.Model, usage)
+            CostUsd = ModelPricing.Cost(choice.Model, usage),
+            PromptTokens = usage.PromptTokens,
+            CompletionTokens = usage.CompletionTokens,
+            CacheReadTokens = usage.CacheReadTokens,
+            CacheCreationTokens = usage.CacheCreationTokens
         });
     }
 

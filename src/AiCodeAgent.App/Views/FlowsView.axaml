@@ -385,10 +385,14 @@
                                 <TextBlock Text="Human step: runs no agent. It shows the prompt and asks you to pick one of the outcomes below."
                                            FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                            IsVisible="{Binding SelectedNode.IsHuman, FallbackValue=False}"/>
-                                <StackPanel x:Name="AgentSettings" Spacing="5" IsVisible="{Binding SelectedNode.IsAgent, FallbackValue=True}">
-                                <TextBlock Text="Character" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                                <TextBlock Text="Independent review: runs no agent. A second model reads the changes the steps before it made and answers approved or rejected. Model and provider choose the reviewer; leave them empty to use another provider than the one that wrote the code. The prompt is optional: say what to look at."
+                                           FontSize="10" TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextMutedBrush}"
+                                           IsVisible="{Binding SelectedNode.IsReview, FallbackValue=False}"/>
+                                <StackPanel x:Name="AgentSettings" Spacing="5" IsVisible="{Binding SelectedNode.UsesModel, FallbackValue=True}">
+                                <TextBlock Text="Character" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"
+                                           IsVisible="{Binding SelectedNode.IsAgent, FallbackValue=True}"/>
                                 <ComboBox ItemsSource="{Binding CharacterOptions}" SelectedItem="{Binding SelectedNode.CharacterId, FallbackValue={x:Null}}"
-                                          HorizontalAlignment="Stretch" FontSize="11"/>
+                                          HorizontalAlignment="Stretch" FontSize="11" IsVisible="{Binding SelectedNode.IsAgent, FallbackValue=True}"/>
                                 <TextBlock Text="Model (stage &gt; character &gt; session default)" FontSize="10" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <ComboBox x:Name="ModelCombo" ItemsSource="{Binding ModelOptions}" SelectedItem="{Binding SelectedNode.ModelSelection, FallbackValue={x:Null}}"
                                           HorizontalAlignment="Stretch" FontSize="11"
