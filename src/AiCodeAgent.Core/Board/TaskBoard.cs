@@ -48,8 +48,8 @@ public sealed class TaskBoard
         lock (_gate) return _cards.Count(c => c.Column == column);
     }
 
-    /// <summary>Adds a card to the Backlog. An empty title is taken from the first line of the prompt.</summary>
-    public BoardCard Add(string prompt, string? title = null)
+    /// <summary>Adds a card to the Backlog. An empty title is taken from the first line of the prompt; no agent means the default one.</summary>
+    public BoardCard Add(string prompt, string? title = null, AgentTarget? agent = null)
     {
         var text = (prompt ?? string.Empty).Trim();
         if (text.Length == 0) throw new ArgumentException("A card needs a task.", nameof(prompt));
@@ -57,7 +57,8 @@ public sealed class TaskBoard
         {
             Prompt = text,
             Title = string.IsNullOrWhiteSpace(title) ? BoardCard.TitleFrom(text) : title.Trim(),
-            CreatedAt = _clock.GetUtcNow()
+            CreatedAt = _clock.GetUtcNow(),
+            Agent = agent ?? AgentTarget.Default
         };
         lock (_gate)
         {
@@ -82,6 +83,10 @@ public sealed class TaskBoard
         Raise(BoardChangeKind.Removed, removed);
         return true;
     }
+
+    /// <summary>Chooses who does the work of a card that is not running; the next run uses it. Null when the card is missing or running.</summary>
+    public BoardCard? SetAgent(string id, AgentTarget agent) =>
+        Move(id, c => !c.IsRunning, c => c with { Agent = agent ?? AgentTarget.Default });
 
     /// <summary>Backlog → Running. Null when the card is missing or not in the Backlog.</summary>
     public BoardCard? BeginRun(string id) => Move(id, c => c.Column == BoardColumn.Backlog, c => c with

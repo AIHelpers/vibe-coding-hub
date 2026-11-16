@@ -42,6 +42,8 @@ public sealed record BoardCard
     public string Title { get; init; } = string.Empty;
     /// <summary>What the agent is asked to do.</summary>
     public string Prompt { get; init; } = string.Empty;
+    /// <summary>Who does the work (E11-S2). A retry uses the same agent; change it while the card is waiting in the Backlog or after a run.</summary>
+    public AgentTarget Agent { get; init; } = AgentTarget.Default;
     public BoardColumn Column { get; init; } = BoardColumn.Backlog;
     public CardOutcome Outcome { get; init; } = CardOutcome.None;
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
