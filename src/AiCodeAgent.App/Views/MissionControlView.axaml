@@ -1,0 +1,121 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AiCodeAgent.App.ViewModels"
+             x:Class="AiCodeAgent.App.Views.MissionControlView"
+             x:DataType="vm:MissionControlViewModel">
+
+    <UserControl.Resources>
+        <!-- One card, used by all four columns. Its actions are commands of the card itself. -->
+        <DataTemplate x:Key="CardTemplate" x:DataType="vm:BoardCardViewModel">
+            <Border Background="{DynamicResource AppSubBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8"
+                    ToolTip.Tip="{Binding Prompt}">
+                <StackPanel Spacing="5">
+                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"/>
+
+                    <WrapPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontSize="10" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                        <TextBlock Text="{Binding CostText}" IsVisible="{Binding HasCost}" FontSize="10" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                        <TextBlock Text="{Binding TokensText}" IsVisible="{Binding HasTokens}" FontSize="10" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                        <TextBlock Text="{Binding ToolCallsText}" IsVisible="{Binding HasToolCalls}" FontSize="10" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                        <TextBlock Text="{Binding TimeText}" IsVisible="{Binding HasTime}" FontSize="10" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                        <TextBlock Text="{Binding RunText}" IsVisible="{Binding HasRunNumber}" FontSize="10"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                    </WrapPanel>
+
+                    <!-- The last thing the agent did: what a running card is busy with. -->
+                    <TextBlock Text="{Binding LastActionText}" IsVisible="{Binding HasLastAction}" FontSize="11" FontFamily="Consolas,Menlo,monospace"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeTextMutedBrush}"
+                               ToolTip.Tip="{Binding LastActionText}"/>
+
+                    <!-- The agent's answer, or why the run failed. -->
+                    <TextBlock Text="{Binding SummaryText}" IsVisible="{Binding HasSummary}" FontSize="11"
+                               TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding SummaryText}"/>
+
+                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasBranch}">
+                        <TextBlock Grid.Column="0" Text="{Binding BranchText}" FontSize="10" FontFamily="Consolas,Menlo,monospace"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource ThemeTextMutedBrush}" ToolTip.Tip="{Binding BranchToolTip}"/>
+                        <Button Grid.Column="1" Content="Copy branch" Click="OnCopyBranchClick" FontSize="10" Padding="6,2" Margin="6,0,0,0"/>
+                    </Grid>
+
+                    <WrapPanel Orientation="Horizontal">
+                        <Button Content="▶ Start" Command="{Binding StartCommand}" IsVisible="{Binding CanStart}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="■ Stop" Command="{Binding StopCommand}" IsVisible="{Binding CanStop}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="✓ Mark done" Command="{Binding MarkDoneCommand}" IsVisible="{Binding CanMarkDone}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="↻ Retry" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="Back to backlog" Command="{Binding ReturnCommand}" IsVisible="{Binding CanReturn}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanRemove}" FontSize="10" Padding="8,3"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{DynamicResource AppHeaderBrush}" Padding="10" CornerRadius="4,4,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Mission Control" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ProjectName}" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                    <TextBlock Text="{Binding RunningCount, StringFormat='{}{0} running'}" IsVisible="{Binding HasRunning}"
+                               FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource ThemeAccentBrush}"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="✕" Width="24" Height="24" Padding="0" FontSize="11" Command="{Binding CloseCommand}"/>
+            </Grid>
+        </Border>
+
+        <!-- New card -->
+        <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBox Grid.Column="0" Text="{Binding NewTaskText}" FontSize="12"
+                         Watermark="Describe a task and press Enter, e.g. 'add unit tests for the checkout module'. Each card runs in its own git worktree.">
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding AddCardCommand}"/>
+                    </TextBox.KeyBindings>
+                </TextBox>
+                <Button Grid.Column="1" Content="＋ Add to backlog" Command="{Binding AddCardCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+                <Button Grid.Column="2" Content="{Binding StartAllText}" Command="{Binding StartAllCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Notice -->
+        <Border Grid.Row="2" IsVisible="{Binding HasNotice}" Background="{DynamicResource AppSubBrush}" Padding="10,6">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding Notice}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource ThemeDangerBrush}"/>
+                <Button Grid.Column="1" Content="✕" Command="{Binding DismissNoticeCommand}" Width="22" Height="22" Padding="0" FontSize="10"/>
+            </Grid>
+        </Border>
+
+        <!-- Columns -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,*,*,*" Margin="8">
+            <TextBlock Grid.ColumnSpan="4" Text="No cards yet. Add a task above, then start it: the agent works on its own branch and the card moves to Needs review when it stops."
+                       IsVisible="{Binding HasNoCards}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       TextWrapping="Wrap" MaxWidth="480" FontSize="12" Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+
+            <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,6,0">
+                <TextBlock Text="{Binding Backlog.Count, StringFormat='BACKLOG · {0}'}" FontSize="11" FontWeight="SemiBold" Margin="2,0,0,6"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding Backlog}" ItemTemplate="{StaticResource CardTemplate}"/></ScrollViewer>
+            </Grid>
+            <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="0,0,6,0">
+                <TextBlock Text="{Binding Running.Count, StringFormat='RUNNING · {0}'}" FontSize="11" FontWeight="SemiBold" Margin="2,0,0,6" Foreground="{DynamicResource ThemeAccentBrush}"/>
+                <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding Running}" ItemTemplate="{StaticResource CardTemplate}"/></ScrollViewer>
+            </Grid>
+            <Grid Grid.Column="2" RowDefinitions="Auto,*" Margin="0,0,6,0">
+                <TextBlock Text="{Binding NeedsReview.Count, StringFormat='NEEDS REVIEW · {0}'}" FontSize="11" FontWeight="SemiBold" Margin="2,0,0,6" Foreground="{DynamicResource ThemeWarningBrush}"/>
+                <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding NeedsReview}" ItemTemplate="{StaticResource CardTemplate}"/></ScrollViewer>
+            </Grid>
+            <Grid Grid.Column="3" RowDefinitions="Auto,*">
+                <TextBlock Text="{Binding Done.Count, StringFormat='DONE · {0}'}" FontSize="11" FontWeight="SemiBold" Margin="2,0,0,6" Foreground="{DynamicResource ThemeSuccessBrush}"/>
+                <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding Done}" ItemTemplate="{StaticResource CardTemplate}"/></ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

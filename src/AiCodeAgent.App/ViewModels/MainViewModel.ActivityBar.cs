@@ -61,6 +61,7 @@ public partial class MainViewModel
                     new ActivityBarItem(ActivityBarIds.Explorer, "Explorer", ActivityBarIcons.Explorer, ToggleFileExplorerCommand, "Ctrl+B", "files of the project"),
                     new ActivityBarItem(ActivityBarIds.Changes, "Changes", ActivityBarIcons.Changes, ToggleSourceControlCommand, "Ctrl+Shift+G", "stage, diff and commit"),
                     new ActivityBarItem(ActivityBarIds.Flows, "Flows", ActivityBarIcons.Flows, ToggleFlowsCommand, description: "draw and run flows of characters"),
+                    new ActivityBarItem(ActivityBarIds.Board, "Board", ActivityBarIcons.Board, ToggleMissionControlCommand, description: "run several tasks side by side", badgeColor: "#4A9EFF"),
                     new ActivityBarItem(ActivityBarIds.Tasks, "Tasks", ActivityBarIcons.Tasks, ToggleBackgroundTasksCommand, description: "delegate work, keep chatting", badgeColor: "#4A9EFF"),
                     new ActivityBarItem(ActivityBarIds.Review, "Review", ActivityBarIcons.Review, ToggleReviewCommand, "Ctrl+Shift+R", "everything waiting for you", badgeColor: "#E0A030"),
                 }),
@@ -100,7 +101,7 @@ public partial class MainViewModel
                 or nameof(ActiveScreen))
                 RefreshNavigationState();
         };
-        foreach (var source in new object[] { SourceControl, Flows, BackgroundTasks, ProjectKnowledge, DiffViewer, Review })
+        foreach (var source in new object[] { SourceControl, Flows, BackgroundTasks, ProjectKnowledge, DiffViewer, Review, MissionControl })
         {
             // Some of these are ReactiveObjects, which implement the event explicitly.
             ((INotifyPropertyChanged)source).PropertyChanged += OnNavigationSourcePropertyChanged;
@@ -197,7 +198,7 @@ public partial class MainViewModel
 
     // ----- State of the bar and the host -----
 
-    private bool IsMainAreaOverlayOpen => ProjectKnowledge.IsVisible || Flows.IsVisible || DiffViewer.IsVisible;
+    private bool IsMainAreaOverlayOpen => ProjectKnowledge.IsVisible || Flows.IsVisible || DiffViewer.IsVisible || MissionControl.IsVisible;
 
     /// <summary>Recomputes which activity bar entries are active, the badges, and the host state; saves the panel choice.</summary>
     private void RefreshNavigationState()
@@ -216,6 +217,7 @@ public partial class MainViewModel
         if (panel == SidePanelIds.Dashboard) active.Add(ActivityBarIds.Dashboard);
         if (panel == SidePanelIds.Review) active.Add(ActivityBarIds.Review);
         if (Flows.IsVisible) active.Add(ActivityBarIds.Flows);
+        if (MissionControl.IsVisible) active.Add(ActivityBarIds.Board);
         if (ProjectKnowledge.IsVisible)
         {
             active.Add(ProjectKnowledge.ActiveTabIndex switch
@@ -231,6 +233,7 @@ public partial class MainViewModel
         ActivityBar.SetBadge(ActivityBarIds.Changes, FileExplorer.Changes.Count);
         ActivityBar.SetBadge(ActivityBarIds.Tasks, BackgroundTasks.RunningCount);
         ActivityBar.SetBadge(ActivityBarIds.Review, Review.PendingCount);
+        ActivityBar.SetBadge(ActivityBarIds.Board, MissionControl.RunningCount);
 
         OnPropertyChanged(nameof(ActiveSidePanel));
         OnPropertyChanged(nameof(IsSidePanelOpen));

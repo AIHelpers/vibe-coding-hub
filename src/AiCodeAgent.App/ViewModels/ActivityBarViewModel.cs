@@ -15,6 +15,7 @@ public static class ActivityBarIds
     public const string Explorer = "explorer";
     public const string Changes = "changes";
     public const string Flows = "flows";
+    public const string Board = "board";
     public const string Tasks = "tasks";
     public const string Review = "review";
     public const string Characters = "characters";
@@ -35,6 +36,8 @@ public static class ActivityBarIcons
 {
     /// <summary>Material "inbox".</summary>
     public const string Review = "M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z";
+    /// <summary>Material "view_column": the columns of the Mission Control board.</summary>
+    public const string Board = "M10 18h5V5h-5v13zm-6 0h5V5H4v13zM16 5v13h5V5h-5z";
     public const string Menu = "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z";
     public const string Chat = "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z";
     public const string Explorer = "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z";

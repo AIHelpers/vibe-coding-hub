@@ -71,7 +71,11 @@ public partial class MainViewModel : ObservableObject
     public FlowEditorViewModel Flows { get; }
 
     /// <summary>A new working directory: its <c>.aiagent/pipelines</c> flows are listed next to the global ones (project flows win on a name clash).</summary>
-    partial void OnWorkingDirectoryChanged(string value) => Flows?.SetProjectDirectory(value);
+    partial void OnWorkingDirectoryChanged(string value)
+    {
+        Flows?.SetProjectDirectory(value);
+        MissionControl?.SetProject(value);
+    }
     public BackgroundTaskManagerViewModel BackgroundTasks { get; }
     public SourceControlViewModel SourceControl { get; }
 
@@ -180,6 +184,9 @@ public partial class MainViewModel : ObservableObject
 
         // Review Queue: approvals, flow gates and finished tasks in one list (E10-S3).
         InitializeReview();
+
+        // Mission Control: the task board with one worktree per card (E11-S1).
+        InitializeMissionControl();
 
         // Activity bar + side-panel host; brings back the panel this workspace had open last time.
         InitializeActivityBar();
@@ -448,6 +455,7 @@ public partial class MainViewModel : ObservableObject
         Flows.Close();
         BackgroundTasks.Close();
         Review?.Close();
+        if (MissionControl != null) MissionControl.IsVisible = false;
         if (!keepSourceControl)
             SourceControl.Close();
     }
@@ -1192,6 +1200,15 @@ public partial class MainViewModel : ObservableObject
                 Keywords = new[] { "flow", "flows", "pipeline", "workflow", "graph", "parallel", "characters", "canvas", "drawio" },
                 KeybindingHint = "",
                 Action = () => SafeFireAndForget(ToggleFlowsAsync(), "ToggleFlows")
+            },
+            new CommandPaletteEntry
+            {
+                Id = "nav.board",
+                Title = "Mission Control (task board, run several tasks side by side)",
+                Category = "Navigation",
+                Keywords = new[] { "board", "mission", "control", "kanban", "tasks", "parallel", "worktree", "backlog", "agents" },
+                KeybindingHint = "",
+                Action = () => ToggleMissionControlCommand.Execute(null)
             },
             new CommandPaletteEntry
             {
