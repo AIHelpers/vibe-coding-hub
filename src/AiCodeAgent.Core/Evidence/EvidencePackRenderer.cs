@@ -43,6 +43,14 @@ public static class EvidencePackRenderer
             RenderAcceptance(sb, p.Acceptance);
         }
 
+        if (p.Review != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### Independent review");
+            sb.AppendLine();
+            RenderReview(sb, p.Review);
+        }
+
         sb.AppendLine();
         sb.AppendLine("### Tests");
         sb.AppendLine();
@@ -117,6 +125,7 @@ public static class EvidencePackRenderer
         sb.AppendLine();
         sb.AppendLine($"- **Tests:** {TestsLine(p)}");
         if (p.Acceptance != null) sb.AppendLine($"- **Acceptance:** {AcceptanceLine(p.Acceptance)}");
+        if (p.Review != null) sb.AppendLine($"- **Review:** {ReviewLine(p.Review)}");
         sb.AppendLine($"- **Build:** {CheckLine(p.Build)} · **Lint:** {CheckLine(p.Lint)}");
         sb.AppendLine($"- **Files:** {FilesLine(p)}");
         if (p.Gaps.Count > 0)
@@ -125,6 +134,79 @@ public static class EvidencePackRenderer
             sb.AppendLine("**Not proven**");
             sb.AppendLine();
             foreach (var g in p.Gaps) sb.AppendLine($"- {g}");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>One line for the card: the verdict, how many findings, and who said it.</summary>
+    private static string ReviewLine(IndependentReview r)
+    {
+        var verdict = r.Verdict switch { ReviewVerdict.Approve => "no blocking findings", ReviewVerdict.Concerns => "concerns", _ => "changes requested" };
+        var counts = r.Findings.Count == 0 ? "no findings" : $"{r.Findings.Count} finding(s), {r.HighCount} high";
+        var who = r.Independence == ReviewIndependence.SameModel ? $"{Plain(r.ReviewerLabel)}, the same model that wrote it" : Plain(r.ReviewerLabel);
+        return $"{verdict} · {counts} · by {who}";
+    }
+
+    private static void RenderReview(StringBuilder sb, IndependentReview r)
+    {
+        sb.AppendLine($"**{ReviewLine(r)}**" + $" · ${r.CostUsd.ToString("0.00", Inv)}");
+        sb.AppendLine();
+        switch (r.Independence)
+        {
+            case ReviewIndependence.SameModel:
+                sb.AppendLine("> Not independent: the model that wrote the change also reviewed it, so it may share its blind spots. Configure a second provider for a real second opinion.");
+                sb.AppendLine();
+                break;
+            case ReviewIndependence.DifferentModel:
+                sb.AppendLine("> Another model of the same provider reviewed this change.");
+                sb.AppendLine();
+                break;
+        }
+        sb.AppendLine("This is a second model's opinion, not proof. It never overrules a failing test or an unproven criterion above.");
+        if (!string.IsNullOrWhiteSpace(r.Summary)) sb.AppendLine().AppendLine(Plain(r.Summary));
+        if (r.DiffTruncated || r.UnreviewedFiles.Count > 0)
+        {
+            sb.AppendLine().Append("**Not fully reviewed:** the diff was too large for one request.");
+            if (r.UnreviewedFiles.Count > 0) sb.Append($" Not shown to the reviewer: {string.Join(", ", r.UnreviewedFiles.Take(MaxNames).Select(f => $"`{Code(f)}`"))}" + (r.UnreviewedFiles.Count > MaxNames ? $" and {r.UnreviewedFiles.Count - MaxNames} more" : "") + ".");
+            sb.AppendLine();
+        }
+
+        if (r.Findings.Count > 0)
+        {
+            sb.AppendLine();
+            foreach (var f in r.Findings)
+            {
+                var where = f.File == null ? "" : $" (`{Code(f.File)}`{(f.Line is { } l ? $":{l}" : "")}{(f.Criterion != null ? $", {f.Criterion}" : "")})";
+                sb.AppendLine($"- **{f.Severity.ToString().ToLowerInvariant()}** · {Plain(f.Title)}{where}" + (string.IsNullOrWhiteSpace(f.Detail) ? "" : $": {Plain(f.Detail)}"));
+            }
+        }
+        if (r.Criteria.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Criteria as the reviewer read the diff:").AppendLine();
+            foreach (var c in r.Criteria)
+                sb.AppendLine($"- {c.Id}: {c.Assessment switch { CriterionAssessment.Satisfied => "satisfied", CriterionAssessment.NotSatisfied => "**not satisfied**", _ => "unclear" }}" + (string.IsNullOrWhiteSpace(c.Note) ? "" : $" ({Plain(c.Note)})"));
+        }
+    }
+
+    /// <summary>
+    /// Text written by a model, made safe to show as Markdown: no links, images, HTML or code fences. A rendered image or link in
+    /// a review could otherwise phone home with whatever the model was shown.
+    /// </summary>
+    internal static string Plain(string s)
+    {
+        var flat = s.ReplaceLineEndings(" ");
+        var sb = new StringBuilder(flat.Length);
+        foreach (var ch in flat)
+        {
+            switch (ch)
+            {
+                case '[' or ']' or '<' or '>' or '`' or '|' or '*' or '_' or '!' or '\\' or '#':
+                    sb.Append('\\').Append(ch);
+                    break;
+                default:
+                    sb.Append(ch);
+                    break;
+            }
         }
         return sb.ToString();
     }

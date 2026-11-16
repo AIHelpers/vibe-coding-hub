@@ -86,6 +86,19 @@ public sealed class EvidencePack
     public IReadOnlyList<string> Gaps { get; init; } = Array.Empty<string>();
 
     /// <summary>
+    /// What a second model said about the diff (E10-S4); null until a review was asked for. Attached after the pack was built,
+    /// because the review runs when the user asks, and kept in its own file (<see cref="ReviewStore"/>).
+    /// </summary>
+    public IndependentReview? Review { get; set; }
+
+    /// <summary>
+    /// The audit file this pack was built from, so a review can read the diffs. Not part of the stored or exported pack:
+    /// it is a path on this machine.
+    /// </summary>
+    [JsonIgnore]
+    public string? AuditPath { get; set; }
+
+    /// <summary>
     /// False for a run that only read and answered: no file changed, no test, build or lint ran. The app shows a pack
     /// only when there is something to look at, so a plain question does not end with an evidence card.
     /// </summary>

@@ -3,8 +3,11 @@ using AiCodeAgent.App.Services;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using AiCodeAgent.Core.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace AiCodeAgent.App.ViewModels;
 
@@ -90,25 +93,101 @@ public sealed partial class ToolCallItem : ChatItem
 
 /// <summary>
 /// E10-S1: what a reviewer should look at once a task is done: tests before and after, build and lint, the riskiest files,
-/// and what is not proven. <see cref="Markdown"/> is the full pack, ready for a pull request body.
+/// and what is not proven. <see cref="Markdown"/> is the full pack, ready for a pull request body. E10-S4: the card can ask a
+/// second model to review the diff; its findings join the pack and the card is redrawn.
 /// </summary>
-public sealed class EvidenceItem : ChatItem
+public sealed partial class EvidenceItem : ChatItem
 {
-    public EvidenceItem(AiCodeAgent.Core.Evidence.EvidencePack pack)
+    private readonly Func<AiCodeAgent.Core.Evidence.EvidencePack, CancellationToken, Task<AiCodeAgent.Core.Evidence.ReviewOutcome>>? _reviewer;
+    private CancellationTokenSource? _cts;
+
+    public EvidenceItem(
+        AiCodeAgent.Core.Evidence.EvidencePack pack,
+        Func<AiCodeAgent.Core.Evidence.EvidencePack, CancellationToken, Task<AiCodeAgent.Core.Evidence.ReviewOutcome>>? reviewer = null)
     {
         Pack = pack;
-        Summary = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToSummaryMarkdown(pack);
-        Markdown = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToMarkdown(pack);
-        HasGaps = pack.Gaps.Count > 0;
+        _reviewer = reviewer;
+        Redraw();
     }
 
     public AiCodeAgent.Core.Evidence.EvidencePack Pack { get; }
+
     /// <summary>The short card shown in the chat.</summary>
-    public string Summary { get; }
+    [ObservableProperty]
+    private string _summary = string.Empty;
+
     /// <summary>The full pack as Markdown (the expander and the copy button).</summary>
-    public string Markdown { get; }
+    [ObservableProperty]
+    private string _markdown = string.Empty;
+
     /// <summary>True when something is not proven: the card is then drawn as a warning.</summary>
-    public bool HasGaps { get; }
+    [ObservableProperty]
+    private bool _hasGaps;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanReview), nameof(ReviewButtonText))]
+    private bool _isReviewing;
+
+    /// <summary>Why the last review could not be made, or empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReviewError))]
+    private string _reviewError = string.Empty;
+
+    public bool HasReviewError => ReviewError.Length > 0;
+
+    /// <summary>Raised on the UI thread when a review was attached to the pack.</summary>
+    public event Action? Reviewed;
+
+    /// <summary>A second model can only look at a change, and needs the audit trail the diffs are read from.</summary>
+    public bool CanReview => _reviewer != null && !IsReviewing && Pack.Files.Count > 0 && !string.IsNullOrEmpty(Pack.AuditPath);
+
+    /// <summary>The card offers the review only when it can be run at all.</summary>
+    public bool OffersReview => _reviewer != null && Pack.Files.Count > 0 && !string.IsNullOrEmpty(Pack.AuditPath);
+
+    public string ReviewButtonText => IsReviewing ? "Reviewing…" : Pack.Review == null ? "Review with a second model" : "Review again";
+
+    [RelayCommand]
+    private async Task ReviewAsync()
+    {
+        if (!CanReview) return;
+        IsReviewing = true;
+        ReviewError = string.Empty;
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        try
+        {
+            var outcome = await _reviewer!(Pack, _cts.Token);
+            if (outcome.Succeeded)
+            {
+                Redraw();
+                Reviewed?.Invoke();
+            }
+            else
+            {
+                ReviewError = outcome.Error ?? "The review could not be made.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            ReviewError = "The review was cancelled.";
+        }
+        finally
+        {
+            IsReviewing = false;
+            OnPropertyChanged(nameof(ReviewButtonText));
+        }
+    }
+
+    [RelayCommand]
+    private void CancelReview() => _cts?.Cancel();
+
+    private void Redraw()
+    {
+        Summary = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToSummaryMarkdown(Pack);
+        Markdown = AiCodeAgent.Core.Evidence.EvidencePackRenderer.ToMarkdown(Pack);
+        HasGaps = Pack.Gaps.Count > 0;
+        OnPropertyChanged(nameof(ReviewButtonText));
+    }
 }
 
 public enum ApprovalStatus { Pending, Approved, Declined }
@@ -219,9 +298,11 @@ public sealed class ChatTimeline
     }
 
     /// <summary>Appends the evidence card of a finished task.</summary>
-    public EvidenceItem AddEvidence(AiCodeAgent.Core.Evidence.EvidencePack pack)
+    public EvidenceItem AddEvidence(
+        AiCodeAgent.Core.Evidence.EvidencePack pack,
+        Func<AiCodeAgent.Core.Evidence.EvidencePack, CancellationToken, Task<AiCodeAgent.Core.Evidence.ReviewOutcome>>? reviewer = null)
     {
-        var item = new EvidenceItem(pack);
+        var item = new EvidenceItem(pack, reviewer);
         Append(item);
         return item;
     }

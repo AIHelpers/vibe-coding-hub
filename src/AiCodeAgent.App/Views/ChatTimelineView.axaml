@@ -108,9 +108,17 @@
                                 <Grid ColumnDefinitions="*,Auto">
                                     <TextBlock Grid.Column="0" Text="Evidence pack" FontWeight="SemiBold" FontSize="12"
                                                Foreground="{DynamicResource ThemeTextMutedBrush}" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Content="Copy for PR body" Click="CopyEvidenceButton_ClickAsync"
-                                            ToolTip.Tip="Copy the full evidence pack as Markdown"
-                                            FontSize="11" Padding="6,2" Cursor="Hand"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                        <Button Content="{Binding ReviewButtonText}" Command="{Binding ReviewCommand}"
+                                                IsVisible="{Binding OffersReview}" IsEnabled="{Binding CanReview}"
+                                                ToolTip.Tip="A different model reads the diff and reports problems. It is an opinion, not proof."
+                                                FontSize="11" Padding="6,2" Cursor="Hand"/>
+                                        <Button Content="Cancel" Command="{Binding CancelReviewCommand}" IsVisible="{Binding IsReviewing}"
+                                                FontSize="11" Padding="6,2" Cursor="Hand"/>
+                                        <Button Content="Copy for PR body" Click="CopyEvidenceButton_ClickAsync"
+                                                ToolTip.Tip="Copy the full evidence pack as Markdown"
+                                                FontSize="11" Padding="6,2" Cursor="Hand"/>
+                                    </StackPanel>
                                 </Grid>
                                 <md:MarkdownScrollViewer ctl:MarkdownWrap.WrapText="True" Markdown="{Binding Summary}">
                                     <md:MarkdownScrollViewer.Styles>
@@ -122,6 +130,8 @@
                                         </md:MdAvPlugins>
                                     </md:MarkdownScrollViewer.Plugins>
                                 </md:MarkdownScrollViewer>
+                                <TextBlock Text="{Binding ReviewError}" IsVisible="{Binding HasReviewError}" TextWrapping="Wrap" FontSize="11"
+                                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                                 <Expander Header="Full evidence" FontSize="12">
                                     <md:MarkdownScrollViewer ctl:MarkdownWrap.WrapText="True" Markdown="{Binding Markdown}">
                                         <md:MarkdownScrollViewer.Styles>

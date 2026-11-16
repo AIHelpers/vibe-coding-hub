@@ -47,6 +47,15 @@ public class AgentService
     public AiCodeAgent.Core.Evidence.EvidencePack? TakeEvidence(string sessionId) =>
         _evidence.TryRemove(sessionId, out var pack) ? pack : null;
 
+    private readonly AiCodeAgent.Core.Evidence.ReviewService? _reviewService;
+
+    /// <summary>
+    /// E10-S4: asks a second model to review the diff behind <paramref name="pack"/>. Null when this host has no way to
+    /// reach a provider, so the evidence card shows no review button.
+    /// </summary>
+    public Func<AiCodeAgent.Core.Evidence.EvidencePack, CancellationToken, Task<AiCodeAgent.Core.Evidence.ReviewOutcome>>? Reviewer =>
+        _reviewService == null ? null : _reviewService.ReviewAsync;
+
     public AgentService(
         IAgentOrchestrator orchestrator,
         IToolRegistry toolRegistry,
@@ -55,8 +64,10 @@ public class AgentService
         IAgentEventBus eventBus,
         SessionRecorder recorder,
         IProjectMemoryLoader? memoryLoader = null,
-        AiCodeAgent.Core.Configuration.ConfigurationService? configuration = null)
+        AiCodeAgent.Core.Configuration.ConfigurationService? configuration = null,
+        AiCodeAgent.Core.Evidence.ReviewService? reviewService = null)
     {
+        _reviewService = reviewService;
         _configuration = configuration;
         _orchestrator = orchestrator;
         _toolRegistry = toolRegistry;

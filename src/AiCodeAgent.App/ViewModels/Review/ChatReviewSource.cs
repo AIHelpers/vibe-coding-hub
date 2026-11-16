@@ -82,7 +82,8 @@ public sealed class ChatReviewSource : IReviewSource
             Id = "task:" + pack.RunId,
             Kind = ReviewKind.FinishedTask,
             Title = title.Length == 0 ? "Finished task" : title,
-            Subtitle = $"Chat · {pack.Status} · ${pack.CostUsd:0.00}" + (pack.Gaps.Count > 0 ? $" · {pack.Gaps.Count} not proven" : string.Empty),
+            Subtitle = $"Chat · {pack.Status} · ${pack.CostUsd:0.00}" + (pack.Gaps.Count > 0 ? $" · {pack.Gaps.Count} not proven" : string.Empty)
+                + (pack.Review is { } review ? $" · reviewed: {review.Findings.Count} finding(s), {review.HighCount} high" : string.Empty),
             Detail = EvidencePackRenderer.ToMarkdown(pack),
             Since = f.Since,
             ApproveLabel = "Accept",

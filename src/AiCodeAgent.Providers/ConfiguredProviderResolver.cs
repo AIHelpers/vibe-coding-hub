@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using AiCodeAgent.Core.Configuration;
 using AiCodeAgent.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -14,11 +15,14 @@ public sealed class ConfiguredProviderResolver : IAiProviderResolver
 {
     private readonly Func<string?> _defaultName;
     private readonly Func<string, ProviderConfiguration?> _getProvider;
+    private readonly Func<IEnumerable<string>>? _listProviders;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ConcurrentDictionary<string, IAiProvider> _providers = new(StringComparer.OrdinalIgnoreCase);
 
-    public ConfiguredProviderResolver(Func<string?> defaultName, Func<string, ProviderConfiguration?> getProvider, ILoggerFactory loggerFactory)
+    public ConfiguredProviderResolver(Func<string?> defaultName, Func<string, ProviderConfiguration?> getProvider, ILoggerFactory loggerFactory,
+        Func<IEnumerable<string>>? listProviders = null)
     {
+        _listProviders = listProviders;
         _defaultName = defaultName;
         _getProvider = getProvider;
         _loggerFactory = loggerFactory;
@@ -32,6 +36,23 @@ public sealed class ConfiguredProviderResolver : IAiProviderResolver
         var name = providerName.Trim().ToLowerInvariant();
         if (_getProvider(name) == null) return null;
         return _providers.GetOrAdd(name, n => new ConfiguredAiProvider(() => Settings(n), _loggerFactory));
+    }
+
+    /// <summary>Configured providers that can be called: they have a key, or point at this machine.</summary>
+    public IReadOnlyList<string> ProviderNames =>
+        (_listProviders?.Invoke() ?? Enumerable.Empty<string>())
+        .Select(n => n.Trim().ToLowerInvariant())
+        .Where(n => n.Length > 0 && _getProvider(n) is { } cfg && IsUsable(n, cfg))
+        .Distinct()
+        .ToList();
+
+    public string? DefaultModel(string providerName) =>
+        _getProvider(providerName.Trim().ToLowerInvariant()) is { DefaultModel: { Length: > 0 } model } ? model : null;
+
+    private static bool IsUsable(string name, ProviderConfiguration cfg)
+    {
+        if (!string.IsNullOrWhiteSpace(WithApiKey(name, cfg).ApiKey)) return true;
+        return Uri.TryCreate(cfg.BaseUrl, UriKind.Absolute, out var uri) && (uri.IsLoopback || uri.Host == "localhost");
     }
 
     private (string Name, ProviderConfiguration Config)? Settings(string name)
