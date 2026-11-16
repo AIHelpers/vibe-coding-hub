@@ -305,6 +305,18 @@
             <views:ProjectKnowledgeView DataContext="{Binding ProjectKnowledge}"/>
         </Border>
 
+        <!-- Mission Control (E11-S1): the task board; one card per task, each running in its own worktree. -->
+        <Border IsVisible="{Binding MissionControl.IsVisible}"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="4"
+                Margin="24"
+                Padding="0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="55">
+            <views:MissionControlView DataContext="{Binding MissionControl}"/>
+        </Border>
+
         <!-- Flows Overlay: draw flows of characters on a canvas and run them with live status. -->
         <Border IsVisible="{Binding Flows.IsVisible}"
                 Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
