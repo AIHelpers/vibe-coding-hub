@@ -69,6 +69,37 @@ public sealed class MissionControlViewTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async System.Threading.Tasks.Task TheView_OffersAnAgentPicker_OnTheNewCardRow_AndOnBacklogCards()
+    {
+        Directory.CreateDirectory(_root);
+        var storePath = Path.Combine(_root, "agents.json");
+        var seed = new TaskBoard(new BoardStore(storePath));
+        seed.Add("Backlog task", agent: AgentTarget.ForFlow("feature-team"));
+        var reviewed = seed.Add("Reviewed task", agent: AgentTarget.ForPreset(ExternalAgentPresets.Codex)).Id;
+        seed.BeginRun(reviewed);
+        seed.EndRun(reviewed, CardOutcome.Completed);
+
+        var catalog = new BoardAgentCatalog(null, () => new (string, string?)[] { ("feature-team", null) }, new ExternalAgentDetector(_ => null));
+        var vm = new MissionControlViewModel(storeFor: _ => new BoardStore(storePath), marshal: a => Dispatcher.UIThread.Invoke(a), catalog: catalog);
+        vm.SetProject(_root);
+        await vm.RefreshAgentsAsync();
+        var view = new MissionControlView { DataContext = vm };
+        var window = new Window { Width = 1280, Height = 800, Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // One picker for the next card and one on the card waiting in the Backlog; the reviewed card names its agent as text.
+        var pickers = view.GetVisualDescendants().OfType<ComboBox>().Where(c => c.IsEffectivelyVisible).ToList();
+        Assert.Equal(2, pickers.Count);
+        Assert.All(pickers, p => Assert.Equal(5, p.ItemCount)); // default, one flow, three coding agents
+        Assert.Contains(pickers, p => Equals(p.SelectedItem, vm.Backlog.Single().SelectedAgent) && ((AgentChoice)p.SelectedItem!).Label == "Flow: feature-team");
+
+        var texts = view.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
+        Assert.Contains("Agent: Codex", texts);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     public void AnEmptyBoard_ExplainsWhatToDo()
     {
         var vm = new MissionControlViewModel(storeFor: _ => new BoardStore(Path.Combine(_root, "empty.json")));

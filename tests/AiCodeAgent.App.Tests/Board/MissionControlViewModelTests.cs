@@ -131,7 +131,7 @@ public sealed class MissionControlViewModelTests : IDisposable
         Pump();
 
         vm.Backlog[0].StartCommand.Execute(null);
-        await WaitUntilAsync(() => vm.Running.Count == 1 && vm.Running[0].HasLastAction);
+        await WaitUntilAsync(() => vm.Running.Count == 1 && vm.Running[0].LastActionText == "edit_file a.cs"); // not the earlier "Preparing…"
 
         Assert.Empty(vm.Backlog);
         var card = vm.Running[0];

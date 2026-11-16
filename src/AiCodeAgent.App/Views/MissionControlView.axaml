@@ -26,6 +26,13 @@
                                    Foreground="{DynamicResource ThemeTextMutedBrush}"/>
                     </WrapPanel>
 
+                    <!-- Who works on the card: a picker while it waits in the Backlog, text afterwards. -->
+                    <ComboBox ItemsSource="{Binding AgentChoices}" SelectedItem="{Binding SelectedAgent, Mode=TwoWay}"
+                              IsVisible="{Binding CanChooseAgent}" FontSize="10" MinHeight="24" Padding="6,2" HorizontalAlignment="Stretch"
+                              ToolTip.Tip="Who works on this card: the default agent, a character, a flow or an external agent such as Claude Code"/>
+                    <TextBlock Text="{Binding AgentText}" IsVisible="{Binding ShowAgentText}" FontSize="10"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+
                     <!-- The last thing the agent did: what a running card is busy with. -->
                     <TextBlock Text="{Binding LastActionText}" IsVisible="{Binding HasLastAction}" FontSize="11" FontFamily="Consolas,Menlo,monospace"
                                TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeTextMutedBrush}"
@@ -73,15 +80,18 @@
 
         <!-- New card -->
         <Border Grid.Row="1" Background="{DynamicResource AppSubBrush}" Padding="8">
-            <Grid ColumnDefinitions="*,Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding NewTaskText}" FontSize="12"
                          Watermark="Describe a task and press Enter, e.g. 'add unit tests for the checkout module'. Each card runs in its own git worktree.">
                     <TextBox.KeyBindings>
                         <KeyBinding Gesture="Enter" Command="{Binding AddCardCommand}"/>
                     </TextBox.KeyBindings>
                 </TextBox>
-                <Button Grid.Column="1" Content="＋ Add to backlog" Command="{Binding AddCardCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
-                <Button Grid.Column="2" Content="{Binding StartAllText}" Command="{Binding StartAllCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding AgentChoices}" SelectedItem="{Binding SelectedAgent, Mode=TwoWay}"
+                          IsVisible="{Binding HasAgentChoices}" FontSize="12" MinWidth="170" Margin="8,0,0,0" VerticalAlignment="Stretch"
+                          ToolTip.Tip="Who works on the new card. Characters, flows and the coding agents installed on this computer (Claude Code, Codex, Gemini CLI) are listed."/>
+                <Button Grid.Column="2" Content="＋ Add to backlog" Command="{Binding AddCardCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
+                <Button Grid.Column="3" Content="{Binding StartAllText}" Command="{Binding StartAllCommand}" FontSize="12" Padding="12,4" Margin="8,0,0,0"/>
             </Grid>
         </Border>
 

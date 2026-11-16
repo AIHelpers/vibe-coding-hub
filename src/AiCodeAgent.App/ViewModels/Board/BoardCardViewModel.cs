@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AiCodeAgent.Core.Board;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,6 +30,36 @@ public sealed partial class BoardCardViewModel : ObservableObject
     {
         Card = card;
         OnPropertyChanged(string.Empty);
+    }
+
+    // ------------------------------------------------------------------ the agent (E11-S2)
+
+    /// <summary>The agents the card can be given (shared by all cards).</summary>
+    public IReadOnlyList<AgentChoice> AgentChoices => _owner.AgentChoices;
+
+    /// <summary>The picker on a card that is waiting in the Backlog. Once a card has run, the agent is shown as text.</summary>
+    public bool CanChooseAgent => Card.Column == BoardColumn.Backlog && _owner.HasAgentChoices;
+
+    /// <summary>The agent is named in text on cards that cannot be changed any more, unless it is the default one.</summary>
+    public bool ShowAgentText => !CanChooseAgent && !Card.Agent.Equals(AgentTarget.Default);
+
+    public string AgentText => "Agent: " + Card.Agent.DisplayName;
+
+    public AgentChoice? SelectedAgent
+    {
+        get => _owner.ChoiceFor(Card.Agent);
+        set
+        {
+            if (value != null && !value.Target.Equals(Card.Agent)) _owner.SetAgent(this, value);
+        }
+    }
+
+    /// <summary>The list of agents changed: the picker reads it again.</summary>
+    public void RefreshAgent()
+    {
+        OnPropertyChanged(nameof(SelectedAgent));
+        OnPropertyChanged(nameof(CanChooseAgent));
+        OnPropertyChanged(nameof(ShowAgentText));
     }
 
     // ------------------------------------------------------------------ what the card shows

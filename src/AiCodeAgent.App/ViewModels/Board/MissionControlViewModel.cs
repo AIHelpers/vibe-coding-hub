@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Board;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -19,21 +20,31 @@ public sealed partial class MissionControlViewModel : ObservableObject
 {
     private readonly IWorkspaceIsolation? _isolation;
     private readonly IBoardAgentRunner? _agent;
+    private readonly IBoardTargetRunner? _targets;
+    private readonly BoardAgentCatalog? _catalog;
     private readonly Func<string, BoardStore> _storeFor;
     private readonly Action<Action> _marshal;
     private readonly Dictionary<string, ProjectBoard> _projects = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BoardCardViewModel> _cards = new();
     private ProjectBoard? _current;
 
+    private static readonly AgentChoice DefaultChoice =
+        new(AgentTarget.Default, "Default agent", BoardAgentCatalog.BuiltInGroup, true, "The app's own agent with the model and settings you use in chat.");
+
     /// <param name="isolation">Gives each card its worktree; without it (or without <paramref name="agent"/>) cards can be planned but not started.</param>
     /// <param name="storeFor">Where a project's board is saved; defaults to the per-user folder.</param>
     /// <param name="marshal">Runs a UI update on the UI thread; board changes arrive from agent threads.</param>
+    /// <param name="targets">Runs cards that are given a character, a flow or an external agent (E11-S2).</param>
+    /// <param name="catalog">Lists the agents a card can be given; without it only the default agent is offered.</param>
     public MissionControlViewModel(
         IWorkspaceIsolation? isolation = null, IBoardAgentRunner? agent = null,
-        Func<string, BoardStore>? storeFor = null, Action<Action>? marshal = null)
+        Func<string, BoardStore>? storeFor = null, Action<Action>? marshal = null,
+        IBoardTargetRunner? targets = null, BoardAgentCatalog? catalog = null)
     {
         _isolation = isolation;
         _agent = agent;
+        _targets = targets;
+        _catalog = catalog;
         _storeFor = storeFor ?? (dir => BoardStore.ForProject(dir));
         _marshal = marshal ?? (a => a());
     }
@@ -45,6 +56,26 @@ public sealed partial class MissionControlViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isVisible;
+
+    /// <summary>Everything a card can be given: the default agent, characters, flows and external agents (E11-S2).</summary>
+    public ObservableCollection<AgentChoice> AgentChoices { get; } = new() { DefaultChoice };
+
+    /// <summary>The agent the next new card gets. It stays selected, so a batch of cards for one agent is quick to add.</summary>
+    [ObservableProperty]
+    private AgentChoice? _selectedAgent = DefaultChoice;
+
+    /// <summary>There is a real choice to make: show the pickers.</summary>
+    public bool HasAgentChoices => AgentChoices.Count > 1;
+
+    partial void OnSelectedAgentChanged(AgentChoice? oldValue, AgentChoice? newValue)
+    {
+        // An agent that cannot start here (a CLI that is not installed) explains what to do and leaves the choice as it was.
+        if (newValue is { IsAvailable: false })
+        {
+            Notice = Explain(newValue);
+            SelectedAgent = oldValue is { IsAvailable: true } ? oldValue : DefaultChoice;
+        }
+    }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddCardCommand))]
@@ -93,12 +124,66 @@ public sealed partial class MissionControlViewModel : ObservableObject
         AddCardCommand.NotifyCanExecuteChanged();
     }
 
+    // ------------------------------------------------------------------ agents (E11-S2)
+
+    /// <summary>
+    /// Reads the characters, flows and installed external agents again. Called when the board opens, because characters and
+    /// flows change and a CLI may have been installed since last time. The list keeps its old content when reading fails.
+    /// </summary>
+    public async Task RefreshAgentsAsync()
+    {
+        if (_catalog == null) return;
+        IReadOnlyList<AgentChoice> choices;
+        try { choices = await _catalog.ListAsync().ConfigureAwait(false); }
+        catch (Exception) { return; }
+        _marshal(() => ApplyChoices(choices));
+    }
+
+    private void ApplyChoices(IReadOnlyList<AgentChoice> choices)
+    {
+        var selected = SelectedAgent?.Target ?? AgentTarget.Default;
+        AgentChoices.Clear();
+        foreach (var choice in choices) AgentChoices.Add(choice);
+        if (AgentChoices.Count == 0) AgentChoices.Add(DefaultChoice);
+
+        // A card may point at a character that was deleted or a flow that was renamed: keep it visible and say it is missing.
+        foreach (var card in _current?.Board.Cards ?? Array.Empty<BoardCard>())
+            EnsureChoice(card.Agent);
+
+        SelectedAgent = ChoiceFor(selected) ?? AgentChoices[0];
+        foreach (var card in _cards.Values) card.RefreshAgent();
+        OnPropertyChanged(nameof(HasAgentChoices));
+    }
+
+    private void EnsureChoice(AgentTarget target)
+    {
+        if (ChoiceFor(target) != null) return;
+        AgentChoices.Add(new AgentChoice(target, $"{target.DisplayName} (not found)", "Missing", false,
+            "This agent is no longer available: a deleted character, a renamed flow or a removed program. Pick another one."));
+    }
+
+    internal AgentChoice? ChoiceFor(AgentTarget target) => AgentChoices.FirstOrDefault(c => c.Target.Equals(target));
+
+    internal void SetAgent(BoardCardViewModel card, AgentChoice choice)
+    {
+        if (!choice.IsAvailable)
+        {
+            Notice = Explain(choice);
+            card.Update(card.Card); // the picker goes back to the agent the card has
+            return;
+        }
+        _current?.Board.SetAgent(card.Id, choice.Target);
+    }
+
+    private static string Explain(AgentChoice choice) =>
+        string.IsNullOrWhiteSpace(choice.Detail) ? $"{choice.Label} is not available." : choice.Detail!;
+
     private ProjectBoard CreateProject(string key)
     {
         var board = new TaskBoard(_storeFor(key));
         // No agent survives a restart: cards the file still shows as running were cut off.
         board.RecoverInterrupted();
-        var runner = CanRun ? new BoardRunner(board, _isolation!, _agent!, key) : null;
+        var runner = CanRun ? new BoardRunner(board, _isolation!, _agent!, key, targets: _targets) : null;
         var project = new ProjectBoard(key, board, runner);
         board.Changed += (_, e) => _marshal(() => OnBoardChanged(project, e));
         return project;
@@ -111,7 +196,7 @@ public sealed partial class MissionControlViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanAdd))]
     private void AddCard()
     {
-        _current!.Board.Add(NewTaskText);
+        _current!.Board.Add(NewTaskText, agent: SelectedAgent?.Target);
         NewTaskText = string.Empty;
         Notice = string.Empty;
     }
@@ -163,7 +248,12 @@ public sealed partial class MissionControlViewModel : ObservableObject
         _cards.Clear();
         foreach (var column in new[] { Backlog, Running, NeedsReview, Done }) column.Clear();
         if (_current == null) return;
-        foreach (var card in _current.Board.Cards) Place(new BoardCardViewModel(card, this));
+        foreach (var card in _current.Board.Cards)
+        {
+            EnsureChoice(card.Agent);
+            Place(new BoardCardViewModel(card, this));
+        }
+        OnPropertyChanged(nameof(HasAgentChoices));
         NotifyCounts();
     }
 

@@ -17,6 +17,7 @@ public sealed class BoardRunner
     private readonly TaskBoard _board;
     private readonly IWorkspaceIsolation _isolation;
     private readonly IBoardAgentRunner _agent;
+    private readonly IBoardTargetRunner? _targets;
     private readonly string _projectDirectory;
     private readonly Func<BoardCard, AgentOptions, AgentOptions>? _configureOptions;
     private readonly ILogger _logger;
@@ -24,14 +25,18 @@ public sealed class BoardRunner
     // `git worktree add` and the snapshot of uncommitted work touch the repository's shared files: one at a time.
     private readonly SemaphoreSlim _acquireGate = new(1, 1);
 
+    /// <param name="agent">Runs cards that use the default agent.</param>
     /// <param name="configureOptions">Lets the host set the model, a budget or other options for a card's run.</param>
+    /// <param name="targets">Runs cards that are assigned to a character, a flow or an external agent (E11-S2); without it such cards fail with a clear message.</param>
     public BoardRunner(
         TaskBoard board, IWorkspaceIsolation isolation, IBoardAgentRunner agent, string projectDirectory,
-        Func<BoardCard, AgentOptions, AgentOptions>? configureOptions = null, ILogger? logger = null)
+        Func<BoardCard, AgentOptions, AgentOptions>? configureOptions = null, ILogger? logger = null,
+        IBoardTargetRunner? targets = null)
     {
         _board = board;
         _isolation = isolation;
         _agent = agent;
+        _targets = targets;
         _projectDirectory = projectDirectory;
         _configureOptions = configureOptions;
         _logger = logger ?? NullLogger.Instance;
@@ -83,16 +88,25 @@ public sealed class BoardRunner
         WorkspaceLease? lease = null;
         try
         {
-            _board.Report(card.Id, c => c with { LastAction = "Preparing a worktree…" });
-            lease = await AcquireAsync(card, token).ConfigureAwait(false);
-            if (lease == null)
+            // A missing character or an agent that is not installed fails here, before a worktree is made for it.
+            var problem = await CheckAgentAsync(card.Agent, token).ConfigureAwait(false);
+            if (problem != null)
             {
-                state.Error = "Could not create a git worktree for this card. Mission Control needs a git repository with at least one commit.";
+                state.Error = problem;
             }
             else
             {
-                _board.Update(card.Id, c => c with { Branch = lease.Branch, WorktreePath = lease.RootPath, LastAction = "Starting the agent…" });
-                await DriveAgentAsync(card, lease, state, token).ConfigureAwait(false);
+                _board.Report(card.Id, c => c with { LastAction = "Preparing a worktree…" });
+                lease = await AcquireAsync(card, token).ConfigureAwait(false);
+                if (lease == null)
+                {
+                    state.Error = "Could not create a git worktree for this card. Mission Control needs a git repository with at least one commit.";
+                }
+                else
+                {
+                    _board.Update(card.Id, c => c with { Branch = lease.Branch, WorktreePath = lease.RootPath, LastAction = $"Starting {card.Agent.DisplayName}…" });
+                    await DriveAgentAsync(card, lease, state, token).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -110,6 +124,21 @@ public sealed class BoardRunner
         _runs.TryRemove(card.Id, out _);
         run.Dispose();
     }
+
+    /// <summary>What stops the card's agent from running, as a sentence the person can act on; null when it is ready.</summary>
+    private async Task<string?> CheckAgentAsync(AgentTarget agent, CancellationToken token)
+    {
+        if (agent.Kind == AgentTargetKind.Default) return null;
+        if (_targets == null || !_targets.Supports(agent.Kind))
+            return $"{agent.DisplayName} cannot run on the board in this build. Choose the default agent.";
+        return await _targets.CheckAsync(agent, token).ConfigureAwait(false);
+    }
+
+    /// <summary>The events of the card's run: from the default agent, or from the runner of the card's chosen agent.</summary>
+    private IAsyncEnumerable<AgentEvent> StreamAgent(BoardCard card, AgentOptions options, CancellationToken token) =>
+        card.Agent.Kind == AgentTargetKind.Default
+            ? _agent.RunAsync(card.Prompt, SessionIdOf(card), options, token)
+            : _targets!.RunAsync(card.Agent, new BoardRunRequest(card.Prompt, SessionIdOf(card), options), token);
 
     private async Task<WorkspaceLease?> AcquireAsync(BoardCard card, CancellationToken token)
     {
@@ -137,10 +166,27 @@ public sealed class BoardRunner
         };
         if (_configureOptions != null) options = _configureOptions(card, options);
 
-        await foreach (var evt in _agent.RunAsync(card.Prompt, SessionIdOf(card), options, token).WithCancellation(token).ConfigureAwait(false))
+        await foreach (var evt in StreamAgent(card, options, token).WithCancellation(token).ConfigureAwait(false))
         {
             switch (evt)
             {
+                case BoardProgressEvent progress:
+                    // Agents that do not stream tool calls (flows, external agents) report what they are doing and their totals.
+                    if (progress.IsToolCall) state.ToolCalls++;
+                    if (progress.CostUsd is { } cost) state.Cost = cost;
+                    if (progress.Tokens is { } tokens) state.Tokens = tokens;
+                    var progressCalls = state.ToolCalls;
+                    var runCost = state.Cost;
+                    var runTokens = state.Tokens;
+                    _board.Report(card.Id, c => c with
+                    {
+                        LastAction = string.IsNullOrWhiteSpace(progress.Action) ? c.LastAction : progress.Action,
+                        ToolCalls = progressCalls,
+                        CostUsd = card.CostUsd + runCost,
+                        Tokens = card.Tokens + runTokens
+                    });
+                    break;
+
                 case ToolCallStartEvent start:
                     state.ToolCalls++;
                     var action = Describe(start.Call);
