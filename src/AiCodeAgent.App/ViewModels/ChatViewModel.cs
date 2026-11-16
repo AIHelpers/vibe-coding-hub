@@ -903,7 +903,9 @@ public partial class ChatViewModel : ObservableObject
     private void ShowEvidence()
     {
         if (_agentService.TakeEvidence(SessionId) is not { } pack) return;
-        Timeline.AddEvidence(pack);
+        var card = Timeline.AddEvidence(pack, _agentService.Reviewer);
+        // A review changes what the Review Queue shows for this task.
+        card.Reviewed += RaisePendingReviewChanged;
         TaskReadyForReview?.Invoke(pack);
     }
 

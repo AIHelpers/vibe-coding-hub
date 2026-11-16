@@ -8,6 +8,8 @@ public class AppConfiguration
     public UiConfiguration Ui { get; set; } = new();
     /// <summary>Network transparency and offline mode (Settings → Advanced → Network activity).</summary>
     public NetworkConfiguration Network { get; set; } = new();
+    /// <summary>Which model gives the second opinion on a finished task (E10-S4). Empty = pick a provider other than the one that wrote it.</summary>
+    public ReviewerConfiguration Reviewer { get; set; } = new();
     
     public static AppConfiguration GetDefaults() => new()
     {

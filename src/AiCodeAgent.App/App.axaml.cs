@@ -389,7 +389,19 @@ public partial class App : Application
             return new ConfiguredProviderResolver(
                 () => configSvc.Config.DefaultProvider,
                 name => configSvc.GetProvider(name),
-                sp.GetRequiredService<ILoggerFactory>());
+                sp.GetRequiredService<ILoggerFactory>(),
+                () => configSvc.Config.Providers.Keys.ToList());
+        });
+
+        // Independent review (E10-S4): a second model reads the diff of a finished task.
+        services.AddSingleton(sp =>
+        {
+            var configSvc = sp.GetRequiredService<ConfigurationService>();
+            return new AiCodeAgent.Core.Evidence.ReviewService(
+                sp.GetRequiredService<IAiProviderResolver>(),
+                () => configSvc.Config.Reviewer is { } r && (!string.IsNullOrWhiteSpace(r.Provider) || !string.IsNullOrWhiteSpace(r.Model))
+                    ? new AiCodeAgent.Core.Evidence.ReviewerPreference(r.Provider, r.Model) : null,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<AiCodeAgent.Core.Evidence.ReviewService>());
         });
 
         // Backend primitives

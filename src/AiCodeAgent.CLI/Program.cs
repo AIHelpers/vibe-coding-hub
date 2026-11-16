@@ -1010,5 +1010,6 @@ static void RegisterProvider(
     services.AddSingleton<IAiProviderResolver>(sp => new ConfiguredProviderResolver(
         () => providerName,
         name => configSvc.GetProvider(name) is { } found ? ProviderEnvironment.Apply(found, name) : null,
-        sp.GetRequiredService<ILoggerFactory>()));
+        sp.GetRequiredService<ILoggerFactory>(),
+        () => configSvc.Config.Providers.Keys.ToList()));
 }

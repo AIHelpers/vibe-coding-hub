@@ -36,7 +36,10 @@ public static class EvidencePackStore
     public static EvidencePack Build(string auditPath)
     {
         var verification = AuditChainVerifier.Verify(auditPath);
-        return EvidencePackBuilder.Build(AuditExporter.Read(auditPath), verification);
+        var pack = EvidencePackBuilder.Build(AuditExporter.Read(auditPath), verification);
+        pack.AuditPath = System.IO.Path.GetFullPath(auditPath);
+        pack.Review = ReviewStore.TryRead(auditPath);
+        return pack;
     }
 
     /// <summary>Builds and stores the pack. Never throws: a task does not fail because its evidence could not be written.</summary>
@@ -46,6 +49,7 @@ public static class EvidencePackStore
         {
             var pack = Build(auditPath);
             File.WriteAllText(PathFor(auditPath), JsonSerializer.Serialize(pack, Json));
+            // The review lives in its own file; the stored pack repeats it for readers that only open this one.
             return pack;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException)
