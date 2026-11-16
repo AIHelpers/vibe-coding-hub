@@ -47,9 +47,32 @@ call. Use a local provider as the reviewer to keep it local. The review's cost i
 The review is stored next to the run: `<run>.review.json` beside a chat run's audit file. It is a separate file because the audit
 trail is sealed when the run ends. A rebuilt pack picks it up again. Deleting the file removes the review.
 
+## Reviewer step in flows
+
+A flow can review its own work. Add **Independent review** from the palette in the Flows editor, or `kind: "review"` in the flow file:
+
+```json
+{ "id": "check", "name": "Independent review", "kind": "review", "promptTemplate": "Pay attention to error handling." }
+```
+
+- It runs no agent. A second model reads the diffs of every earlier step and answers. The step has the outcomes `approved` and
+  `rejected`; connect them with edges as for a human step (for example `rejected` back to the author, with a loop limit).
+- `rejected` means the reviewer's verdict was *reject*. Concerns that do not block count as `approved`; they are in the findings.
+- The findings are the step's output. A loop edge back to the author passes them on as feedback. The text is written by a model,
+  so an author agent that receives it should treat it as an opinion, not as an instruction.
+- Who reviews: by default another provider than the steps before it, else another model, else the same model (the step says
+  which). Set `provider` and/or `model` on the step to choose the reviewer yourself; this wins over the Settings choice.
+- `promptTemplate` is optional. It is passed as what to look at, as data.
+- If no earlier step changed a file, the step is `approved` without calling a model.
+- If the reviewer cannot be reached or does not answer in the expected format, the step **fails**. A check that did not happen
+  does not pass silently.
+- The review is stored with the run (`review.json` in the run folder, and `review.result` entries in the audit trail for every
+  round) and appears in the run's Evidence Pack. Its tokens count in the step's usage and in the flow budget.
+
 ## Limits
 
-- It runs on demand, from the card. There is no automatic review and no flow step yet.
-- Only chat tasks have the button. Flow runs have no button yet.
+- Chat tasks can also be reviewed on demand, from the card. There is no automatic review of chat tasks.
+- A replayed or reused flow step has no diffs, so a review step after it sees only the steps that really ran.
+- Only the last round's review is stored in `review.json`; every round is in the audit trail.
 - The reviewer sees only the recorded diffs, not the surrounding code.
 - A review costs one model request (two when the first answer was not valid JSON).

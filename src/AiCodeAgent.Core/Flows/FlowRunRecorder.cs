@@ -85,6 +85,21 @@ internal sealed class FlowRunRecorder : IDisposable
         }
     }
 
+    /// <summary>
+    /// A review step gave its verdict (E10-S4b). Every round goes into the audit trail; the last one is stored beside it, so the run's
+    /// evidence pack shows it. Written before the run ends, while the trail is still open.
+    /// </summary>
+    public void AddReview(string nodeId, int round, AiCodeAgent.Core.Evidence.IndependentReview review)
+    {
+        _audit?.Record("review.result", nodeId, new System.Text.Json.Nodes.JsonObject
+        {
+            ["step"] = nodeId, ["round"] = round, ["verdict"] = review.Verdict.ToString().ToLowerInvariant(),
+            ["findings"] = review.Findings.Count, ["high"] = review.HighCount, ["provider"] = review.Provider, ["model"] = review.Model,
+            ["independence"] = review.Independence.ToString().ToLowerInvariant(), ["costUsd"] = review.CostUsd
+        });
+        if (_audit != null) AiCodeAgent.Core.Evidence.ReviewStore.TryWrite(_audit.Path, review, _logger);
+    }
+
     /// <summary>Adds a step run; its answer is saved as <c>&lt;node&gt;.r&lt;round&gt;.md</c>.</summary>
     public void AddStep(FlowStepRecord step, string output)
     {

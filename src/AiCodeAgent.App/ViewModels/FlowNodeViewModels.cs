@@ -48,12 +48,15 @@ public sealed partial class FlowNodeViewModel : ObservableObject
     /// <summary>Outcomes as typed in the inspector: "approved, rejected".</summary>
     [ObservableProperty] private string _outcomesText = string.Empty;
     [ObservableProperty] private bool _requireConfirmation;
-    /// <summary>"human" for a step that asks you to choose an outcome instead of running an agent; empty = an agent step.</summary>
+    /// <summary>"human" for a step that asks you to choose an outcome instead of running an agent; "review" for a second model that reviews the changes so far; empty = an agent step.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsHuman), nameof(IsAgent))]
+    [NotifyPropertyChangedFor(nameof(IsHuman), nameof(IsReview), nameof(IsAgent), nameof(UsesModel))]
     private string _kind = string.Empty;
     public bool IsHuman => string.Equals(Kind, "human", StringComparison.OrdinalIgnoreCase);
-    public bool IsAgent => !IsHuman;
+    public bool IsReview => string.Equals(Kind, "review", StringComparison.OrdinalIgnoreCase);
+    public bool IsAgent => !IsHuman && !IsReview;
+    /// <summary>The step calls a model, so the inspector offers model and provider (for a review step they choose the reviewer).</summary>
+    public bool UsesModel => !IsHuman;
     public bool HasOutcomes => Outcomes.Count > 0;
     public bool HasNoOutcomes => Outcomes.Count == 0;
     [ObservableProperty] private bool _enabled = true;

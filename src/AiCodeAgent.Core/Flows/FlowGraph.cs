@@ -12,7 +12,18 @@ public sealed record FlowNode(string Id, SdlcStageDefinition Stage, int Index)
     public string Name => string.IsNullOrWhiteSpace(Stage.Name) ? Id : Stage.Name;
 
     /// <summary>Declared outcomes (empty when the stage routes unconditionally).</summary>
-    public IReadOnlyList<string> Outcomes => Stage.Outcomes ?? (IReadOnlyList<string>)Array.Empty<string>();
+    public IReadOnlyList<string> Outcomes =>
+        Stage.Outcomes is { Count: > 0 } declared ? declared
+        : Stage.IsReview ? FlowReviewOutcomes.Default
+        : Array.Empty<string>();
+}
+
+/// <summary>The outcomes of a review step (E10-S4b): the reviewer's decision routes the flow with them.</summary>
+public static class FlowReviewOutcomes
+{
+    public const string Approved = "approved";
+    public const string Rejected = "rejected";
+    public static readonly IReadOnlyList<string> Default = new[] { Approved, Rejected };
 }
 
 /// <summary>An edge of a flow. <see cref="IsLoop"/> edges go back to an earlier node and are bounded by MaxLoops.</summary>
@@ -239,8 +250,22 @@ public sealed class FlowGraph
             if (!stage.Enabled && Edges.Any(e => !e.IsLoop && e.IsConditional && Same(e.From, node.Id)))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error,
                     $"'{node.Name}' is disabled but arrows out of it have conditions; enable it or remove those conditions.", node.Id));
-            if (!string.IsNullOrWhiteSpace(stage.Kind) && !stage.IsHuman && !stage.IsAcp && !string.Equals(stage.Kind, "agent", StringComparison.OrdinalIgnoreCase))
-                _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': unknown kind '{stage.Kind}' (use agent, human or acp).", node.Id));
+            if (!string.IsNullOrWhiteSpace(stage.Kind) && !stage.IsHuman && !stage.IsAcp && !stage.IsReview && !string.Equals(stage.Kind, "agent", StringComparison.OrdinalIgnoreCase))
+                _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': unknown kind '{stage.Kind}' (use agent, human, review or acp).", node.Id));
+            if (stage.IsReview)
+            {
+                if (!node.Outcomes.Contains(FlowReviewOutcomes.Approved, StringComparer.OrdinalIgnoreCase) ||
+                    !node.Outcomes.Contains(FlowReviewOutcomes.Rejected, StringComparer.OrdinalIgnoreCase))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Error,
+                        $"'{node.Name}' is a review step: its outcomes must include '{FlowReviewOutcomes.Approved}' and '{FlowReviewOutcomes.Rejected}'.", node.Id));
+                if (Incoming(node.Id).All(e => e.IsLoop))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning,
+                        $"'{node.Name}' is a review step with no step before it, so it has nothing to review.", node.Id));
+                if (stage.RequireConfirmation)
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a review step; \"ask me before this step\" is ignored.", node.Id));
+                if (!string.IsNullOrWhiteSpace(stage.Character))
+                    _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a review step; its character is ignored. Use model and provider to choose the reviewer.", node.Id));
+            }
             if (stage.IsAcp)
             {
                 if (string.IsNullOrWhiteSpace(stage.AcpCommand))
@@ -255,10 +280,10 @@ public sealed class FlowGraph
                 if (!string.IsNullOrWhiteSpace(stage.Character) || !string.IsNullOrWhiteSpace(stage.Model) || !string.IsNullOrWhiteSpace(stage.Provider))
                     _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, $"'{node.Name}' is a human step; its character, model and provider are ignored.", node.Id));
             }
-            else if (!stage.IsAcp && characterId == null && string.IsNullOrWhiteSpace(stage.Role))
+            else if (!stage.IsAcp && !stage.IsReview && characterId == null && string.IsNullOrWhiteSpace(stage.Role))
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}' has no character or role.", node.Id));
 
-            if (characterId != null && characterLookup != null && !stage.IsHuman && !stage.IsAcp)
+            if (characterId != null && characterLookup != null && !stage.IsHuman && !stage.IsAcp && !stage.IsReview)
             {
                 var c = characterLookup(characterId);
                 if (c == null)
@@ -269,7 +294,8 @@ public sealed class FlowGraph
                     _problems.Add(new FlowProblem(FlowProblemSeverity.Error, $"'{node.Name}': character '{characterId}' is invalid.", node.Id));
             }
 
-            if (string.IsNullOrWhiteSpace(stage.PromptTemplate))
+            // A review step needs no prompt: it only adds what the author wants looked at.
+            if (string.IsNullOrWhiteSpace(stage.PromptTemplate) && !stage.IsReview)
                 _problems.Add(new FlowProblem(FlowProblemSeverity.Warning, stage.IsHuman
                     ? $"'{node.Name}' has no prompt; the reviewer only sees the task and the step's inputs."
                     : $"'{node.Name}' has no prompt; it only gets the task and its inputs.", node.Id));
@@ -385,6 +411,7 @@ public sealed class FlowGraph
             var who = characterLabel?.Invoke(character) ?? character;
             var label = n.Stage.IsHuman
                 ? $"{n.Name}<br/><small>human</small>"
+                : n.Stage.IsReview ? $"{n.Name}<br/><small>review</small>"
                 : string.IsNullOrEmpty(who) || Same(who, n.Name) ? n.Name : $"{n.Name}<br/><small>{who}</small>";
             if (run != null)
             {

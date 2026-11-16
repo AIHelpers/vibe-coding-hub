@@ -147,6 +147,14 @@ public static class EvidencePackRenderer
         return $"{verdict} · {counts} · by {who}";
     }
 
+    /// <summary>The review as safe Markdown, for a flow step's output.</summary>
+    public static string ReviewMarkdown(IndependentReview review)
+    {
+        var sb = new StringBuilder();
+        RenderReview(sb, review);
+        return sb.ToString();
+    }
+
     private static void RenderReview(StringBuilder sb, IndependentReview r)
     {
         sb.AppendLine($"**{ReviewLine(r)}**" + $" · ${r.CostUsd.ToString("0.00", Inv)}");

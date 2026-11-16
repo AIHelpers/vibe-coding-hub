@@ -61,6 +61,11 @@ public sealed class IndependentReview
     public double Seconds { get; init; }
     public long Tokens { get; init; }
     public decimal CostUsd { get; init; }
+    /// <summary>The same tokens split by kind, so a flow can count the review in the step's usage and price.</summary>
+    public int PromptTokens { get; init; }
+    public int CompletionTokens { get; init; }
+    public int CacheReadTokens { get; init; }
+    public int CacheCreationTokens { get; init; }
 
     [JsonIgnore]
     public int HighCount => Findings.Count(f => f.Severity == FindingSeverity.High);

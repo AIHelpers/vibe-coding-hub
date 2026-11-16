@@ -39,7 +39,9 @@ public record SdlcStageDefinition
     /// <summary>Ask the user to confirm before this stage starts. Built-in "Deploy" stages set this.</summary>
     public bool RequireConfirmation { get; init; }
     /// <summary>
-    /// <c>"agent"</c> (default) or <c>"human"</c>. A human step runs no agent: it shows its prompt and asks the user to
+    /// <c>"agent"</c> (default), <c>"human"</c> or <c>"review"</c>. A review step (E10-S4b) sends the diffs of the steps before it to a
+    /// second model, which approves or rejects them; <see cref="Provider"/> and <see cref="Model"/> pin the reviewer and the prompt
+    /// says what to look at. A human step runs no agent: it shows its prompt and asks the user to
     /// choose one of its <see cref="Outcomes"/> (with an optional note), and the edges route on the choice exactly as
     /// they do for an agent step.
     /// </summary>
@@ -54,6 +56,9 @@ public record SdlcStageDefinition
     /// <summary>True for a step run by an external ACP agent.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsAcp => string.Equals(Kind, "acp", StringComparison.OrdinalIgnoreCase);
+    /// <summary>True for a built-in step where a second model reviews the changes so far and routes on <c>approved</c> or <c>rejected</c>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsReview => string.Equals(Kind, "review", StringComparison.OrdinalIgnoreCase);
     /// <summary>True for a step that asks the user instead of running an agent.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsHuman => string.Equals(Kind, "human", StringComparison.OrdinalIgnoreCase);
@@ -573,6 +578,7 @@ public class SdlcPipelineRunner
     private readonly Flows.IExternalAgentRunner? _externalAgents;
     private readonly ISkillRegistry? _skills;
     private readonly ICheckpointManager? _checkpoints;
+    private readonly Evidence.ReviewService? _reviewService;
 
     public SdlcPipelineRunner(
         AgentSessionCoordinator coordinator,
@@ -585,8 +591,10 @@ public class SdlcPipelineRunner
         Flows.FlowRunStore? runStore = null,
         Flows.IExternalAgentRunner? externalAgents = null,
         ISkillRegistry? skills = null,
-        ICheckpointManager? checkpoints = null)
+        ICheckpointManager? checkpoints = null,
+        Evidence.ReviewService? reviewService = null)
     {
+        _reviewService = reviewService;
         _skills = skills;
         _checkpoints = checkpoints;
         _externalAgents = externalAgents;
@@ -829,7 +837,7 @@ public class SdlcPipelineRunner
     {
         if (pipeline.IsFlow)
         {
-            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters, _externalAgents, _checkpoints);
+            var flow = new Flows.FlowRunner(_coordinator, this, _logger, _characters, _externalAgents, _checkpoints, _reviewService);
             return flow.RunAsync(pipeline, task, sessionId, workingDirectory, new Flows.FlowRunOptions
             {
                 Model = model,

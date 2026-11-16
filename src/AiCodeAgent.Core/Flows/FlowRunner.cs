@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Text;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Characters;
 using AiCodeAgent.Core.Diffing;
+using AiCodeAgent.Core.Evidence;
 using AiCodeAgent.Core.Interfaces;
 using AiCodeAgent.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -61,9 +63,12 @@ public sealed class FlowRunner
     private readonly ICharacterRegistry? _characters;
     private readonly IExternalAgentRunner? _externalAgents;
     private readonly ICheckpointManager? _checkpoints;
+    private readonly ReviewService? _reviewService;
 
-    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null, IExternalAgentRunner? externalAgents = null, ICheckpointManager? checkpoints = null)
+    public FlowRunner(AgentSessionCoordinator coordinator, SdlcPipelineRunner stageBuilder, ILogger logger, ICharacterRegistry? characters = null, IExternalAgentRunner? externalAgents = null, ICheckpointManager? checkpoints = null,
+        ReviewService? reviewService = null)
     {
+        _reviewService = reviewService;
         _checkpoints = checkpoints;
         _externalAgents = externalAgents;
         _coordinator = coordinator;
@@ -97,7 +102,12 @@ public sealed class FlowRunner
         public StepUsage? Current { get; set; }
         /// <summary>The last run was stopped by its budget cap.</summary>
         public bool BudgetStopped { get; set; }
+        /// <summary>Every file change this node made over all its rounds, in order; a review step reads them.</summary>
+        public List<FlowDiffRecord> Diffs { get; } = new();
     }
+
+    /// <summary>What a review step is shown: the changes of the other steps so far and who wrote them.</summary>
+    private sealed record ReviewScope(IReadOnlyList<(string Path, string Diff)> Changes, IReadOnlyList<string> Providers, IReadOnlyList<string> Models);
 
 
     /// <summary>Collects the usage of one step run; filled on the node's task, read after the task completed.</summary>
@@ -105,8 +115,8 @@ public sealed class FlowRunner
     {
         private readonly object _gate = new();
         private TokenUsage _total = new();
-        public string? Model { get; init; }
-        public string? Provider { get; init; }
+        public string? Model { get; set; }
+        public string? Provider { get; set; }
         public bool BudgetStopped { get; private set; }
         /// <summary>The prompt the step received, and the steps whose output is in it.</summary>
         public string Prompt { get; set; } = string.Empty;
@@ -130,6 +140,21 @@ public sealed class FlowRunner
             }
         }
 
+        /// <summary>Adds tokens that did not come from an agent run (the reviewer of a review step).</summary>
+        public void AddUsage(TokenUsage usage)
+        {
+            lock (_gate)
+            {
+                _total = new TokenUsage
+                {
+                    PromptTokens = _total.PromptTokens + usage.PromptTokens,
+                    CompletionTokens = _total.CompletionTokens + usage.CompletionTokens,
+                    CacheReadTokens = _total.CacheReadTokens + usage.CacheReadTokens,
+                    CacheCreationTokens = _total.CacheCreationTokens + usage.CacheCreationTokens
+                };
+            }
+        }
+
         public TokenUsage Total { get { lock (_gate) return _total; } }
     }
 
@@ -140,7 +165,7 @@ public sealed class FlowRunner
         FlowUsageTotals.Sum(runs.Values.SelectMany(r => r.Usage));
 
     /// <param name="Skipped">The reviewer skipped the step at its gate: it did not run and does not block what follows.</param>
-    private sealed record NodeResult(string Text, string? Failure, bool Cancelled, bool Declined, string? Outcome, TimeSpan Duration, bool Skipped = false);
+    private sealed record NodeResult(string Text, string? Failure, bool Cancelled, bool Declined, string? Outcome, TimeSpan Duration, bool Skipped = false, IndependentReview? Review = null);
 
     private enum GateChoice { Approve, Skip, Stop }
     private sealed record GateAnswer(GateChoice Choice, string? Note = null);
@@ -290,7 +315,8 @@ public sealed class FlowRunner
                     var feedback = r.Feedback.ToList();
                     r.Feedback.Clear();
                     running[r.Node.Id] = StartNode(r, inputs, feedback, task, sessionId, workingDirectory, options,
-                        isolated.Contains(r.Node.Id), channel.Writer, runCts.Token, budget == null ? null : budget.Value - SpentOf(runs));
+                        isolated.Contains(r.Node.Id), channel.Writer, runCts.Token, budget == null ? null : budget.Value - SpentOf(runs),
+                        r.Node.Stage.IsReview ? ReviewScopeFor(graph, runs, r) : null);
                     recorder?.NodeStarted(r.Node.Id, r.Runs, r.CharacterId, r.Current?.Model, r.Current?.Provider);
                 }
 
@@ -320,12 +346,14 @@ public sealed class FlowRunner
                 var before = runs[finished].Usage.Count;
                 var trace = runs[finished].Current;
                 var round = runs[finished].Runs;
+                if (trace != null) runs[finished].Diffs.AddRange(trace.Diffs);
                 foreach (var evt in Complete(graph, runs, runs[finished], result, loopCounts, cancellationToken.IsCancellationRequested, budget))
                     yield return evt;
                 finishOrder.AddRange(runs[finished].Usage.Skip(before));
                 // "Stop flow" at a gate (or a gate nobody answered): nothing new starts; steps already running finish.
                 if (result.Declined && !cancellationToken.IsCancellationRequested)
                     stopReason ??= $"Not confirmed: {finished}. The flow was stopped at its gate.";
+                if (result.Review != null) recorder?.AddReview(finished, round, result.Review);
                 if (recorder != null && trace != null)
                     recorder.AddStep(StepRecord(runs[finished], trace, result, round, runs[finished].Usage.Skip(before).FirstOrDefault()), result.Text);
                 if (runs[finished].BudgetStopped && !budgetHit)
@@ -588,12 +616,15 @@ public sealed class FlowRunner
         bool isolate,
         ChannelWriter<AgentEvent> events,
         CancellationToken cancellationToken,
-        decimal? remainingBudget = null)
+        decimal? remainingBudget = null,
+        ReviewScope? reviewScope = null)
     {
         var node = r.Node;
         var iteration = r.Runs;
         if (node.Stage.IsHuman)
             return StartHumanNode(r, inputs, feedback, task, options, events, cancellationToken);
+        if (node.Stage.IsReview)
+            return StartReviewNode(r, inputs, task, reviewScope ?? new ReviewScope(Array.Empty<(string, string)>(), Array.Empty<string>(), Array.Empty<string>()), events, cancellationToken);
         // An 'acp' step, or a step whose character has runtime: acp, is run by an external ACP agent.
         ExternalAgentTarget? external;
         try { external = _stageBuilder.ResolveExternalTarget(node.Stage, options.Cast); }
@@ -771,6 +802,102 @@ public sealed class FlowRunner
         if (!confirmation.Task.IsCompletedSuccessfully) return new GateAnswer(GateChoice.Stop);
         if (confirmation.Task.Result) return new GateAnswer(GateChoice.Approve, feedback.Text);
         return new GateAnswer(feedback.Skip ? GateChoice.Skip : GateChoice.Stop);
+    }
+
+    /// <summary>Everything the other steps changed so far (in graph order) and the providers and models that did it.</summary>
+    private static ReviewScope ReviewScopeFor(FlowGraph graph, Dictionary<string, NodeRun> runs, NodeRun review)
+    {
+        var others = graph.Nodes.Select(n => runs[n.Id]).Where(x => !ReferenceEquals(x, review)).ToList();
+        var changes = others.SelectMany(x => x.Diffs.Select(d => (d.FilePath, d.DiffText))).ToList();
+        var usage = others.SelectMany(x => x.Usage).ToList();
+        // A step without a provider ran on the session's provider: the empty name stands for it.
+        var providers = usage.Select(u => u.Provider ?? string.Empty).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Steps that reported no tokens left no row, but something wrote the change: assume the session's provider.
+        if (providers.Count == 0 && changes.Count > 0) providers.Add(string.Empty);
+        var models = usage.Select(u => u.Model).Where(m => !string.IsNullOrWhiteSpace(m)).Select(m => m!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new ReviewScope(changes, providers, models);
+    }
+
+    /// <summary>
+    /// A review step (E10-S4b): no agent runs. A second model reads the changes the earlier steps made and the step routes on
+    /// its verdict: <c>rejected</c> when it found a problem that should be fixed, <c>approved</c> otherwise. The findings are
+    /// the step's output, so a loop edge back to the author hands them over as feedback. A reviewer that cannot be reached
+    /// fails the step: a check that did not happen must not pass silently.
+    /// </summary>
+    private Task<NodeResult> StartReviewNode(
+        NodeRun r, IReadOnlyList<FlowNodeOutput> inputs, string task, ReviewScope scope, ChannelWriter<AgentEvent> events, CancellationToken cancellationToken)
+    {
+        var node = r.Node;
+        var usage = new StepUsage
+        {
+            Prompt = "(independent review of the changes so far)",
+            InputFrom = inputs.Select(i => i.NodeId).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        };
+        r.Current = usage;
+        return Task.Run(async () =>
+        {
+            var clock = Stopwatch.StartNew();
+            try
+            {
+                if (_reviewService == null)
+                    return new NodeResult(string.Empty, "this host cannot run an independent review (no provider is configured for it)", false, false, null, clock.Elapsed);
+
+                var input = ReviewInputBuilder.FromChanges(task, scope.Changes) with
+                {
+                    Context = ContextOf(inputs),
+                    Focus = string.IsNullOrWhiteSpace(node.Stage.PromptTemplate) ? null : node.Stage.PromptTemplate.Trim()
+                };
+                if (!input.HasChanges)
+                    return new NodeResult("Nothing to review: no earlier step changed a file.", null, false, false, Outcome(node, ReviewVerdict.Approve), clock.Elapsed);
+
+                await events.WriteAsync(new AgentTaggedEvent(
+                    new StatusUpdateEvent("Independent review", $"Reviewing {input.ChangedFiles.Count} changed file(s)"), node.Id, "reviewer"), CancellationToken.None).ConfigureAwait(false);
+
+                var pin = new ReviewerPreference(node.Stage.Provider, node.Stage.Model);
+                var outcome = await _reviewService.ReviewChangesAsync(input, scope.Providers, scope.Models, pin, cancellationToken).ConfigureAwait(false);
+                if (outcome.Review is not { } review)
+                    return new NodeResult(string.Empty, outcome.Error ?? "the review could not be made", false, false, null, clock.Elapsed);
+
+                usage.Model = review.Model;
+                usage.Provider = review.Provider;
+                usage.AddUsage(new TokenUsage
+                {
+                    PromptTokens = review.PromptTokens, CompletionTokens = review.CompletionTokens,
+                    CacheReadTokens = review.CacheReadTokens, CacheCreationTokens = review.CacheCreationTokens
+                });
+                await events.WriteAsync(new AgentTaggedEvent(new TextDeltaEvent(EvidencePackRenderer.ReviewMarkdown(review)), node.Id, "reviewer"), CancellationToken.None).ConfigureAwait(false);
+                return new NodeResult(FlowReviewText.ForAgents(review), null, false, false, Outcome(node, review.Verdict), clock.Elapsed, Review: review);
+            }
+            catch (OperationCanceledException)
+            {
+                return new NodeResult(string.Empty, null, true, false, null, clock.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Flow review step {Node} failed", node.Id);
+                return new NodeResult(string.Empty, ex.Message, false, false, null, clock.Elapsed);
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>Only a rejection stops the flow's forward path; "concerns" is approved with the findings in the output.</summary>
+    private static string Outcome(FlowNode node, ReviewVerdict verdict)
+    {
+        var wanted = verdict == ReviewVerdict.Reject ? FlowReviewOutcomes.Rejected : FlowReviewOutcomes.Approved;
+        return node.Outcomes.FirstOrDefault(o => string.Equals(o, wanted, StringComparison.OrdinalIgnoreCase)) ?? wanted;
+    }
+
+    private static string? ContextOf(IReadOnlyList<FlowNodeOutput> inputs)
+    {
+        const int perStep = 4_000, total = 12_000;
+        var sb = new StringBuilder();
+        foreach (var i in inputs)
+        {
+            if (string.IsNullOrWhiteSpace(i.Text) || sb.Length >= total) continue;
+            var text = i.Text.Trim();
+            sb.AppendLine($"### {i.NodeId}").AppendLine(text.Length > perStep ? text[..perStep] + " […]" : text).AppendLine();
+        }
+        return sb.Length == 0 ? null : sb.ToString().TrimEnd();
     }
 
     /// <summary>
