@@ -28,6 +28,12 @@ public interface IBoardTargetRunner
     Task<string?> CheckAsync(AgentTarget target, CancellationToken cancellationToken);
 
     IAsyncEnumerable<AgentEvent> RunAsync(AgentTarget target, BoardRunRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether a running card of this target can be paused, messaged and redirected (E11-S3): true when a new turn in the same
+    /// session continues the earlier work. Programs that start from scratch on every call (flows, external agents) can only be stopped.
+    /// </summary>
+    Task<bool> CanSteerAsync(AgentTarget target, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
 /// <summary>Sends each target to the runner of its kind.</summary>
@@ -51,6 +57,9 @@ public sealed class BoardTargetRouter : IBoardTargetRunner
     public IAsyncEnumerable<AgentEvent> RunAsync(AgentTarget target, BoardRunRequest request, CancellationToken cancellationToken = default) =>
         (RunnerFor(target.Kind) ?? throw new InvalidOperationException($"{target.DisplayName} cannot run on the board in this build."))
             .RunAsync(target, request, cancellationToken);
+
+    public Task<bool> CanSteerAsync(AgentTarget target, CancellationToken cancellationToken) =>
+        RunnerFor(target.Kind) is { } runner ? runner.CanSteerAsync(target, cancellationToken) : Task.FromResult(false);
 
     private IBoardTargetRunner? RunnerFor(AgentTargetKind kind) => _runners.FirstOrDefault(r => r.Supports(kind));
 }

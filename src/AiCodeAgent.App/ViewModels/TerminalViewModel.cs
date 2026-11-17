@@ -124,13 +124,30 @@ public partial class TerminalViewModel : ObservableObject, IDisposable
         string directory;
         try { directory = _directoryProvider(); }
         catch { directory = Directory.GetCurrentDirectory(); }
+        AddShell(directory, null);
+    }
+
+    /// <summary>
+    /// Opens a shell tab in <paramref name="directory"/>, for example a board card's worktree, and shows the panel.
+    /// Returns false when the folder does not exist (the worktree was removed): nothing is opened then.
+    /// </summary>
+    public bool OpenShellAt(string directory, string? title = null)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return false;
+        AddShell(directory, title);
+        return true;
+    }
+
+    private void AddShell(string directory, string? title)
+    {
         if (!Directory.Exists(directory)) directory = Directory.GetCurrentDirectory();
 
         var shell = ShellLocator.Resolve(_shellProvider());
         var name = Path.GetFileNameWithoutExtension(shell.FileName);
         if (string.IsNullOrEmpty(name)) name = "Shell";
         _shellCounter++;
-        var tab = new ShellTabViewModel(_shellCounter == 1 ? name : name + " " + _shellCounter, shell, directory, 100, 28, _ptyFactory, _post);
+        var tabName = !string.IsNullOrWhiteSpace(title) ? title : _shellCounter == 1 ? name : name + " " + _shellCounter;
+        var tab = new ShellTabViewModel(tabName, shell, directory, 100, 28, _ptyFactory, _post);
         tab.Start();
         Tabs.Insert(Tabs.Count - 1, tab); // before the pinned Agent output tab
         SelectedTab = tab;

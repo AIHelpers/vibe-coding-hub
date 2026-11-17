@@ -25,8 +25,20 @@ public partial class MainViewModel
             _serviceProvider.GetService<IWorkspaceIsolation>(), defaultRunner,
             marshal: RunOnUi, targets: targets, catalog: catalog);
         MissionControl.SetProject(WorkingDirectory);
+        MissionControl.OpenTerminalRequested += OnBoardTerminalRequested;
+        MissionControl.ShowDiffRequested += OnBoardDiffRequested;
         _ = MissionControl.RefreshAgentsAsync();
     }
+
+    /// <summary>A card's terminal sits under the board, so the board steps aside; the cards keep running.</summary>
+    private void OnBoardTerminalRequested(string directory, string title)
+    {
+        if (Terminal.OpenShellAt(directory, title)) MissionControl.IsVisible = false;
+    }
+
+    /// <summary>The diff of a card's file opens over the board (it is drawn later in the window); closing it returns to the board.</summary>
+    private void OnBoardDiffRequested(string path, string baseline, string current, string baselineLabel, string currentLabel) =>
+        DiffViewer.LoadComparison(path, baseline, current, baselineLabel, currentLabel);
 
     /// <summary>
     /// What a card can be given besides the default agent (E11-S2): the characters of the character registry, the flows of the

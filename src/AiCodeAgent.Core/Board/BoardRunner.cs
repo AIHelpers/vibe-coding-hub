@@ -73,6 +73,48 @@ public sealed class BoardRunner
         return true;
     }
 
+    // ------------------------------------------------------------------ control (E11-S3)
+
+    /// <summary>
+    /// Whether the running card's agent can be paused, messaged and redirected. False for flows and external agents (they can only
+    /// be stopped), and for a card that is not running.
+    /// </summary>
+    public bool CanSteer(string cardId) => SteeringOf(cardId) is { Enabled: true };
+
+    /// <summary>Pauses a running card: its agent stops after the step it is on and waits. Nothing is lost; <see cref="Resume"/> continues.</summary>
+    public bool Pause(string cardId)
+    {
+        if (SteeringOf(cardId) is not { } steering || !steering.Pause()) return false;
+        _board.Report(cardId, c => c with { IsPaused = true, LastAction = "Pausing…" });
+        return true;
+    }
+
+    /// <summary>Continues a paused card where it left off.</summary>
+    public bool Resume(string cardId)
+    {
+        if (SteeringOf(cardId) is not { } steering || !steering.Resume()) return false;
+        _board.Report(cardId, c => c with { IsPaused = false, LastAction = "Continuing…" });
+        return true;
+    }
+
+    /// <summary>
+    /// Tells a running or paused card's agent something. It breaks off the step the agent is on and continues the same
+    /// conversation with the message, so the work done so far is kept. A <see cref="SteerKind.Redirect"/> says to drop the
+    /// current approach. Returns false when the card cannot be steered or the text is empty.
+    /// </summary>
+    public bool Send(string cardId, string text, SteerKind kind = SteerKind.Message)
+    {
+        text = text?.Trim() ?? string.Empty;
+        if (text.Length == 0 || SteeringOf(cardId) is not { } steering) return false;
+        if (!steering.Post(BoardSteering.Compose(kind, text))) return false;
+        var shown = text.ReplaceLineEndings(" ");
+        if (shown.Length > 80) shown = shown[..80] + "…";
+        _board.Report(cardId, c => c with { IsPaused = false, LastAction = (kind == SteerKind.Redirect ? "Redirected: " : "You: ") + shown });
+        return true;
+    }
+
+    private BoardSteering? SteeringOf(string cardId) => _runs.TryGetValue(cardId, out var run) ? run.Steering : null;
+
     public void StopAll()
     {
         foreach (var run in _runs.Values) run.Cancel();
@@ -105,7 +147,7 @@ public sealed class BoardRunner
                 else
                 {
                     _board.Update(card.Id, c => c with { Branch = lease.Branch, WorktreePath = lease.RootPath, LastAction = $"Starting {card.Agent.DisplayName}…" });
-                    await DriveAgentAsync(card, lease, state, token).ConfigureAwait(false);
+                    await DriveAgentAsync(card, lease, state, run, token).ConfigureAwait(false);
                 }
             }
         }
@@ -135,10 +177,13 @@ public sealed class BoardRunner
     }
 
     /// <summary>The events of the card's run: from the default agent, or from the runner of the card's chosen agent.</summary>
-    private IAsyncEnumerable<AgentEvent> StreamAgent(BoardCard card, AgentOptions options, CancellationToken token) =>
+    private IAsyncEnumerable<AgentEvent> StreamAgent(BoardCard card, string prompt, AgentOptions options, CancellationToken token) =>
         card.Agent.Kind == AgentTargetKind.Default
-            ? _agent.RunAsync(card.Prompt, SessionIdOf(card), options, token)
-            : _targets!.RunAsync(card.Agent, new BoardRunRequest(card.Prompt, SessionIdOf(card), options), token);
+            ? _agent.RunAsync(prompt, SessionIdOf(card), options, token)
+            : _targets!.RunAsync(card.Agent, new BoardRunRequest(prompt, SessionIdOf(card), options), token);
+
+    private async Task<bool> CanSteerAsync(AgentTarget agent, CancellationToken token) =>
+        agent.Kind == AgentTargetKind.Default || (_targets != null && await _targets.CanSteerAsync(agent, token).ConfigureAwait(false));
 
     private async Task<WorkspaceLease?> AcquireAsync(BoardCard card, CancellationToken token)
     {
@@ -153,7 +198,7 @@ public sealed class BoardRunner
         }
     }
 
-    private async Task DriveAgentAsync(BoardCard card, WorkspaceLease lease, RunState state, CancellationToken token)
+    private async Task DriveAgentAsync(BoardCard card, WorkspaceLease lease, RunState state, ActiveRun run, CancellationToken token)
     {
         var options = new AgentOptions
         {
@@ -166,54 +211,103 @@ public sealed class BoardRunner
         };
         if (_configureOptions != null) options = _configureOptions(card, options);
 
-        await foreach (var evt in StreamAgent(card, options, token).WithCancellation(token).ConfigureAwait(false))
+        var steering = new BoardSteering(await CanSteerAsync(card.Agent, token).ConfigureAwait(false));
+        run.Steering = steering;
+        _board.Report(card.Id, c => c with { CanSteer = steering.Enabled });
+
+        try
         {
-            switch (evt)
+            // The card's work is one turn, or several when the person pauses, messages or redirects the agent.
+            string? prompt = card.Prompt;
+            while (prompt != null)
             {
-                case BoardProgressEvent progress:
-                    // Agents that do not stream tool calls (flows, external agents) report what they are doing and their totals.
-                    if (progress.IsToolCall) state.ToolCalls++;
-                    if (progress.CostUsd is { } cost) state.Cost = cost;
-                    if (progress.Tokens is { } tokens) state.Tokens = tokens;
-                    var progressCalls = state.ToolCalls;
-                    var runCost = state.Cost;
-                    var runTokens = state.Tokens;
-                    _board.Report(card.Id, c => c with
-                    {
-                        LastAction = string.IsNullOrWhiteSpace(progress.Action) ? c.LastAction : progress.Action,
-                        ToolCalls = progressCalls,
-                        CostUsd = card.CostUsd + runCost,
-                        Tokens = card.Tokens + runTokens
-                    });
-                    break;
-
-                case ToolCallStartEvent start:
-                    state.ToolCalls++;
-                    var action = Describe(start.Call);
-                    var calls = state.ToolCalls;
-                    _board.Report(card.Id, c => c with { LastAction = action, ToolCalls = calls });
-                    break;
-
-                case TokenUsageEvent usage:
-                    state.Cost = usage.SessionCostUsd;
-                    state.Tokens = usage.Usage.TotalTokens + usage.Usage.CacheReadTokens + usage.Usage.CacheCreationTokens;
-                    _board.Report(card.Id, c => c with { CostUsd = card.CostUsd + state.Cost, Tokens = card.Tokens + state.Tokens });
-                    break;
-
-                case ApprovalRequestEvent approval:
-                    approval.Approval.TrySetResult(false);
-                    break;
-
-                case AgentFinishedEvent finished:
-                    state.FinalText = finished.Response.Content;
-                    if (finished.Response.WasCancelled) state.Cancelled = true;
-                    break;
-
-                case AgentErrorEvent error:
-                    state.Error = error.Error.Message;
-                    break;
+                await RunTurnAsync(card, prompt, options, state, steering, token).ConfigureAwait(false);
+                if (state.Error != null || state.Cancelled || token.IsCancellationRequested) break;
+                if (steering.IsPaused) _board.Report(card.Id, c => c with { IsPaused = true, LastAction = "Paused. Waiting for you." });
+                prompt = await steering.NextAsync(token).ConfigureAwait(false);
             }
         }
+        finally
+        {
+            steering.Close();
+        }
+    }
+
+    /// <summary>One turn of the agent: its events until it stops, or until the person interrupts it.</summary>
+    private async Task RunTurnAsync(BoardCard card, string prompt, AgentOptions options, RunState state, BoardSteering steering, CancellationToken token)
+    {
+        using var turn = CancellationTokenSource.CreateLinkedTokenSource(token);
+        steering.BeginTurn(prompt, turn);
+
+        string? finalText = null, error = null;
+        var cancelled = false;
+        try
+        {
+            await foreach (var evt in StreamAgent(card, prompt, options, turn.Token).WithCancellation(turn.Token).ConfigureAwait(false))
+            {
+                switch (evt)
+                {
+                    case BoardProgressEvent progress:
+                        // Agents that do not stream tool calls (flows, external agents) report what they are doing and their totals.
+                        if (progress.IsToolCall) state.ToolCalls++;
+                        if (progress.CostUsd is { } cost) state.Cost = cost;
+                        if (progress.Tokens is { } tokens) state.TurnTokens = tokens;
+                        var progressCalls = state.ToolCalls;
+                        var runCost = state.Cost;
+                        var runTokens = state.Tokens;
+                        _board.Report(card.Id, c => c with
+                        {
+                            LastAction = string.IsNullOrWhiteSpace(progress.Action) ? c.LastAction : progress.Action,
+                            ToolCalls = progressCalls,
+                            CostUsd = card.CostUsd + runCost,
+                            Tokens = card.Tokens + runTokens
+                        });
+                        break;
+
+                    case ToolCallStartEvent start:
+                        state.ToolCalls++;
+                        var action = Describe(start.Call);
+                        var calls = state.ToolCalls;
+                        _board.Report(card.Id, c => c with { LastAction = action, ToolCalls = calls });
+                        break;
+
+                    case TokenUsageEvent usage:
+                        state.Cost = usage.SessionCostUsd;
+                        state.TurnTokens = usage.Usage.TotalTokens + usage.Usage.CacheReadTokens + usage.Usage.CacheCreationTokens;
+                        var spent = state.Cost;
+                        var used = state.Tokens;
+                        _board.Report(card.Id, c => c with { CostUsd = card.CostUsd + spent, Tokens = card.Tokens + used });
+                        break;
+
+                    case ApprovalRequestEvent approval:
+                        approval.Approval.TrySetResult(false);
+                        break;
+
+                    case AgentFinishedEvent finished:
+                        finalText = finished.Response.Content;
+                        if (finished.Response.WasCancelled) cancelled = true;
+                        break;
+
+                    case AgentErrorEvent failure:
+                        error = failure.Error.Message;
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (turn.IsCancellationRequested)
+        {
+            cancelled = true;
+        }
+
+        state.TokensDone += state.TurnTokens;
+        state.TurnTokens = 0;
+
+        // A turn that a message or a pause broke off is not the card's result; the next turn carries on.
+        if (steering.EndTurn() && !token.IsCancellationRequested) return;
+
+        if (finalText != null) state.FinalText = finalText;
+        if (cancelled) state.Cancelled = true;
+        if (error != null) state.Error = error;
     }
 
     private async Task SettleAsync(BoardCard card, WorkspaceLease? lease, RunState state)
@@ -276,7 +370,11 @@ public sealed class BoardRunner
         public bool Cancelled;
         public int ToolCalls;
         public decimal Cost;
-        public long Tokens;
+        /// <summary>Tokens of the turns that ended.</summary>
+        public long TokensDone;
+        /// <summary>Tokens of the turn that runs now.</summary>
+        public long TurnTokens;
+        public long Tokens => TokensDone + TurnTokens;
     }
 
     private sealed class ActiveRun : IDisposable
@@ -284,6 +382,8 @@ public sealed class BoardRunner
         private readonly CancellationTokenSource _cts = new();
         private int _disposed;
         public Task Task { get; set; } = null!;
+        /// <summary>Set once the agent is ready to take commands; null before that.</summary>
+        public BoardSteering? Steering { get; set; }
         public CancellationToken Token => _cts.Token;
 
         public void Cancel()

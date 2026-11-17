@@ -38,6 +38,25 @@
                                TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeTextMutedBrush}"
                                ToolTip.Tip="{Binding LastActionText}"/>
 
+                    <TextBlock Text="{Binding SteerHint}" IsVisible="{Binding HasSteerHint}" FontSize="10" TextWrapping="Wrap"
+                               Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+
+                    <!-- Talk to the running agent: a message carries on, a redirect changes direction. -->
+                    <StackPanel IsVisible="{Binding CanSteer}" Spacing="4">
+                        <TextBox Text="{Binding MessageText}" FontSize="11" AcceptsReturn="False"
+                                 Watermark="Message the agent, e.g. 'use the existing Result type'">
+                            <TextBox.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{Binding SendMessageCommand}"/>
+                            </TextBox.KeyBindings>
+                        </TextBox>
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="Send" Command="{Binding SendMessageCommand}" FontSize="10" Padding="8,3" Margin="0,0,6,0"
+                                    ToolTip.Tip="The agent breaks off its current step, reads your message and carries on with the same work"/>
+                            <Button Content="Redirect" Command="{Binding RedirectCommand}" FontSize="10" Padding="8,3"
+                                    ToolTip.Tip="Tell the agent to drop its current approach and do this instead. Files it changed are kept."/>
+                        </WrapPanel>
+                    </StackPanel>
+
                     <!-- The agent's answer, or why the run failed. -->
                     <TextBlock Text="{Binding SummaryText}" IsVisible="{Binding HasSummary}" FontSize="11"
                                TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis"
@@ -52,7 +71,14 @@
 
                     <WrapPanel Orientation="Horizontal">
                         <Button Content="▶ Start" Command="{Binding StartCommand}" IsVisible="{Binding CanStart}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="❚❚ Pause" Command="{Binding PauseCommand}" IsVisible="{Binding CanPause}" FontSize="10" Padding="8,3" Margin="0,0,6,0"
+                                ToolTip.Tip="Stop after the current step and wait. Nothing is lost."/>
+                        <Button Content="▶ Resume" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
                         <Button Content="■ Stop" Command="{Binding StopCommand}" IsVisible="{Binding CanStop}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
+                        <Button Content="Terminal" Command="{Binding OpenTerminalCommand}" IsVisible="{Binding CanOpenTerminal}" FontSize="10" Padding="8,3" Margin="0,0,6,0"
+                                ToolTip.Tip="Open a shell in this card's worktree"/>
+                        <Button Content="Changes" Command="{Binding ShowChangesCommand}" IsVisible="{Binding CanShowChanges}" FontSize="10" Padding="8,3" Margin="0,0,6,0"
+                                ToolTip.Tip="The files this card changed, and a diff of each"/>
                         <Button Content="✓ Mark done" Command="{Binding MarkDoneCommand}" IsVisible="{Binding CanMarkDone}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
                         <Button Content="↻ Retry" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
                         <Button Content="Back to backlog" Command="{Binding ReturnCommand}" IsVisible="{Binding CanReturn}" FontSize="10" Padding="8,3" Margin="0,0,6,0"/>
@@ -127,5 +153,33 @@
                 <ScrollViewer Grid.Row="1"><ItemsControl ItemsSource="{Binding Done}" ItemTemplate="{StaticResource CardTemplate}"/></ScrollViewer>
             </Grid>
         </Grid>
+
+        <!-- What the chosen card changed; a click on a file opens its diff. -->
+        <Border Grid.Row="3" IsVisible="{Binding IsChangesOpen}" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                Width="380" Margin="8" Padding="10" CornerRadius="6" Background="{DynamicResource AppHeaderBrush}">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="{Binding ChangesTitle}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="✕" Command="{Binding CloseChangesCommand}" Width="22" Height="22" Padding="0" FontSize="10"/>
+                </Grid>
+                <TextBlock Grid.Row="1" Text="{Binding ChangesMessage}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"
+                           Foreground="{DynamicResource ThemeTextMutedBrush}"/>
+                <ScrollViewer Grid.Row="2" Margin="0,6,0,0">
+                    <ItemsControl ItemsSource="{Binding ChangedFiles}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ChangedFileViewModel">
+                                <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                        Padding="6,3" Margin="0,0,0,2" Background="Transparent">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Badge}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ThemeAccentBrush}"/>
+                                        <TextBlock Text="{Binding Path}" FontSize="11" FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using AiCodeAgent.Core.Board;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -30,6 +31,8 @@ public sealed partial class BoardCardViewModel : ObservableObject
     {
         Card = card;
         OnPropertyChanged(string.Empty);
+        SendMessageCommand.NotifyCanExecuteChanged();
+        RedirectCommand.NotifyCanExecuteChanged();
     }
 
     // ------------------------------------------------------------------ the agent (E11-S2)
@@ -67,7 +70,7 @@ public sealed partial class BoardCardViewModel : ObservableObject
     public string StatusText => Card.Column switch
     {
         BoardColumn.Backlog => Card.Runs > 0 ? "In the backlog again" : "Backlog",
-        BoardColumn.Running => "● Running",
+        BoardColumn.Running => Card.IsPaused ? "❚❚ Paused" : "● Running",
         BoardColumn.Done => "✓ Done",
         _ => Card.Outcome switch
         {
@@ -82,7 +85,7 @@ public sealed partial class BoardCardViewModel : ObservableObject
 
     public string StatusColor => Card.Column switch
     {
-        BoardColumn.Running => "#4A9EFF",
+        BoardColumn.Running => Card.IsPaused ? "#E0A030" : "#4A9EFF",
         BoardColumn.Done => "#4CAF50",
         BoardColumn.NeedsReview => Card.Outcome switch
         {
@@ -134,6 +137,36 @@ public sealed partial class BoardCardViewModel : ObservableObject
     public bool CanRetry => Card.Column == BoardColumn.NeedsReview && Card.Outcome is CardOutcome.Failed or CardOutcome.Stopped or CardOutcome.Interrupted && _owner.CanRun;
     public bool CanReturn => Card.Column is BoardColumn.NeedsReview or BoardColumn.Done;
     public bool CanRemove => Card.Column != BoardColumn.Running;
+
+    // ------------------------------------------------------------------ control (E11-S3)
+
+    /// <summary>What you type to the agent of a running card.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SendMessageCommand), nameof(RedirectCommand))]
+    private string _messageText = string.Empty;
+
+    /// <summary>The agent can be paused, messaged and redirected; flows and external agents can only be stopped.</summary>
+    public bool CanSteer => Card.Column == BoardColumn.Running && Card.CanSteer;
+    public bool CanPause => CanSteer && !Card.IsPaused;
+    public bool CanResume => CanSteer && Card.IsPaused;
+    public string SteerHint => Card.Column == BoardColumn.Running && !Card.CanSteer && Card.Agent.Kind is AgentTargetKind.Flow or AgentTargetKind.External
+        ? "This agent can only be stopped while it runs."
+        : string.Empty;
+    public bool HasSteerHint => SteerHint.Length > 0;
+
+    /// <summary>The terminal opens in the card's worktree, so it needs one.</summary>
+    public bool CanOpenTerminal => !string.IsNullOrWhiteSpace(Card.WorktreePath) && Card.Column != BoardColumn.Backlog;
+    /// <summary>There is a branch to compare with the project.</summary>
+    public bool CanShowChanges => !string.IsNullOrWhiteSpace(Card.Branch) && Card.Column != BoardColumn.Backlog;
+
+    private bool CanSendMessage() => CanSteer && !string.IsNullOrWhiteSpace(MessageText);
+
+    [RelayCommand] private void Pause() => _owner.Pause(this);
+    [RelayCommand] private void Resume() => _owner.Resume(this);
+    [RelayCommand(CanExecute = nameof(CanSendMessage))] private void SendMessage() => _owner.Send(this, SteerKind.Message);
+    [RelayCommand(CanExecute = nameof(CanSendMessage))] private void Redirect() => _owner.Send(this, SteerKind.Redirect);
+    [RelayCommand] private void OpenTerminal() => _owner.OpenTerminal(this);
+    [RelayCommand] private Task ShowChanges() => _owner.ShowChanges(this);
 
     [RelayCommand] private void Start() => _owner.Start(this);
     [RelayCommand] private void Stop() => _owner.Stop(this);

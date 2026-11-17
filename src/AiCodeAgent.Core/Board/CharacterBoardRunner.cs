@@ -67,6 +67,13 @@ public sealed class CharacterBoardRunner : IBoardTargetRunner
             await foreach (var evt in stream.WithCancellation(token).ConfigureAwait(false)) emit(evt);
         }, cancellationToken);
 
+    /// <summary>A character that runs on the built-in agent keeps its session between turns; an external one starts over each time.</summary>
+    public async Task<bool> CanSteerAsync(AgentTarget target, CancellationToken cancellationToken)
+    {
+        var character = await _characters.GetAsync(target.Id ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        return character != null && Problem(character, target) == null && !character.IsExternal;
+    }
+
     private string? Problem(CharacterInfo? character, AgentTarget target)
     {
         if (character == null) return $"Character '{target.Id}' was not found.";
