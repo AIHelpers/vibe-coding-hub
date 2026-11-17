@@ -63,6 +63,34 @@ worktree is made.
   shared folder.
 - Cost and tokens add up over all runs of a card. A retry starts a new run on a **new** branch; the earlier branch stays.
 
+## Control a running card
+
+A running card has a text box and three buttons. Everything you do keeps the agent's work: the card continues the same
+conversation in the same worktree, so the agent remembers what it did and learned.
+
+| Action | What happens |
+|---|---|
+| **Pause** | The agent stops after the step it is on and waits. The card stays in *Running* with a *Paused* badge. |
+| **Resume** | The agent continues where it left off. |
+| **Send** | Your message breaks off the current step. The agent reads it and carries on with the task. A message sent to a paused card also resumes it. |
+| **Redirect** | Like Send, but tells the agent to drop its current approach and do what you wrote instead. Files it already changed are kept unless they conflict. |
+| **Stop** | Ends the run. Works while paused too. The work so far is committed on the branch. |
+
+The step that is running when you pause, send or redirect is cancelled, as when you press Stop in chat; tool calls that had not
+started are answered with "Cancelled before execution" and the agent sees that.
+
+**What can be steered.** The default agent and characters that run on the built-in agent. Flows and external agents (Claude
+Code, Codex, Gemini CLI) start from scratch on every call, so there is no conversation to continue; their cards show
+*This agent can only be stopped while it runs* and offer **Stop** only.
+
+**Terminal.** **Terminal** on a card opens a shell in the card's worktree and closes the board so you can see it; the cards keep
+running. If the worktree folder was removed, the card says so and names its branch.
+
+**Changes.** **Changes** lists the files the card changed (added, modified, deleted, renamed) against the commit its branch left
+the project at, so commits that reached the project meanwhile do not show up as the card's work. While the worktree exists the list
+includes work the agent has not committed yet, so you can look over a running card's shoulder. Click a file for a side-by-side
+diff, which opens over the board.
+
 ## Projects and storage
 
 Each project has its own board. Switching project does not stop cards that are running in another one; the badge on **Board**
@@ -80,6 +108,7 @@ work that was not committed is still in its worktree folder.
 - A flow's own parallel steps make worktrees of their own inside the card's worktree; the flow merges them as it does anywhere
   else. Very large flows on many cards at once can be slow.
 - Approvals cannot be answered from a card yet (see above).
-- Merging and conflict help, the card's diff and terminal, issue intake and the cost forecast come in the next stories.
+- Merging and conflict help, issue intake and the cost forecast come in the next stories.
+- A message interrupts the step the agent is on, so a long command it was running is cancelled and must be started again.
 - Branches and worktrees of removed cards are not deleted. Remove them with `git worktree remove` and `git branch -D`.
 - All cards of a project are started at once; there is no limit on parallel cards yet, so mind your provider's rate limits.

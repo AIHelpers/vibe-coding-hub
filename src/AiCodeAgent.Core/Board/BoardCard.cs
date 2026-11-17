@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace AiCodeAgent.Core.Board;
 
@@ -67,6 +68,13 @@ public sealed record BoardCard
     public long Tokens { get; init; }
     /// <summary>Tool calls of the latest run.</summary>
     public int ToolCalls { get; init; }
+
+    /// <summary>The agent is paused and waits for you (E11-S3). Only while the card runs; never saved.</summary>
+    [JsonIgnore]
+    public bool IsPaused { get; init; }
+    /// <summary>The running agent can be paused, messaged and redirected (E11-S3). Flows and external agents can only be stopped. Never saved.</summary>
+    [JsonIgnore]
+    public bool CanSteer { get; init; }
 
     public bool IsRunning => Column == BoardColumn.Running;
 

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using AiCodeAgent.App.Services;
 using AiCodeAgent.Core.Agent;
 using AiCodeAgent.Core.Board;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -22,6 +23,7 @@ public sealed partial class MissionControlViewModel : ObservableObject
     private readonly IBoardAgentRunner? _agent;
     private readonly IBoardTargetRunner? _targets;
     private readonly BoardAgentCatalog? _catalog;
+    private readonly BoardChangeReader _changes;
     private readonly Func<string, BoardStore> _storeFor;
     private readonly Action<Action> _marshal;
     private readonly Dictionary<string, ProjectBoard> _projects = new(StringComparer.OrdinalIgnoreCase);
@@ -36,11 +38,13 @@ public sealed partial class MissionControlViewModel : ObservableObject
     /// <param name="marshal">Runs a UI update on the UI thread; board changes arrive from agent threads.</param>
     /// <param name="targets">Runs cards that are given a character, a flow or an external agent (E11-S2).</param>
     /// <param name="catalog">Lists the agents a card can be given; without it only the default agent is offered.</param>
+    /// <param name="changes">Lists and reads the files a card changed (E11-S3).</param>
     public MissionControlViewModel(
         IWorkspaceIsolation? isolation = null, IBoardAgentRunner? agent = null,
         Func<string, BoardStore>? storeFor = null, Action<Action>? marshal = null,
-        IBoardTargetRunner? targets = null, BoardAgentCatalog? catalog = null)
+        IBoardTargetRunner? targets = null, BoardAgentCatalog? catalog = null, BoardChangeReader? changes = null)
     {
+        _changes = changes ?? new BoardChangeReader();
         _isolation = isolation;
         _agent = agent;
         _targets = targets;
@@ -221,6 +225,110 @@ public sealed partial class MissionControlViewModel : ObservableObject
     }
 
     internal void Stop(BoardCardViewModel card) => _current?.Runner?.Stop(card.Id);
+
+    // ------------------------------------------------------------------ control: pause, message, redirect (E11-S3)
+
+    internal void Pause(BoardCardViewModel card) => Steer(card, r => r.Pause(card.Id));
+
+    internal void Resume(BoardCardViewModel card) => Steer(card, r => r.Resume(card.Id));
+
+    internal void Send(BoardCardViewModel card, SteerKind kind)
+    {
+        var text = card.MessageText;
+        if (Steer(card, r => r.Send(card.Id, text, kind))) card.MessageText = string.Empty;
+    }
+
+    private bool Steer(BoardCardViewModel card, Func<BoardRunner, bool> command)
+    {
+        if (_current?.Runner is { } runner && command(runner)) return true;
+        Notice = card.Card.Agent.Kind is AgentTargetKind.Flow or AgentTargetKind.External
+            ? "This agent can only be stopped while it runs: flows and external agents cannot take messages."
+            : "The card is not running any more, so it cannot be paused or messaged.";
+        return false;
+    }
+
+    // ------------------------------------------------------------------ the card's terminal and changes (E11-S3)
+
+    /// <summary>Asks the window to open a terminal in a folder: the card's worktree.</summary>
+    public event Action<string, string>? OpenTerminalRequested;
+
+    /// <summary>Asks the window to show a file's before and after: path, baseline, current, baseline label, current label.</summary>
+    public event Action<string, string, string, string, string>? ShowDiffRequested;
+
+    /// <summary>The files of the card whose changes are open.</summary>
+    public ObservableCollection<ChangedFileViewModel> ChangedFiles { get; } = new();
+
+    [ObservableProperty]
+    private bool _isChangesOpen;
+
+    [ObservableProperty]
+    private string _changesTitle = string.Empty;
+
+    /// <summary>Why the list is empty: no changes, or what went wrong.</summary>
+    [ObservableProperty]
+    private string _changesMessage = string.Empty;
+
+    private BoardCard? _changesCard;
+    private CardChangeSet? _changeSet;
+
+    internal void OpenTerminal(BoardCardViewModel card)
+    {
+        var path = card.Card.WorktreePath;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            Notice = "This card's worktree folder no longer exists. Its work is on branch " + (card.Card.Branch ?? "(none)") + ".";
+            return;
+        }
+        OpenTerminalRequested?.Invoke(path, "Card: " + card.Title);
+    }
+
+    internal async Task ShowChanges(BoardCardViewModel card)
+    {
+        if (_current == null) return;
+        var projectDirectory = _current.Key;
+        var snapshot = card.Card;
+        ChangesTitle = "Changes: " + card.Title;
+        ChangesMessage = "Reading the changes…";
+        ChangedFiles.Clear();
+        IsChangesOpen = true;
+        _changesCard = snapshot;
+        CardChangeSet set;
+        try { set = await _changes.ListAsync(projectDirectory, snapshot).ConfigureAwait(false); }
+        catch (Exception ex) { set = CardChangeSet.Failed(ex.Message); }
+        _marshal(() =>
+        {
+            if (!IsChangesOpen || !ReferenceEquals(_changesCard, snapshot)) return; // closed or another card opened meanwhile
+            _changeSet = set;
+            ChangedFiles.Clear();
+            foreach (var file in set.Files) ChangedFiles.Add(new ChangedFileViewModel(file, this));
+            ChangesMessage = set.Problem ?? (set.Files.Count == 0 ? "The card changed no files." : string.Empty);
+        });
+    }
+
+    internal async Task OpenDiff(ChangedFileViewModel file)
+    {
+        if (_current == null || _changesCard == null || _changeSet == null) return;
+        var projectDirectory = _current.Key;
+        var card = _changesCard;
+        var set = _changeSet;
+        CardFileDiff diff;
+        try { diff = await _changes.ReadAsync(projectDirectory, card, set, file.Change).ConfigureAwait(false); }
+        catch (Exception ex)
+        {
+            _marshal(() => Notice = "Could not read " + file.Change.Path + ": " + ex.Message);
+            return;
+        }
+        _marshal(() => ShowDiffRequested?.Invoke(file.Change.Path, diff.Baseline, diff.Current, diff.BaselineLabel, diff.CurrentLabel));
+    }
+
+    [RelayCommand]
+    private void CloseChanges()
+    {
+        IsChangesOpen = false;
+        _changesCard = null;
+        _changeSet = null;
+        ChangedFiles.Clear();
+    }
 
     internal void MarkDone(BoardCardViewModel card) => _current?.Board.MarkDone(card.Id);
 

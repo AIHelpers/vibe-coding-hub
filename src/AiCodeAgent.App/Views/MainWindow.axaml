@@ -286,7 +286,7 @@
                 Padding="0"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
-                ZIndex="55">
+                ZIndex="56">
             <views:DiffViewerView DataContext="{Binding DiffViewer}"/>
         </Border>
 

@@ -197,6 +197,34 @@ public class TerminalViewModelTests
     }
 
     [Fact]
+    public void OpenShellAt_StartsAShellInThatFolder_AndShowsThePanel()
+    {
+        var (terminal, ptys) = Create();
+        var dir = Directory.CreateTempSubdirectory("term-card").FullName;
+        try
+        {
+            Assert.True(terminal.OpenShellAt(dir, "Card: add a cache"));
+
+            Assert.True(terminal.IsVisible);
+            Assert.Single(ptys);
+            Assert.Equal(dir, ptys[0].Options.WorkingDirectory);
+            Assert.StartsWith("Card: add a cache", terminal.SelectedShell!.Title);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void OpenShellAt_DoesNothing_WhenTheFolderIsGone()
+    {
+        var (terminal, ptys) = Create();
+
+        Assert.False(terminal.OpenShellAt(Path.Combine(Path.GetTempPath(), "no-such-" + Guid.NewGuid().ToString("N"))));
+
+        Assert.Empty(ptys);
+        Assert.False(terminal.IsVisible);
+    }
+
+    [Fact]
     public void ResizingTheShell_ReachesTheEmulatorAndThePty()
     {
         var (terminal, ptys) = Create();

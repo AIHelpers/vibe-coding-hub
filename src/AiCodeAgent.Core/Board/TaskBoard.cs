@@ -100,7 +100,9 @@ public sealed class TaskBoard
         WorktreePath = null,
         LastAction = null,
         Summary = null,
-        ToolCalls = 0
+        ToolCalls = 0,
+        IsPaused = false,
+        CanSteer = false
     });
 
     /// <summary>Running → Needs review, with how the run ended. <paramref name="change"/> sets the final fields (branch, summary, cost).</summary>
@@ -109,6 +111,8 @@ public sealed class TaskBoard
         {
             Column = BoardColumn.NeedsReview,
             Outcome = outcome,
+            IsPaused = false,
+            CanSteer = false,
             FinishedAt = _clock.GetUtcNow()
         });
 
@@ -147,6 +151,8 @@ public sealed class TaskBoard
                 {
                     Column = BoardColumn.NeedsReview,
                     Outcome = CardOutcome.Interrupted,
+                    IsPaused = false,
+                    CanSteer = false,
                     FinishedAt = _clock.GetUtcNow(),
                     Summary = "The app was closed while this card ran. Work that was not committed is still in the worktree folder."
                 };
